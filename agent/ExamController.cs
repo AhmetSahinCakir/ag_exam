@@ -90,7 +90,8 @@ public sealed class ExamController : IDisposable
     public bool ExamFileReady => _examFilePath.Length > 0;
 
     public event Action? Changed;
-    public event Action<string>? Notice;
+    /// <summary>A short notice for the student: (headline, text).</summary>
+    public event Action<string, string>? Notice;
     public event Action<FinishInfo>? Finished;
 
     public ExamController(ApiClient api, AgentConfig config, LoginRequest login, LoginResponse session)
@@ -215,7 +216,7 @@ public sealed class ExamController : IDisposable
             if (!_sessionProblemNotified)
             {
                 _sessionProblemNotified = true;
-                Notice?.Invoke($"Oturum yenilenemedi: {ex.Message}");
+                Notice?.Invoke("Oturum yenilenemedi", ex.Message);
             }
         }
     }
@@ -426,7 +427,7 @@ public sealed class ExamController : IDisposable
         // The same program reopening repeatedly should not flood the student with popups.
         if (_noticeTimes.TryGetValue(program, out var last) && DateTime.UtcNow - last < TimeSpan.FromSeconds(10)) return;
         _noticeTimes[program] = DateTime.UtcNow;
-        Notice?.Invoke($"{program} sınav sırasında kullanılamaz.");
+        Notice?.Invoke("Program kapatıldı", $"{program} sınav sırasında kullanılamaz.");
     }
 
     private void OnStreamRestarted(string reason)
@@ -447,8 +448,8 @@ public sealed class ExamController : IDisposable
     {
         if (Phase == Phase.Finished) return;
         _events.Enqueue("ffmpeg_missing", new Dictionary<string, object?> { ["reason"] = reason });
-        Notice?.Invoke("Ekran aktarımı başlatılamadı. ffmpeg.exe dosyası SinavAjan.exe ile aynı klasörde " +
-                       "olmalı. Öğretmeninize haber verin.");
+        Notice?.Invoke("Ekran aktarımı başlatılamadı",
+            "ffmpeg.exe dosyası SinavAjan.exe ile aynı klasörde olmalı. Öğretmeninize haber verin.");
     }
 
     // ------------------------------------------------------------------- submit
@@ -535,8 +536,8 @@ public sealed class ExamController : IDisposable
             _otherDesktopSinceUtc = DateTime.UtcNow;
             LocalLog.Write("başka bir sanal masaüstüne geçildi");
             _events.Enqueue("desktop_switch");
-            Notice?.Invoke("Başka bir masaüstüne geçtiniz; bu durum öğretmeninize bildirildi. " +
-                           "Sınav masaüstüne geri dönün.");
+            Notice?.Invoke("Başka bir masaüstündesiniz",
+                "Bu durum öğretmeninize bildirildi. Sınav masaüstüne geri dönün.");
             return;
         }
         _otherDesktopReadings = 0;

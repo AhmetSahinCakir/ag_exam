@@ -420,7 +420,7 @@ public sealed class MainForm : Form
         LocalLog.Write($"giriş yapıldı: {session.Student.Numara} @ {_server!.Key}");
         _controller = new ExamController(_api!, _config, request, session);
         _controller.Changed += RefreshUi;
-        _controller.Notice += text => ToastForm.ShowNotice(text);
+        _controller.Notice += (title, text) => ToastForm.ShowNotice(title, text);
         _controller.Finished += OnFinished;
         _shownPhase = null;
         _controller.Start();
@@ -527,9 +527,7 @@ public sealed class MainForm : Form
             _downloadButtonText = "Sınav dosyasını yeniden indir";
             _downloadButton = AddSecondary(_downloadButtonText, 12, 34);
 
-            var path = controller.ExamFilePath;
-            var folder = Path.GetFileName(Path.GetDirectoryName(path) ?? "");
-            AddNote($"İndirilen dosya: {Path.GetFileName(path)}" + (folder.Length > 0 ? $" ({folder})" : ""), 4);
+            AddNote($"İndirilen dosya: {Path.GetFileName(controller.ExamFilePath)}", 4);
             AddNote("Bitirince Packet Tracer'da Ctrl+S ile kaydedin, “Teslim et”e basıp dosyanızı seçin.", 10);
         }
         _downloadButton.Click += async (_, _) => await DownloadClickedAsync();
@@ -643,11 +641,11 @@ public sealed class MainForm : Form
         if (IsDisposed || controller.Phase == Phase.Finished) return;
         if (error != null)
         {
-            MessageBox.Show(this, $"Sınav dosyası indirilemedi: {error}", AppTitle, MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+            MessageDialog.Show(this, DialogTone.Error, "Sınav dosyası indirilemedi", error);
             return;
         }
-        ToastForm.ShowNotice("Sınav dosyası indirildi. Packet Tracer'da File → Open ile açabilirsiniz.");
+        ToastForm.ShowNotice("Sınav dosyası indirildi", "Packet Tracer'da File → Open ile açabilirsiniz.",
+            ToastTone.Info);
     }
 
     /// <summary>
@@ -697,27 +695,30 @@ public sealed class MainForm : Form
             };
         if (refusal.Length > 0)
         {
-            MessageBox.Show(this, refusal, AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageDialog.Show(this, DialogTone.Warning, "Bu dosya teslim edilemez", refusal);
             return;
         }
 
+        // The student sees the file's name and when it was last saved - not where it is stored.
         var saved = candidate.LastWriteLocal;
-        var (question, icon) = candidate.Problem switch
+        var confirmed = candidate.Problem switch
         {
-            SubmitProblem.SameAsExamFile => (
-                $"“{name}” indirdiğiniz sınav dosyasının aynısı: içine hiçbir değişiklik kaydedilmemiş.\n\n" +
-                "Packet Tracer'da Ctrl+S ile kaydettiğinizden ve doğru dosyayı seçtiğinizden emin olun.\n\n" +
-                "Yine de bu dosya teslim edilsin mi?", MessageBoxIcon.Warning),
-            SubmitProblem.SavedBeforeDownload => (
-                $"“{name}” sınav dosyasını indirmenizden önce kaydedilmiş (son kayıt: {saved:dd.MM.yyyy HH:mm}). " +
-                "Yanlış dosyayı seçmiş olabilirsiniz.\n\nYine de bu dosya teslim edilsin mi?", MessageBoxIcon.Warning),
-            _ => (
-                $"“{name}” teslim edilsin mi?\n\nSon kayıt: {saved:HH:mm}\nKlasör: {Path.GetDirectoryName(path)}\n\n" +
-                "Teslimden sonra değişiklik yapamazsınız.", MessageBoxIcon.Question),
+            SubmitProblem.SameAsExamFile => MessageDialog.Confirm(this, DialogTone.Warning,
+                "Dosyada değişiklik yok",
+                $"“{name}” indirdiğiniz sınav dosyasının aynısı; içine hiçbir değişiklik kaydedilmemiş.\n\n" +
+                "Packet Tracer'da Ctrl+S ile kaydettiğinizden ve doğru dosyayı seçtiğinizden emin olun.",
+                "Yine de teslim et", recommendCancel: true),
+            SubmitProblem.SavedBeforeDownload => MessageDialog.Confirm(this, DialogTone.Warning,
+                "Yanlış dosya olabilir",
+                $"“{name}” sınav dosyasını indirmenizden önce kaydedilmiş (son kayıt: {saved:dd.MM.yyyy HH:mm}).\n\n" +
+                "Doğru dosyayı seçtiğinizden emin olun.",
+                "Yine de teslim et", recommendCancel: true),
+            _ => MessageDialog.Confirm(this, DialogTone.Question,
+                "Teslim edilsin mi?",
+                $"Dosya: {name}\nSon kayıt: {saved:HH:mm}\n\nTeslimden sonra değişiklik yapamazsınız.",
+                "Evet, teslim et"),
         };
-        var answer = MessageBox.Show(this, question, AppTitle, MessageBoxButtons.YesNo, icon,
-            MessageBoxDefaultButton.Button2);
-        if (answer != DialogResult.Yes || IsDisposed || controller.Phase != Phase.Running) return;
+        if (!confirmed || IsDisposed || controller.Phase != Phase.Running) return;
 
         if (_submitButton != null)
         {
@@ -727,8 +728,8 @@ public sealed class MainForm : Form
         var error = await controller.SubmitAsync(candidate);
         if (error != null && !IsDisposed && controller.Phase != Phase.Finished)
         {
-            MessageBox.Show(this, $"Teslim yüklenemedi: {error}\n\nBağlantınızı kontrol edip tekrar deneyin.",
-                AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageDialog.Show(this, DialogTone.Error, "Teslim yüklenemedi",
+                $"{error}\n\nBağlantınızı kontrol edip yeniden deneyin.");
         }
     }
 
@@ -765,13 +766,15 @@ public sealed class MainForm : Form
         if (e.CloseReason is CloseReason.WindowsShutDown or CloseReason.TaskManagerClosing) return;
 
         var text = controller.Phase == Phase.Waiting
-            ? "Programı kapatırsanız sınava katılamazsınız ve bu durum öğretmeninize bildirilir.\n\nKapatılsın mı?"
-            : "Sınav devam ediyor.\n\nProgramı kapatırsanız bu durum öğretmeninize bildirilir ve dosyanız TESLİM " +
-              "EDİLMEZ. Teslim etmek için “Hayır” deyip “Teslim et” düğmesini kullanın.\n\nYine de kapatılsın mı?";
+            ? "Programı kapatırsanız sınava katılamazsınız ve bu durum öğretmeninize bildirilir."
+            : "Sınav devam ediyor. Programı kapatırsanız bu durum öğretmeninize bildirilir ve dosyanız " +
+              "teslim edilmez.\n\nTeslim etmek için “Vazgeç” deyip “Teslim et” düğmesini kullanın.";
         e.Cancel = true; // decided below; closing continues asynchronously
-        var answer = MessageBox.Show(this, text, AppTitle, MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
-            MessageBoxDefaultButton.Button2);
-        if (answer != DialogResult.Yes) return;
+        if (!MessageDialog.Confirm(this, DialogTone.Warning, "Program kapatılsın mı?", text, "Yine de kapat",
+                recommendCancel: true))
+        {
+            return;
+        }
 
         _closeAllowed = true;
         _uiTimer.Stop();

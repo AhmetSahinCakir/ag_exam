@@ -132,9 +132,13 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
    - Bu aşamada izin listesi **uygulanmaz**. Öğrenciler Packet Tracer'ı açıp Cisco
      hesabıyla giriş yapsın (giriş tarayıcı açar; sınav başlayınca tarayıcı kapatılır).
    - “Giriş yapmayanlar” bölümü listede olup henüz girmeyenleri gösterir.
-   - **Ekran boyutu:** ekranların üstündeki **− / kaydırıcı / +** ile öğrenci ekranlarını
-     büyütüp küçültebilirsiniz (Ctrl + fare tekerleği de olur). **Sığdır** bütün ekranları
-     kaydırmadan görünecek boyuta getirir.
+   - **Ekran boyutu:** üst satırda, **Diğer** düğmesinin solundaki **− / kaydırıcı / +** ile
+     öğrenci ekranlarını büyütüp küçültebilirsiniz (ekranların üzerinde Ctrl + fare tekerleği
+     de olur). **Sığdır** bütün ekranları kaydırmadan görünecek boyuta getirir.
+   - **Listeyi daraltma:** sağdaki **Öğrenciler** başlığının yanındaki ok, listeyi sağ kenarda
+     ince bir şeride daraltır; ekranlar boşalan yeri kullanır. Şeritte bağlı / uyarılı / kopuk /
+     teslim etti sayıları ve görülmemiş uyarı sayısı görünmeye devam eder. Şeride tıklayınca
+     liste yeniden açılır.
 4. Herkes hazır olunca **Sınav dosyasını paylaş**'a basın. **Dosyayı paylaşmak sınavı
    başlatır.** Öğrencide:
    - “Sınav başlıyor. İzin verilmeyen programlar 10 saniye içinde kapatılacak.” uyarısı
@@ -183,7 +187,7 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
   size de uyarı düşer.
 - Seçilen dosya **sınav dosyası indirilmeden önce kaydedilmişse** (büyük olasılıkla başka
   bir dosya) öğrenci uyarılır; yine de gönderirse size uyarı düşer.
-- Doğru dosyada öğrenciye dosyanın adı, klasörü ve son kayıt saati gösterilip onay istenir.
+- Doğru dosyada öğrenciye dosyanın adı ve son kayıt saati gösterilip onay istenir.
 
 Öğretmen tarafında:
 
@@ -350,7 +354,7 @@ Sınav **sürerken** ajan saniyede bir:
      öğrenciye “… sınav sırasında kullanılamaz.” bildirimi gösterilir.
 3. Monitör sayısı 1'den fazlaysa ya da değişirse uyarı verir.
 4. Öğrenci Windows'un başka bir **sanal masaüstüne** geçerse (Görev Görünümü, Win+Ctrl+D,
-   Win+Ctrl+→) uyarı verir ve öğrenciye “Başka bir masaüstüne geçtiniz…” bildirimini
+   Win+Ctrl+→) uyarı verir ve öğrenciye “Başka bir masaüstündesiniz” bildirimini
    gösterir. Geri döndüğünde kaç saniye orada kaldığı olay kaydına yazılır.
 
 Bilmeniz gerekenler:
@@ -415,7 +419,7 @@ Bilinçli: panel yalnızca öğretmen bilgisayarından (`localhost`) açılır.
 
 **35 kutu aynı anda oynarken tarayıcı zorlanıyor**
 
-**Diğer** menüsünde **Görünmeyen ekranları duraklat**'ı açın; ekranların üstündeki
+**Diğer** menüsünde **Görünmeyen ekranları duraklat**'ı açın; üst satırdaki
 **Sığdır** açıkken kutular zaten en küçük uygun boyuttadır. Yetmezse `config.yaml` → `yayin`
 altından fps/genişlik/bit hızını düşürün.
 

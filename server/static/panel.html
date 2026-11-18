@@ -23,6 +23,14 @@
     </div>
 
     <div class="top-actions">
+      <div class="size-control">
+        <span class="bar-label">Ekran boyutu</span>
+        <button id="sizeDown" type="button" class="icon" aria-label="Ekranları küçült" title="Küçült">−</button>
+        <input id="tileSize" type="range" min="140" max="900" step="20" value="260" aria-label="Ekran boyutu">
+        <button id="sizeUp" type="button" class="icon" aria-label="Ekranları büyüt" title="Büyüt">+</button>
+        <button id="fit" type="button" class="toggle" aria-pressed="true"
+                title="Bütün ekranlar kaydırmadan görünecek şekilde boyutlandırılır">Sığdır</button>
+      </div>
       <button id="btnEnd" type="button" class="danger" hidden>Sınavı bitir</button>
       <button id="btnOpenFolderTop" type="button" hidden>Sınav klasörünü aç</button>
       <button id="btnResetTop" type="button" class="primary" hidden>Yeni sınav</button>
@@ -79,27 +87,27 @@
   <div id="banners"></div>
 
   <main>
-    <section id="gridArea">
-      <div id="gridBar">
-        <span class="bar-label">Ekran boyutu</span>
-        <button id="sizeDown" type="button" class="icon" aria-label="Ekranları küçült" title="Küçült">−</button>
-        <input id="tileSize" type="range" min="140" max="900" step="20" value="260" aria-label="Ekran boyutu">
-        <button id="sizeUp" type="button" class="icon" aria-label="Ekranları büyüt" title="Büyüt">+</button>
-        <button id="fit" type="button" class="toggle" aria-pressed="true"
-                title="Bütün ekranlar kaydırmadan görünecek şekilde boyutlandırılır">Sığdır</button>
-      </div>
-      <div id="gridWrap">
-        <div id="grid"></div>
-        <div id="empty" class="empty">
-          <div class="empty-title">Henüz giriş yapan öğrenci yok</div>
-          <div class="empty-sub">Öğrenciler programı açıp giriş yaptığında ekranları burada görünür.</div>
-        </div>
+    <section id="gridWrap">
+      <div id="grid"></div>
+      <div id="empty" class="empty">
+        <div class="empty-title">Henüz giriş yapan öğrenci yok</div>
+        <div class="empty-sub">Öğrenciler programı açıp giriş yaptığında ekranları burada görünür.</div>
       </div>
     </section>
 
     <aside id="side">
+      <!-- Liste daraltıldığında görünen ince şerit: sayılar ve "aç" düğmesi -->
+      <button id="sideRail" type="button" title="Öğrenci listesini aç" aria-label="Öğrenci listesini aç">
+        <span class="chev"></span>
+        <span id="railSummary" class="rail-summary"></span>
+        <span id="railAlerts" class="rail-alerts" hidden></span>
+      </button>
+      <div id="sideBody">
       <div class="side-head">
-        <h2>Öğrenciler</h2>
+        <div class="side-title">
+          <h2>Öğrenciler</h2>
+          <button id="sideCollapse" type="button" class="icon" title="Listeyi daralt" aria-label="Listeyi daralt"><span class="chev"></span></button>
+        </div>
         <div id="summary" class="summary"></div>
         <div class="filters" role="tablist">
           <button id="filterAll" type="button" class="filter active" role="tab">Tümü <span id="countAll">0</span></button>
@@ -114,6 +122,7 @@
         <summary>Giriş yapmayanlar <span id="missingCount">0</span></summary>
         <div id="missingList"></div>
       </details>
+      </div>
     </aside>
   </main>
 

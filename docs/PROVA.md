@@ -171,12 +171,11 @@ Ek denemeler (önerilir):
       oluşuyor. Klasör seçilmeden “Sınav dosyasını paylaş” basılamıyor.
 - [ ] **Teslimde dosya seçme.** “Teslim et” dosya seçme penceresini açıyor; pencere
       indirilen dosyanın klasöründe açılıyor. **Packet Tracer'da gerçekten kaydedilmiş**
-      dosya seçilince ad, klasör ve son kayıt saatiyle onay soruluyor; “Evet” → “Teslim
+      dosya seçilince ad ve son kayıt saatiyle onay soruluyor; “Evet, teslim et” → “Teslim
       alındı”, panelde “Teslim etti”, görüntüsü duruyor.
-- [ ] Hiç kaydetmeden indirilen dosyayı seçince “… indirdiğiniz sınav dosyasının aynısı …”
-      uyarısı. (Packet Tracer dosyayı *hiçbir değişiklik yapmadan* Ctrl+S ile kaydedince
+- [ ] Hiç kaydetmeden indirilen dosyayı seçince “Dosyada değişiklik yok” uyarısı. (Packet Tracer dosyayı *hiçbir değişiklik yapmadan* Ctrl+S ile kaydedince
       içeriği değişiyor mu? Değişmiyorsa bu uyarı o durumda da çıkar — öğrencilere söyleyin.)
-- [ ] Eski bir `.pka` dosyası seçince “… indirmenizden önce kaydedilmiş …” uyarısı.
+- [ ] Eski bir `.pka` dosyası seçince “Yanlış dosya olabilir” uyarısı.
 - [ ] **Teslim klasörü.** Teslim edilmiş bir dosyayı `Teslimler` klasöründen başka yere
       taşıyın: birkaç saniyede öğrenci kırmızı “Dosya klasörde yok” oluyor; geri koyunca
       yeniden “Teslim etti”. Henüz teslim etmemiş bir öğrenci için klasöre
@@ -184,8 +183,9 @@ Ek denemeler (önerilir):
       “Teslim alındı” deyip kapanıyor.
 - [ ] **Başka masaüstü.** Öğrencide Win+Ctrl+D ile yeni masaüstü açın: panelde “Başka bir
       masaüstüne geçti” uyarısı, öğrencide bildirim çıkıyor. Win+Ctrl+F4 ile kapatın.
-- [ ] **Ekran boyutu.** Ekranların üstündeki − / + / kaydırıcı ile kutular büyüyüp
-      küçülüyor; **Sığdır** hepsini ekrana sığdırıyor.
+- [ ] **Ekran boyutu ve liste.** Üst satırdaki − / + / kaydırıcı ile kutular büyüyüp
+      küçülüyor; **Sığdır** hepsini ekrana sığdırıyor. **Öğrenciler** başlığının yanındaki ok
+      listeyi sağda ince bir şeride daraltıyor; şeride tıklayınca liste geri açılıyor.
 - [ ] İki öğrenci aynı dosyayı teslim edince kırmızı “birebir aynı dosya” uyarısı; hiç
       değiştirmeden teslimde “sınav dosyasının kendisi” uyarısı.
 - [ ] İkinci monitör takınca “Monitör sayısı: 2” uyarısı.

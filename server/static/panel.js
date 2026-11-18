@@ -30,6 +30,7 @@ let S = null;                    // sunucudan gelen son durum
 let lastAlertId = null;          // sesli uyarı için
 let filter = 'all';              // 'all' (öğrenciler) | 'alerts' (uyarı listesi)
 let fitTiles = true;             // ekranları kaydırmadan sığdır
+let sideCollapsed = false;       // sağdaki öğrenci listesi daraltıldı
 let folderBusy = false;          // klasör seçme penceresi açık
 let byNumara = new Map();        // numara -> öğrenci (son durum)
 let modalNumara = null;
@@ -424,7 +425,7 @@ function layoutGrid() {
     return;
   }
   const caption = 36;
-  const height = wrap.clientHeight - 28;
+  const height = wrap.clientHeight - 32;
   let best = 1;
   for (let cols = 1; cols <= count; cols += 1) {
     const tileWidth = (width - (cols - 1) * gap) / cols;
@@ -446,6 +447,15 @@ function setFit(on) {
   $('fit').setAttribute('aria-pressed', on ? 'true' : 'false');
   setPref('fit', on ? '1' : '0');
   layoutGrid();
+}
+
+/* Sağdaki listeyi ince bir şeride daralt / yeniden aç; ekranlar boşalan yeri kullanır. */
+function setSideCollapsed(collapsed) {
+  sideCollapsed = collapsed;
+  $('side').classList.toggle('collapsed', collapsed);
+  setPref('sideCollapsed', collapsed ? '1' : '0');
+  layoutGrid();
+  setTimeout(layoutGrid, 220);      // genişlik geçişi bittikten sonra bir kez daha
 }
 
 function setTileSize(value) {
@@ -570,6 +580,15 @@ function summaryItem(dotColor, count, label) {
   return item;
 }
 
+function railItem(dotColor, count, label) {
+  const item = el('span');
+  item.title = `${count} ${label}`;
+  const dot = el('span', 'dot');
+  dot.style.background = dotColor;
+  item.append(dot, document.createTextNode(String(count)));
+  return item;
+}
+
 function renderSummary() {
   const sum = S.summary;
   const signature = `${sum.connected}|${sum.warned}|${sum.lost}|${sum.submitted}`;
@@ -583,7 +602,21 @@ function renderSummary() {
       summaryItem('var(--done)', sum.submitted, 'teslim etti'),
     );
   }
+  // Daraltılmış şerit: aynı sayılar alt alta.
+  const rail = $('railSummary');
+  if (rail.dataset.signature !== signature) {
+    rail.dataset.signature = signature;
+    rail.replaceChildren(
+      railItem('var(--ok)', sum.connected, 'bağlı'),
+      railItem('var(--warn)', sum.warned, 'uyarılı'),
+      railItem('var(--lost)', sum.lost, 'kopuk'),
+      railItem('var(--done)', sum.submitted, 'teslim etti'),
+    );
+  }
   const unseen = warningAlerts().filter(isUnseen).length;
+  $('railAlerts').hidden = unseen === 0;
+  setText($('railAlerts'), unseen > 99 ? '99+' : String(unseen));
+  $('railAlerts').title = `${unseen} görülmemiş uyarı`;
   setText($('countAll'), String(S.students.length));
   setText($('countAlerts'), unseen > 99 ? '99+' : String(unseen));
   $('filterAlerts').classList.toggle('attention', unseen > 0);
@@ -1130,6 +1163,12 @@ function bindControls() {
     setPref('pauseHidden', pause.checked ? '1' : '0');
     tiles.forEach(updatePlayback);
   });
+
+  $('sideCollapse').addEventListener('click', () => setSideCollapsed(true));
+  $('sideRail').addEventListener('click', () => setSideCollapsed(false));
+  sideCollapsed = pref('sideCollapsed', '0') === '1';
+  $('side').classList.toggle('collapsed', sideCollapsed);
+  $('side').addEventListener('transitionend', (event) => { if (event.propertyName === 'width') layoutGrid(); });
 
   // Ekran boyutu: − / kaydırıcı / + elle boyut verir, "Sığdır" otomatik boyuta döner.
   const size = $('tileSize');

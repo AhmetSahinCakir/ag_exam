@@ -7,7 +7,6 @@ namespace SinavAjan;
 
 internal static class Program
 {
-    private const string AppTitle = "Sınav Ajanı";
 
     public static string Version =>
         typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
@@ -24,17 +23,16 @@ internal static class Program
         // the cases where that is bypassed.)
         if (!IsAdministrator())
         {
-            MessageBox.Show(
-                "Bu program yönetici olarak çalıştırılmalıdır. Sağ tık → Yönetici olarak çalıştır.",
-                AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageDialog.Show(null, DialogTone.Warning, "Yönetici izni gerekli",
+                "Bu program yönetici olarak çalıştırılmalıdır. Sağ tık → Yönetici olarak çalıştır.");
             return 1;
         }
 
         using var single = new Mutex(true, @"Local\SinavAjan.TekKopya", out var first);
         if (!first)
         {
-            MessageBox.Show("Sınav Ajanı zaten çalışıyor.", AppTitle, MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
+            MessageDialog.Show(null, DialogTone.Info, "Sınav Ajanı zaten çalışıyor",
+                "Açık olan pencereyi kullanın; görev çubuğunda “Sınav” ya da “Sınav Ajanı” adıyla durur.");
             return 1;
         }
 

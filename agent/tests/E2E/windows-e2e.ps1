@@ -382,19 +382,6 @@ function Click-Agent([string]$pattern, [double]$timeoutSec = 15) {
     Click-Element $button $pattern
 }
 
-# Answers the agent's message box with a dialog command (IDOK=1, IDCANCEL=2, IDYES=6, IDNO=7).
-# Independent of the OS language and of how the buttons are exposed to UI Automation.
-function Answer-MessageBox([int[]]$commands, [double]$timeoutSec = 10) {
-    $dialog = Wait-Until { $h = [Native]::FindMessageBox([uint32]$script:agent.Id); if ($h -ne [IntPtr]::Zero) { $h } } $timeoutSec
-    if (-not $dialog) { throw 'İleti kutusu bulunamadı.' }
-    foreach ($command in $commands) {
-        [Native]::PostMessage($dialog, 0x0111, [IntPtr]$command, [IntPtr]::Zero) | Out-Null
-        $closed = Wait-Until { [Native]::FindMessageBox([uint32]$script:agent.Id) -ne $dialog } 2 150
-        if ($closed) { return }
-    }
-    throw "İleti kutusu kapatılamadı (komutlar: $($commands -join ', '))."
-}
-
 # Types a path into the agent's open/save file window like a student would:
 # Alt+N = "File name" box, then the path, then Enter.
 function Pick-File([string]$path, [string]$shot = '') {
@@ -765,7 +752,7 @@ klasorler:
         } else {
             $switched = Wait-Until { (Count-Events $numara 'desktop_switch') -ge 1 } 10
             Check ([bool]$switched) 'başka masaüstüne geçince öğretmene "Başka bir masaüstüne geçti" uyarısı gidiyor'
-            Note ([bool](Wait-AgentText 'Başka bir masaüstüne geçtiniz' 4)) 'öğrenciye "Başka bir masaüstüne geçtiniz…" bildirimi gösterildi'
+            Note ([bool](Wait-AgentText '^Başka bir masaüstündesiniz$' 4)) 'öğrenciye "Başka bir masaüstündesiniz" bildirimi gösterildi'
             Shot 'baska-masaustu'
             [Native]::KeyCombo([byte[]](0x5B, 0x11, 0x73))  # Win+Ctrl+F4: close that desktop, go back
             $back = Wait-Until { [Desk]::State($agentWindow) -eq 1 } 6 300
@@ -788,8 +775,11 @@ klasorler:
     Pick-File $pka 'teslim-dosya-sec'
     $same = Wait-AgentText 'sınav dosyasının aynısı' 10
     Check ([bool]$same) 'değiştirilmemiş sınav dosyası seçilince uyarı: "… indirdiğiniz sınav dosyasının aynısı …"'
+    Check ([bool](Find-Agent '^Dosyada değişiklik yok$')) 'uyarı ajanın kendi penceresinde, başlığıyla gösteriliyor ("Dosyada değişiklik yok")'
+    Check (-not ([Native]::FindMessageBox([uint32]$script:agent.Id) -ne [IntPtr]::Zero)) 'Windows''un standart ileti kutusu kullanılmıyor'
+    Start-Sleep -Milliseconds 500
     Shot 'teslim-ayni-dosya'
-    Answer-MessageBox @(7, 2)   # No
+    Click-Agent '^Vazgeç$'
     Start-Sleep -Seconds 1
 
     # 2) A file that was last saved before the exam file was downloaded: most likely a wrong file.
@@ -800,7 +790,9 @@ klasorler:
     Pick-File $oldFile
     $stale = Wait-AgentText 'indirmenizden önce kaydedilmiş' 10
     Check ([bool]$stale) 'sınavdan önce kaydedilmiş dosya seçilince uyarı: "… indirmenizden önce kaydedilmiş …"'
-    Answer-MessageBox @(7, 2)   # No
+    Start-Sleep -Milliseconds 500
+    Shot 'teslim-eski-dosya'
+    Click-Agent '^Vazgeç$'
     Start-Sleep -Seconds 1
 
     # 3) Not a Packet Tracer file at all (typed by name, past the *.pka filter).
@@ -810,7 +802,9 @@ klasorler:
     Pick-File $textFile
     $wrongType = Wait-AgentText 'bir Packet Tracer dosyası değil' 10
     Check ([bool]$wrongType) '.pka olmayan dosya teslim edilemiyor'
-    Answer-MessageBox @(1, 2)   # OK
+    Start-Sleep -Milliseconds 500
+    Shot 'teslim-reddedildi'
+    Click-Agent '^Tamam$'
     Start-Sleep -Seconds 1
     Check (-not (Get-ChildItem $submissionsDir -Filter *.pka)) 'reddedilen seçimlerden hiçbiri öğretmene gönderilmedi'
     Check ((Get-Student $numara).status -ne 'done') 'öğrenci hâlâ teslim etmemiş görünüyor'
@@ -820,10 +814,14 @@ klasorler:
     $localHash = (Get-FileHash $pka -Algorithm SHA256).Hash.ToLowerInvariant()
     Click-Agent '^Teslim et$'
     Pick-File $pka
-    $confirm = Wait-AgentText 'benim-sinavim\.pka. teslim edilsin mi' 10
-    Check ([bool]$confirm) 'onay sorusu seçilen dosyanın adını gösteriyor: "“benim-sinavim.pka” teslim edilsin mi? …"'
+    $confirm = Wait-AgentText '^Teslim edilsin mi\?$' 10
+    Check ([bool]$confirm) 'onay penceresi: "Teslim edilsin mi?"'
+    $confirmTexts = (Agent-Texts) -join "`n"
+    Check ($confirmTexts -match 'Dosya: benim-sinavim\.pka' -and $confirmTexts -match 'Son kayıt: \d\d:\d\d') 'onayda seçilen dosyanın adı ve son kayıt saati gösteriliyor'
+    Check ($confirmTexts -notmatch 'ogrencinin-sectigi-klasor' -and $confirmTexts -notmatch 'Klasör') 'öğrenciye klasör yolu gösterilmiyor'
+    Start-Sleep -Milliseconds 500
     Shot 'teslim-onay'
-    Answer-MessageBox @(6)      # Yes
+    Click-Agent '^Evet, teslim et$'
 
     $done = Wait-AgentText 'Teslim alındı' 20
     Check ([bool]$done) '"Teslim alındı" penceresi'

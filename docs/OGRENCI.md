@@ -60,7 +60,7 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
   geçişler sorun olmaz.
 - **İkinci ekran takmayın;** takılı ekran ve ekran takıp çıkarma öğretmene bildirilir.
 - **Başka bir masaüstüne geçmeyin** (Görev Görünümü, Win+Ctrl+→). Geçerseniz “Başka bir
-  masaüstüne geçtiniz” bildirimi çıkar ve öğretmene bildirilir.
+  masaüstündesiniz” bildirimi çıkar ve öğretmene bildirilir.
 - **Sık sık Ctrl+S ile kaydedin** ve dosyayı **indirdiğiniz yerde, aynı adla** tutun.
   Teslimde bu dosyayı seçeceksiniz. Öğretmen sınavı siz teslim etmeden bitirirse de
   **bu dosyanın** son kaydettiğiniz hâli otomatik gönderilir; “Farklı Kaydet” ile başka bir
@@ -80,13 +80,15 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
    sınav dosyasını indirdiğiniz klasörde açılır ve o dosyanın adı hazır yazılıdır;
    dosyanızı başka bir yere kaydettiyseniz oradan seçin. Yalnızca `.pka` dosyası seçilebilir.
 4. Program seçtiğiniz dosyayı göndermeden önce denetler:
-   - **“… indirdiğiniz sınav dosyasının aynısı: içine hiçbir değişiklik kaydedilmemiş.”**
-     Dosyayı indirdikten sonra hiç kaydetmemişsiniz ya da yanlış dosyayı seçtiniz.
-     **Hayır** deyin, Packet Tracer'da **Ctrl+S** ile kaydedip yeniden deneyin.
-   - **“… sınav dosyasını indirmenizden önce kaydedilmiş. Yanlış dosyayı seçmiş
-     olabilirsiniz.”** Eski bir dosya seçtiniz. **Hayır** deyip doğru dosyayı seçin.
-   - Sorun yoksa dosyanın **adı, klasörü ve son kayıt saati** gösterilir: “… teslim edilsin
-     mi?” Bilgiler doğruysa **Evet** deyin. Teslimden sonra değişiklik yapamazsınız.
+   - **“Dosyada değişiklik yok”** — seçtiğiniz dosya indirdiğiniz sınav dosyasının aynısı;
+     içine hiçbir şey kaydedilmemiş. Dosyayı indirdikten sonra hiç kaydetmemişsiniz ya da
+     yanlış dosyayı seçtiniz. **Vazgeç** deyin, Packet Tracer'da **Ctrl+S** ile kaydedip
+     yeniden deneyin.
+   - **“Yanlış dosya olabilir”** — seçtiğiniz dosya, sınav dosyasını indirmenizden önce
+     kaydedilmiş. Eski bir dosya seçtiniz. **Vazgeç** deyip doğru dosyayı seçin.
+   - Sorun yoksa **“Teslim edilsin mi?”** penceresinde dosyanın **adı ve son kayıt saati**
+     gösterilir. Bilgiler doğruysa **Evet, teslim et** deyin. Teslimden sonra değişiklik
+     yapamazsınız.
 5. **“Teslim alındı”** penceresi çıkar; program kapanır ve ekran aktarımı biter. Bu pencere,
    dosyanızın öğretmen bilgisayarına **eksiksiz ulaştığı doğrulandıktan sonra** çıkar.
 
