@@ -472,7 +472,7 @@ function Remaining-Seconds {
 # Nothing the student sees mentions the teacher.
 function Check-PlainTexts([string]$where) {
     $found = @(Agent-Texts | Where-Object { $_ -match 'ğretmen' -and $_ -notmatch '^Dr\. Işıl Öztürk$' })
-    Check ($found.Count -eq 0) "$where`: öğrenciye gösterilen metinlerde \"öğretmen\" kelimesi yok $($found -join ' | ')"
+    Check ($found.Count -eq 0) "$where`: öğrenciye gösterilen metinlerde “öğretmen” kelimesi yok $($found -join ' | ')"
 }
 
 function Dump-Events {
@@ -1151,7 +1151,7 @@ klasorler:
     else { Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
     $closedAt = Get-Date
 
-    Check ([bool](Wait-AgentText '^Sınav kapatıldı$' 80)) ("pencere kapatılınca sistem kendiliğinden kapanıyor: öğrenci programı \"Sınav kapatıldı\" diyor ({0:N0} sn sonra)" -f ((Get-Date) - $closedAt).TotalSeconds)
+    Check ([bool](Wait-AgentText '^Sınav kapatıldı$' 80)) ("pencere kapatılınca sistem kendiliğinden kapanıyor: öğrenci programı “Sınav kapatıldı” diyor ({0:N0} sn sonra)" -f ((Get-Date) - $closedAt).TotalSeconds)
     Check ([bool](Wait-AgentText '^Dosyanızı teslim etmediniz\.$' 5)) 'teslim etmemiş öğrenciye dosyasının teslim edilmediği söyleniyor'
     Check-PlainTexts 'kapanış penceresi'
     Check ([Native]::FindWindowByTitle('^Sınav İzleme Sistemi$') -eq [IntPtr]::Zero) 'kapanırken de soru çıkmıyor'
