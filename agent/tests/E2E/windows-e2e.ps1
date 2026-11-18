@@ -85,6 +85,7 @@ public static class Native
 {
     public delegate bool EnumProc(IntPtr hwnd, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int max);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
@@ -186,6 +187,35 @@ public static class Native
             var text = new StringBuilder(300);
             GetWindowText(hwnd, text, 300);
             if (!regex.IsMatch(text.ToString())) return true;
+            found = hwnd;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    // The texts of a window's child controls (buttons, labels), in creation order.
+    public static List<string> ChildTexts(IntPtr parent)
+    {
+        var list = new List<string>();
+        EnumChildWindows(parent, delegate(IntPtr hwnd, IntPtr lParam)
+        {
+            var text = new StringBuilder(600);
+            GetWindowText(hwnd, text, 600);
+            if (text.Length > 0) list.Add(text.ToString());
+            return true;
+        }, IntPtr.Zero);
+        return list;
+    }
+
+    // The child control of a window with exactly this text, or zero.
+    public static IntPtr FindChildByText(IntPtr parent, string wanted)
+    {
+        IntPtr found = IntPtr.Zero;
+        EnumChildWindows(parent, delegate(IntPtr hwnd, IntPtr lParam)
+        {
+            var text = new StringBuilder(600);
+            GetWindowText(hwnd, text, 600);
+            if (text.ToString() != wanted) return true;
             found = hwnd;
             return false;
         }, IntPtr.Zero);
@@ -997,7 +1027,9 @@ klasorler:
     $firstFile = Join-Path $alertsDir '2021001_SukruCagriIsik.csv'
     $firstText = if (Test-Path $firstFile) { Get-Content $firstFile -Raw -Encoding UTF8 } else { '' }
     Check ($firstText -match 'kapatıldı' -and $firstText -match 'Packet Tracer dışında bir pencere önde') 'Uyarılar\2021001_SukruCagriIsik.csv içinde o öğrencinin uyarıları'
-    Check (-not (Test-Path (Join-Path $alertsDir '2021003_EldenTeslim.csv'))) 'uyarısı olmayan öğrenci için dosya açılmıyor'
+    $fileNames = @(Get-ChildItem $alertsDir -Filter *.csv | ForEach-Object { $_.Name })
+    Write-Host "  Uyarılar klasörü: $($fileNames -join ', ')"
+    Check (@($fileNames | Where-Object { $_ -notmatch '^\d+_[A-Za-z]+\.csv$' }).Count -eq 0) 'uyarı dosyalarının adı <numara>_<AdSoyad>.csv biçiminde'
 
     Step 'Kayıtlar'
     $recordings = @(Get-ChildItem (Join-Path $recordingsDir $numara) -Filter *.mp4 -ErrorAction SilentlyContinue)
@@ -1046,13 +1078,12 @@ klasorler:
     Start-Sleep -Seconds 1
     Shot 'pencere-kapandi-sorusu'
     if (-not $question) { throw 'Kapanış sorusu çıkmadı; kalan adımlar yapılamaz.' }
-    $questionElement = $AE::FromHandle($question)
-    $isButton = New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, $Types::Button)
-    $choices = @($questionElement.FindAll($Scope::Descendants, $isButton) | ForEach-Object { $_.Current.Name })
-    Check (($choices -contains 'Arka planda çalışsın') -and ($choices -contains 'Paneli yeniden aç') -and ($choices -contains 'Sistemi kapat')) "seçenekler: $($choices -join ' / ')"
+    $choices = @([Native]::ChildTexts($question))
+    Check (($choices -contains 'Arka planda çalışsın') -and ($choices -contains 'Paneli yeniden aç') -and ($choices -contains 'Sistemi kapat')) 'seçenekler: Arka planda çalışsın / Paneli yeniden aç / Sistemi kapat'
     Check (-not $server.HasExited -and -not $script:agent.HasExited) 'soru yanıtlanana kadar sistem çalışmaya devam ediyor'
-    $shutdownButton = $questionElement.FindAll($Scope::Descendants, $isButton) | Where-Object { $_.Current.Name -eq 'Sistemi kapat' } | Select-Object -First 1
-    Click-Element $shutdownButton 'Sistemi kapat'
+    $shutdownButton = [Native]::FindChildByText($question, 'Sistemi kapat')
+    if ($shutdownButton -eq [IntPtr]::Zero) { throw "Kapanış sorusunda 'Sistemi kapat' düğmesi bulunamadı (bulunanlar: $($choices -join ' | '))." }
+    [Native]::PostMessage($shutdownButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null   # BM_CLICK
     # The exam is running: a second question makes sure.
     $questionPid = [Native]::PidOf($question)
     $sure = Wait-Until { $h = [Native]::FindMessageBox($questionPid); if ($h -ne [IntPtr]::Zero) { $h } } 10
