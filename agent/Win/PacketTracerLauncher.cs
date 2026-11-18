@@ -62,36 +62,62 @@ public static class PacketTracerLauncher
         return false;
     }
 
-    /// <summary>Opens the exam file with Packet Tracer. Throws InvalidOperationException with a Turkish text.</summary>
+    /// <summary>
+    /// Opens the exam file with Packet Tracer. Throws <see cref="PacketTracerException"/> when
+    /// Packet Tracer cannot be used; the file is never handed to the Windows "Open with" dialog.
+    /// </summary>
     public static void Open(string examFile, Policy policy)
     {
         var exe = FindExecutable(policy);
+        if (exe == null)
+        {
+            // Not in the allowlisted folders. Is it installed somewhere else?
+            var associated = AssociatedProgram(".pka");
+            if (associated == null)
+            {
+                throw new PacketTracerException(PacketTracerProblem.NotFound,
+                    "Packet Tracer bu bilgisayarda bulunamadı.");
+            }
+            if (policy.Classify(associated) != PathClass.Allowed)
+            {
+                // Starting it would be pointless: the application control would close it again.
+                throw new PacketTracerException(PacketTracerProblem.NotAllowed,
+                    $"Packet Tracer izin verilen klasörlerin dışında kurulu: {associated}");
+            }
+            exe = associated;
+        }
+
         try
         {
-            if (exe != null)
+            var info = new ProcessStartInfo(exe)
             {
-                var info = new ProcessStartInfo(exe)
-                {
-                    UseShellExecute = false,
-                    WorkingDirectory = Path.GetDirectoryName(exe) ?? "",
-                };
-                info.ArgumentList.Add(examFile);
-                using var started = Process.Start(info);
-                LocalLog.Write($"Packet Tracer başlatıldı: {exe}");
-                return;
-            }
-
-            // Not found in the expected folders: let Windows use the .pka file association.
-            using var shell = Process.Start(new ProcessStartInfo(examFile) { UseShellExecute = true });
-            LocalLog.Write("Packet Tracer dosya ilişkilendirmesiyle açıldı");
+                UseShellExecute = false,
+                WorkingDirectory = Path.GetDirectoryName(exe) ?? "",
+            };
+            info.ArgumentList.Add(examFile);
+            using var started = Process.Start(info);
+            LocalLog.Write($"Packet Tracer başlatıldı: {exe}");
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
         {
-            throw new InvalidOperationException(
-                exe == null
-                    ? "Packet Tracer bu bilgisayarda bulunamadı."
-                    : $"Packet Tracer başlatılamadı: {ex.Message}", ex);
+            throw new PacketTracerException(PacketTracerProblem.StartFailed,
+                $"Packet Tracer başlatılamadı ({exe}): {ex.Message}", ex);
         }
+    }
+
+    /// <summary>The program Windows would use to open files with this extension, or null.</summary>
+    private static string? AssociatedProgram(string extension)
+    {
+        var buffer = new char[2048];
+        var length = (uint)buffer.Length;
+        var result = NativeMethods.AssocQueryStringW(NativeMethods.ASSOCF_INIT_IGNOREUNKNOWN,
+            NativeMethods.ASSOCSTR_EXECUTABLE, extension, null, buffer, ref length);
+        if (result != 0 || length <= 1) return null;
+
+        var path = new string(buffer, 0, (int)length).TrimEnd('\0').Trim();
+        if (path.Length == 0 || !File.Exists(path)) return null;
+        if (Policy.FileName(path).Equals("OpenWith.exe", StringComparison.OrdinalIgnoreCase)) return null;
+        return path;
     }
 
     /// <summary>Expands wildcards in the directory components of a folder pattern.</summary>
@@ -135,5 +161,27 @@ public static class PacketTracerLauncher
         {
             return new Version(0, 0);
         }
+    }
+}
+
+public enum PacketTracerProblem
+{
+    /// <summary>No Packet Tracer in the allowlisted folders and no program registered for .pka files.</summary>
+    NotFound,
+
+    /// <summary>Installed, but outside the allowlisted folders (the teacher must add the folder).</summary>
+    NotAllowed,
+
+    StartFailed,
+}
+
+public sealed class PacketTracerException : Exception
+{
+    public PacketTracerProblem Problem { get; }
+
+    public PacketTracerException(PacketTracerProblem problem, string message, Exception? inner = null)
+        : base(message, inner)
+    {
+        Problem = problem;
     }
 }

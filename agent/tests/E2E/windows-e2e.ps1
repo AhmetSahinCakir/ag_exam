@@ -60,6 +60,22 @@ public static class Native
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int command);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+
+    // A real mouse click on the title bar: Windows always activates the clicked window.
+    public static void ClickTitleBar(IntPtr hwnd)
+    {
+        RECT rect;
+        if (!GetWindowRect(hwnd, out rect)) return;
+        SetCursorPos(rect.Left + 60, rect.Top + 12);
+        mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
+        mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+    }
 
     public static List<string> Windows()
     {
@@ -242,9 +258,19 @@ function Click-Agent([string]$pattern, [double]$timeoutSec = 15) {
     Click-Element $button $pattern
 }
 
-function Click-DialogButton([string[]]$ids, [double]$timeoutSec = 10) {
-    $button = Wait-Until { Find-Agent '' $Types::Button $ids } $timeoutSec
-    Click-Element $button ("dialog " + ($ids -join '/'))
+# Message box buttons carry the OS language: "OK"/"Yes" or "Tamam"/"Evet".
+function Click-DialogButton([string]$namePattern, [double]$timeoutSec = 10) {
+    $button = Wait-Until { Find-Agent $namePattern $Types::Button } $timeoutSec
+    Click-Element $button "dialog $namePattern"
+}
+
+function Focus-Window([IntPtr]$hwnd, [int]$processId) {
+    [Native]::Focus($hwnd)
+    Start-Sleep -Milliseconds 400
+    if ([Native]::ForegroundPid() -ne $processId) {
+        [Native]::ClickTitleBar($hwnd)
+        Start-Sleep -Milliseconds 400
+    }
 }
 
 function Set-AgentText([string]$name, [string]$text) {
@@ -447,21 +473,21 @@ klasorler:
     $winverWindow = Wait-Until { $winver.Refresh(); if ($winver.MainWindowHandle -ne [IntPtr]::Zero) { $winver.MainWindowHandle } } 10
     Check ([bool]$winverWindow) 'winver penceresi açıldı (C:\Windows altı)'
     if ($winverWindow -and $agentWindow) {
-        [Native]::Focus($agentWindow); Start-Sleep -Seconds 2
+        Focus-Window $agentWindow $script:agent.Id; Start-Sleep -Seconds 2
         Check ([Native]::ForegroundPid() -eq $script:agent.Id) 'ajan paneli öne alınabildi'
         $foreignBefore = Count-Events $numara 'foreign_foreground'
 
-        [Native]::Focus($winverWindow); Start-Sleep -Milliseconds 2500
+        Focus-Window $winverWindow $winver.Id; Start-Sleep -Milliseconds 2200
         $wasWinver = [Native]::ForegroundPid() -eq $winver.Id
-        [Native]::Focus($agentWindow); Start-Sleep -Seconds 3
+        Focus-Window $agentWindow $script:agent.Id; Start-Sleep -Seconds 3
         Check $wasWinver 'winver öne alınabildi'
-        Check ((Count-Events $numara 'foreign_foreground') -eq $foreignBefore) '2,5 sn süren geçiş uyarı üretmedi'
+        Check ((Count-Events $numara 'foreign_foreground') -eq $foreignBefore) 'yaklaşık 2,5 sn süren geçiş uyarı üretmedi'
 
-        [Native]::Focus($winverWindow)
+        Focus-Window $winverWindow $winver.Id
         $warned = Wait-Until { (Count-Events $numara 'foreign_foreground' 'winver') -ge 1 } 12
         Check ([bool]$warned) '5 sn''den uzun önde kalınca "Packet Tracer dışında bir pencere önde: winver.exe" uyarısı'
         Check (-not $winver.HasExited) 'C:\Windows altındaki program kapatılmadı'
-        [Native]::Focus($agentWindow)
+        Focus-Window $agentWindow $script:agent.Id
         Check ([bool](Wait-Until { (Count-Events $numara 'foreground_restored') -ge 1 } 8)) 'izinli pencere öne dönünce olay kaydı'
     }
     if (-not $winver.HasExited) { $winver.Kill() }
@@ -473,7 +499,7 @@ klasorler:
     $notSaved = Wait-AgentText 'Ctrl\+S ile kaydedin' 8
     Check ([bool]$notSaved) 'kaydedilmemiş dosyada "Önce Packet Tracer''da Ctrl+S ile kaydedin." uyarısı'
     Shot 'kaydedilmedi'
-    Click-DialogButton @('1', '2')
+    Click-DialogButton '^(OK|Tamam)$'
     Start-Sleep -Seconds 1
 
     [IO.File]::AppendAllText($pka, "`ncozum-$numara")   # "Ctrl+S": the file changes on disk
@@ -481,7 +507,7 @@ klasorler:
     Click-Agent '^Teslim et$'
     $confirm = Wait-AgentText 'Teslim etmek istediğinize emin misiniz' 8
     Check ([bool]$confirm) 'onay sorusu: "Teslim etmek istediğinize emin misiniz? …"'
-    Click-DialogButton @('6')   # IDYES
+    Click-DialogButton '^(Yes|Evet)$'
 
     $done = Wait-AgentText 'Teslim alındı' 20
     Check ([bool]$done) '"Teslim alındı" penceresi'

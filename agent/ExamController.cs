@@ -404,11 +404,25 @@ public sealed class ExamController : IDisposable
         {
             PacketTracerLauncher.Open(ExamFilePath, _policy);
             _events.Enqueue("pt_started");
+            if (StatusNote.Length > 0)
+            {
+                StatusNote = "";
+                Changed?.Invoke();
+            }
         }
-        catch (InvalidOperationException ex)
+        catch (PacketTracerException ex)
         {
-            _events.Enqueue("pt_launch_failed", new Dictionary<string, object?> { ["error"] = ex.Message });
-            Notice?.Invoke($"{ex.Message} Packet Tracer'ı kendiniz açın ve Dosya → Aç ile şu dosyayı açın: {ExamFilePath}");
+            LocalLog.Write($"Packet Tracer açılamadı: {ex.Message}");
+            _events.Enqueue("pt_launch_failed", new Dictionary<string, object?>
+            {
+                ["error"] = ex.Message,
+                ["problem"] = ex.Problem.ToString(),
+            });
+            StatusNote = ex.Problem == PacketTracerProblem.NotAllowed
+                ? $"{ex.Message}. Öğretmeninize haber verin; izin verildikten sonra “Sınav dosyasını aç”a basın."
+                : $"{ex.Message} Kuruluysa Packet Tracer'ı kendiniz açın ve File → Open ile şu dosyayı açın: {ExamFilePath}";
+            Notice?.Invoke(StatusNote);
+            Changed?.Invoke();
         }
     }
 
