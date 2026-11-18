@@ -61,6 +61,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # En yeni Python (python.org'dan bugün indirilen sürüm) ve desteklenen en eski sürüm.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+          allow-prereleases: true
+
+      - name: Sunucu testleri (Windows, Python 3.15)
+        run: |
+          python -m pip install --disable-pip-version-check -r server/requirements-dev.txt
+          python -m pytest server/tests -q
+
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -69,6 +80,49 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check -r server/requirements-dev.txt
           python -m pytest server/tests -q
+
+      # Kullanıcının ilk çalıştırması: sistem, adı Türkçe karakter ve boşluk içeren bir klasöre
+      # açılmış; start-teacher.bat Python ortamını kurup MediaMTX'i indirir (Windows PowerShell 5.1).
+      - name: İlk kurulum klasörünü hazırla (Türkçe karakterli yol)
+        shell: powershell
+        run: |
+          $u = [string][char]0xFC; $i = [string][char]0x131; $g = [string][char]0x11F
+          $hedef = Join-Path $env:RUNNER_TEMP ("Masa${u}st${u}\a${g} s${i}nav${i}\ag_exam-main")
+          New-Item -ItemType Directory -Force -Path $hedef | Out-Null
+          foreach ($ad in 'scripts', 'server', 'mediamtx') { Copy-Item -Recurse -Path $ad -Destination (Join-Path $hedef $ad) }
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "ILK_KURULUM=$hedef`n", (New-Object Text.UTF8Encoding $false))
+          Write-Host "Klasör: $hedef"
+
+          # Tanılama: param() varsayılanında $PSScriptRoot hangi durumda boş kalıyor?
+          $ErrorActionPreference = 'Continue'
+          $probe = "[CmdletBinding()]`r`nparam([string]`$P = ('[' + `$PSScriptRoot + ']'))`r`n'param=' + `$P + ' govde=[' + `$PSScriptRoot + '] myinv=[' + `$MyInvocation.MyCommand.Path + ']'`r`n"
+          foreach ($d in (Join-Path $env:RUNNER_TEMP 'duz'), (Split-Path -Parent $hedef)) {
+            New-Item -ItemType Directory -Force -Path $d | Out-Null
+            $f = Join-Path $d 'probe.ps1'
+            [IO.File]::WriteAllText($f, $probe, (New-Object Text.UTF8Encoding $true))
+            Write-Host "--- $f"
+            Write-Host ('  dogrudan        : ' + (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $f 2>&1 | Out-String).Trim())
+            Write-Host ('  cmd, chcp 65001 : ' + (& cmd.exe /c "chcp 65001 >nul & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$f`"" 2>&1 | Out-String).Trim())
+            Write-Host ('  cmd, chcp 857   : ' + (& cmd.exe /c "chcp 857 >nul & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$f`"" 2>&1 | Out-String).Trim())
+          }
+          exit 0
+
+      # Sırayla: ilk kurulum; betiğin -OutDir verilmeden (belgelendiği gibi) çalışması;
+      # her şey hazırken ikinci çalıştırma.
+      - name: İlk kurulum (start-teacher.bat --setup, Türkçe karakterli yol)
+        shell: cmd
+        run: |
+          call "%ILK_KURULUM%\scripts\start-teacher.bat" --setup < nul
+          if errorlevel 1 exit /b 1
+          if not exist "%ILK_KURULUM%\mediamtx\mediamtx.exe" exit /b 1
+          "%ILK_KURULUM%\.venv\Scripts\python.exe" -c "import fastapi, uvicorn, yaml, openpyxl, multipart; print('paketler tamam')"
+          if errorlevel 1 exit /b 1
+          del "%ILK_KURULUM%\mediamtx\mediamtx.exe"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "%ILK_KURULUM%\scripts\fetch-mediamtx.ps1"
+          if errorlevel 1 exit /b 1
+          if not exist "%ILK_KURULUM%\mediamtx\mediamtx.exe" exit /b 1
+          call "%ILK_KURULUM%\scripts\start-teacher.bat" --setup < nul
+          if errorlevel 1 exit /b 1
 
       - uses: actions/download-artifact@v8
         with:

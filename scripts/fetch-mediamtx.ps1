@@ -14,12 +14,21 @@
 [CmdletBinding()]
 param(
     # mediamtx.exe dosyasının konacağı klasör (varsayılan: mediamtx\)
-    [string]$OutDir = (Join-Path $PSScriptRoot '..\mediamtx'),
+    [string]$OutDir = '',
     # mediamtx.exe zaten varsa yeniden indir
     [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Varsayılan klasör burada hesaplanır, param() içinde değil: Windows PowerShell 5.1'de
+# param() varsayılanı hesaplanırken $PSScriptRoot boş gelebiliyor.
+if (-not $OutDir) {
+    $here = $PSScriptRoot
+    if (-not $here) { $here = Split-Path -Parent $MyInvocation.MyCommand.Path }
+    if (-not $here) { throw 'Betiğin klasörü bulunamadı; -OutDir ile hedef klasörü verin.' }
+    $OutDir = Join-Path $here '..\mediamtx'
+}
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 

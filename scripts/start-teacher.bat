@@ -25,6 +25,9 @@ cd /d "%~dp0.."
 set "ROOT=%CD%"
 
 if /i "%~1"=="--firewall" goto firewall
+rem  --setup: yalnızca ilk kurulumu yapar (Python ortamı + MediaMTX), sistemi başlatmaz.
+set "SETUP_ONLY="
+if /i "%~1"=="--setup" set "SETUP_ONLY=1"
 
 title Sınav İzleme Sistemi
 echo.
@@ -33,39 +36,41 @@ echo.
 
 rem Sistem arka planda zaten çalışıyorsa (panel penceresi kapatılmış olabilir) yalnızca
 rem paneli yeniden aç.
+if defined SETUP_ONLY goto setup_python
 curl.exe -s -m 2 -o nul "http://127.0.0.1:%API_PORT%/api/info" 2>nul
 if not errorlevel 1 goto already_running
 
+:setup_python
+
 rem ---------------------------------------------------------------- 1) Python
 set "PY=%ROOT%\.venv\Scripts\python.exe"
-if exist "%PY%" goto python_ready
+if not exist "%PY%" goto create_venv
+rem  Ortam var; paketler de tam mı? (Kurulum yarıda kesildiyse eksik kalır.)
+"%PY%" -c "import fastapi, uvicorn, yaml, openpyxl, multipart" >nul 2>&1
+if not errorlevel 1 goto python_ready
+echo  [1/4] Python paketleri eksik; yeniden indiriliyor. Bu adım İNTERNET gerektirir.
+goto install_packages
 
+:create_venv
 echo  [1/4] İlk kurulum: Python ortamı hazırlanıyor. Bu adım İNTERNET gerektirir.
+rem  Python 3.11 veya daha yenisini ara: önce "py -3", olmazsa "python".
 set "BASEPY="
-where py >nul 2>&1
-if not errorlevel 1 set "BASEPY=py -3"
-if defined BASEPY goto have_python
-where python >nul 2>&1
-if not errorlevel 1 set "BASEPY=python"
+call :try_python py -3
+if not defined BASEPY call :try_python python
 if defined BASEPY goto have_python
 echo.
-echo  HATA: Python bulunamadı. https://www.python.org/downloads/ adresinden Python 3.11
-echo        veya daha yenisini kurun. Kurulumda "Add python.exe to PATH" kutusunu işaretleyin.
+echo  HATA: Python 3.11 veya daha yenisi bulunamadı. https://www.python.org/downloads/
+echo        adresinden kurun. Kurulumda "Add python.exe to PATH" kutusunu işaretleyin.
 goto fail
 
 :have_python
-%BASEPY% -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"
-if errorlevel 1 goto old_python
 %BASEPY% -m venv "%ROOT%\.venv"
 if errorlevel 1 goto venv_failed
+
+:install_packages
 "%PY%" -m pip install --disable-pip-version-check -r "%ROOT%\server\requirements.txt"
 if errorlevel 1 goto pip_failed
 goto python_ready
-
-:old_python
-echo.
-echo  HATA: Python 3.11 veya daha yenisi gerekli. Kurulu sürüm çok eski ya da çalışmıyor.
-goto fail
 
 :venv_failed
 echo.
@@ -84,7 +89,7 @@ echo  [1/4] Python ortamı hazır.
 rem -------------------------------------------------------------- 2) MediaMTX
 if exist "%ROOT%\mediamtx\mediamtx.exe" goto mediamtx_ready
 echo  [2/4] MediaMTX indiriliyor. Bu adım İNTERNET gerektirir.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\fetch-mediamtx.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\fetch-mediamtx.ps1" -OutDir "%ROOT%\mediamtx"
 if errorlevel 1 goto mediamtx_failed
 if not exist "%ROOT%\mediamtx\mediamtx.exe" goto mediamtx_failed
 goto mediamtx_ready
@@ -96,6 +101,7 @@ goto fail
 
 :mediamtx_ready
 echo  [2/4] MediaMTX hazır.
+if defined SETUP_ONLY exit /b 0
 
 rem ------------------------------------------------------- 3) Güvenlik duvarı
 call :check_rules
@@ -189,6 +195,12 @@ exit /b 0
 :rule_failed
 echo    [HATA]      %~1 eklenemedi
 exit /b 1
+
+rem  call :try_python KOMUT...   Komut Python 3.11+ çalıştırıyorsa BASEPY'ye yazar.
+:try_python
+%* -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>&1
+if not errorlevel 1 set "BASEPY=%*"
+exit /b 0
 
 rem  Kurallardan biri eksikse MISSING değişkenini ayarlar.
 :check_rules

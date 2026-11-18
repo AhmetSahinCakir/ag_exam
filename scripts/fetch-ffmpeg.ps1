@@ -14,12 +14,21 @@
 [CmdletBinding()]
 param(
     # ffmpeg.exe dosyasının konacağı klasör (varsayılan: agent\)
-    [string]$OutDir = (Join-Path $PSScriptRoot '..\agent'),
+    [string]$OutDir = '',
     # ffmpeg.exe zaten varsa yeniden indir
     [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Varsayılan klasör burada hesaplanır, param() içinde değil: Windows PowerShell 5.1'de
+# param() varsayılanı hesaplanırken $PSScriptRoot boş gelebiliyor.
+if (-not $OutDir) {
+    $here = $PSScriptRoot
+    if (-not $here) { $here = Split-Path -Parent $MyInvocation.MyCommand.Path }
+    if (-not $here) { throw 'Betiğin klasörü bulunamadı; -OutDir ile hedef klasörü verin.' }
+    $OutDir = Join-Path $here '..\agent'
+}
 $ProgressPreference = 'SilentlyContinue'   # ilerleme çubuğu Windows PowerShell'de indirmeyi çok yavaşlatır
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
