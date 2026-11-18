@@ -21,8 +21,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Varsayılan klasör burada hesaplanır, param() içinde değil: Windows PowerShell 5.1'de
-# param() varsayılanı hesaplanırken $PSScriptRoot boş gelebiliyor.
+# Varsayılan klasör burada hesaplanır, param() içinde değil: Windows PowerShell 5.1,
+# -File ile çalıştırılan betikte param() varsayılanlarını hesaplarken $PSScriptRoot'u boş
+# verir (gövdede doludur).
 if (-not $OutDir) {
     $here = $PSScriptRoot
     if (-not $here) { $here = Split-Path -Parent $MyInvocation.MyCommand.Path }

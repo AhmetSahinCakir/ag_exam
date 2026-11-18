@@ -56,7 +56,18 @@ internal static class Program
         };
 
         var config = AgentConfig.Load(AppContext.BaseDirectory);
-        Application.Run(new MainForm(config));
+
+        // ffmpeg travels inside this executable; it is unpacked now (in the background, so
+        // the window opens at once) and removed again when the program closes.
+        using var ffmpeg = new FfmpegProvider(AppContext.BaseDirectory, AgentPaths.Root,
+            () => typeof(Program).Assembly.GetManifestResourceStream(FfmpegProvider.ResourceName));
+        _ = Task.Run(() =>
+        {
+            var problem = ffmpeg.Ensure();
+            if (problem != null) LocalLog.Write(problem);
+        });
+
+        Application.Run(new MainForm(config, ffmpeg));
         return 0;
     }
 

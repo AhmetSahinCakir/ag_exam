@@ -1,10 +1,10 @@
 name: build-agent
 
-# Öğrenci ajanını (Windows, .NET 8, tek dosya) derler ve ffmpeg ile birlikte
-# "SinavAjan-win-x64" adlı artifact olarak yükler. İndirilen artifact bir zip
-# dosyasıdır; içinde SinavAjan\ klasörü bulunur.
+# Öğrenci programını (Windows, .NET 8) TEK DOSYA olarak derler: SinavAjan.exe. ffmpeg bu
+# dosyanın içine gömülüdür; öğrenciye başka hiçbir şey gönderilmez. Dosya "SinavAjan.exe"
+# adlı artifact olarak (zip'lenmeden) yüklenir.
 #
-# v ile başlayan bir etiket (ör. v1.0.0) gönderilirse aynı zip kalıcı bir
+# v ile başlayan bir etiket (ör. v1.0.0) gönderilirse aynı dosya kalıcı bir
 # GitHub Release olarak da yayınlanır (artifact'ler 90 gün sonra silinir).
 
 on:
@@ -30,30 +30,34 @@ jobs:
       - name: Çekirdek testleri (izin listesi, denetim mantığı, ffmpeg komutu)
         run: dotnet run --project agent/tests/CoreSmoke -c Release
 
-      - name: Ajanı yayınla (self-contained, single-file, win-x64)
-        run: dotnet publish agent/SinavAjan.csproj -c Release -o publish/SinavAjan
-
+      # agent\ffmpeg.exe: derleme bunu sıkıştırıp SinavAjan.exe'nin içine gömer.
+      # Betik, kullanıcıların çalıştırdığı gibi Windows'un kendi PowerShell'i ile çalışır.
       - name: ffmpeg.exe indir
-        shell: pwsh
-        run: ./scripts/fetch-ffmpeg.ps1 -OutDir publish/SinavAjan
+        shell: powershell
+        run: ./scripts/fetch-ffmpeg.ps1
 
-      - name: Öğrenci yönergesini ekle
-        shell: pwsh
-        run: Copy-Item docs/OGRENCI.md publish/SinavAjan/OKUBENI.md
+      - name: Ajanı yayınla (tek dosya, win-x64, ffmpeg içinde)
+        run: dotnet publish agent/SinavAjan.csproj -c Release -o publish
 
-      - name: Paket içeriği
+      - name: Paket tek dosya mı?
         shell: pwsh
-        run: Get-ChildItem publish/SinavAjan | Format-Table Name, Length
+        run: |
+          $files = @(Get-ChildItem publish -Recurse -File)
+          $files | Format-Table Name, Length
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'SinavAjan.exe') { throw 'publish klasöründe yalnızca SinavAjan.exe olmalı' }
+          if ($files[0].Length -lt 80MB) { throw 'ffmpeg, SinavAjan.exe içine gömülmemiş görünüyor' }
 
+      # Zip'lenmeden yüklenir: indirilen dosya doğrudan SinavAjan.exe'dir.
       - uses: actions/upload-artifact@v7
         with:
-          name: SinavAjan-win-x64
-          path: publish/
+          path: publish/SinavAjan.exe
+          archive: false
           if-no-files-found: error
 
   # Ajanı gerçek Windows üzerinde çalıştırır: sınav klasörü, keşif, giriş, ekran yayını ve kaydı,
   # izinsiz programların kapatılması, öndeki pencere toleransı, başka masaüstüne geçiş, dosya
   # seçerek teslim ve teslim klasörü denetimi, ajan kapanınca ffmpeg'in de kapanması.
+  # Öğrencinin elindeki tek dosya (SinavAjan.exe) Türkçe karakterli bir klasörden çalıştırılır.
   windows-e2e:
     needs: build
     runs-on: windows-latest
@@ -82,7 +86,8 @@ jobs:
           python -m pytest server/tests -q
 
       # Kullanıcının ilk çalıştırması: sistem, adı Türkçe karakter ve boşluk içeren bir klasöre
-      # açılmış; start-teacher.bat Python ortamını kurup MediaMTX'i indirir (Windows PowerShell 5.1).
+      # açılmış; start-teacher.bat Python ortamını kurup MediaMTX'i indirir. Betikler burada
+      # Windows'un kendi PowerShell'i (5.1) ile çalışır; pwsh 7'de görünmeyen hatalar burada çıkar.
       - name: İlk kurulum klasörünü hazırla (Türkçe karakterli yol)
         shell: powershell
         run: |
@@ -92,20 +97,6 @@ jobs:
           foreach ($ad in 'scripts', 'server', 'mediamtx') { Copy-Item -Recurse -Path $ad -Destination (Join-Path $hedef $ad) }
           [IO.File]::AppendAllText($env:GITHUB_ENV, "ILK_KURULUM=$hedef`n", (New-Object Text.UTF8Encoding $false))
           Write-Host "Klasör: $hedef"
-
-          # Tanılama: param() varsayılanında $PSScriptRoot hangi durumda boş kalıyor?
-          $ErrorActionPreference = 'Continue'
-          $probe = "[CmdletBinding()]`r`nparam([string]`$P = ('[' + `$PSScriptRoot + ']'))`r`n'param=' + `$P + ' govde=[' + `$PSScriptRoot + '] myinv=[' + `$MyInvocation.MyCommand.Path + ']'`r`n"
-          foreach ($d in (Join-Path $env:RUNNER_TEMP 'duz'), (Split-Path -Parent $hedef)) {
-            New-Item -ItemType Directory -Force -Path $d | Out-Null
-            $f = Join-Path $d 'probe.ps1'
-            [IO.File]::WriteAllText($f, $probe, (New-Object Text.UTF8Encoding $true))
-            Write-Host "--- $f"
-            Write-Host ('  dogrudan        : ' + (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $f 2>&1 | Out-String).Trim())
-            Write-Host ('  cmd, chcp 65001 : ' + (& cmd.exe /c "chcp 65001 >nul & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$f`"" 2>&1 | Out-String).Trim())
-            Write-Host ('  cmd, chcp 857   : ' + (& cmd.exe /c "chcp 857 >nul & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$f`"" 2>&1 | Out-String).Trim())
-          }
-          exit 0
 
       # Sırayla: ilk kurulum; betiğin -OutDir verilmeden (belgelendiği gibi) çalışması;
       # her şey hazırken ikinci çalıştırma.
@@ -126,7 +117,7 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          name: SinavAjan-win-x64
+          name: SinavAjan.exe
           path: publish
 
       - name: MediaMTX indir
@@ -143,7 +134,7 @@ jobs:
 
       - name: Uçtan uca test (ajan + sunucu + MediaMTX)
         shell: powershell
-        run: ./agent/tests/E2E/windows-e2e.ps1 -AgentDir publish/SinavAjan
+        run: ./agent/tests/E2E/windows-e2e.ps1 -AgentDir publish
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -162,17 +153,14 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: SinavAjan-win-x64
+          name: SinavAjan.exe
           path: paket
 
-      - name: Zip ve Release
+      - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          cd paket
-          zip -r -q ../SinavAjan.zip SinavAjan
-          cd ..
-          gh release create "$TAG" SinavAjan.zip --repo "$GITHUB_REPOSITORY" \
+          gh release create "$TAG" paket/SinavAjan.exe --repo "$GITHUB_REPOSITORY" \
             --title "Sınav Ajanı $TAG" \
-            --notes "SinavAjan.zip dosyasını öğretmen bilgisayarında depo içindeki dist/ klasörüne koyun veya öğrencilere doğrudan dağıtın. Kurulum: docs/KURULUM.md"
+            --notes "Öğrencilere yalnızca SinavAjan.exe dosyasını gönderin. Kullanım: docs/KURULUM.md"

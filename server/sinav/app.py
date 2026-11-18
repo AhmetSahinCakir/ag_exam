@@ -28,7 +28,9 @@ log = logging.getLogger("sinav")
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 STATIC_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 LOCAL_HOSTS = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
-AGENT_ZIP = "SinavAjan.zip"
+# The student program is one file; put it into the "dagitim" folder to hand it out over the
+# classroom network.
+AGENT_FILE = "SinavAjan.exe"
 MAX_JSON_BYTES = 64 * 1024
 SSE_MIN_INTERVAL_S = 0.4
 # Closing the exam for everybody: how long to wait until every open student program has
@@ -331,12 +333,12 @@ def create_app(cfg: Config) -> FastAPI:
             return RedirectResponse("/panel")
         return HTMLResponse(student_page(cfg), headers=NO_STORE)
 
-    @app.get(f"/indir/{AGENT_ZIP}")
+    @app.get(f"/indir/{AGENT_FILE}")
     async def download_agent() -> Response:
-        path = cfg.dir_dist / AGENT_ZIP
+        path = cfg.dir_dist / AGENT_FILE
         if not path.is_file():
-            raise ApiError(404, "Ajan paketi bu sunucuya konmamış.")
-        return FileResponse(path, filename=AGENT_ZIP, media_type="application/zip")
+            raise ApiError(404, "Sınav programı bu adresten dağıtılmıyor.")
+        return FileResponse(path, filename=AGENT_FILE, media_type="application/octet-stream")
 
     @app.get("/panel", dependencies=[Depends(local_only)])
     async def panel() -> Response:
@@ -511,15 +513,14 @@ def create_app(cfg: Config) -> FastAPI:
 
 def student_page(cfg: Config) -> str:
     """Small landing page for students who open the server address in a browser."""
-    has_zip = (cfg.dir_dist / AGENT_ZIP).is_file()
+    has_file = (cfg.dir_dist / AGENT_FILE).is_file()
     download = (
-        f'<p><a class="btn" href="/indir/{AGENT_ZIP}">Sınav ajanını indir ({AGENT_ZIP})</a></p>'
-        "<ol><li>İndirdiğiniz zip dosyasına sağ tıklayıp <b>Tümünü ayıkla</b> deyin.</li>"
-        "<li>Açılan klasörde <b>SinavAjan.exe</b> dosyasına sağ tıklayın → "
+        f'<p><a class="btn" href="/indir/{AGENT_FILE}">Sınav programını indir ({AGENT_FILE})</a></p>'
+        "<ol><li>İndirdiğiniz <b>SinavAjan.exe</b> dosyasına sağ tıklayın → "
         "<b>Yönetici olarak çalıştır</b>.</li>"
         "<li>Ekranda bu sınıfın adını görünce <b>Doğru</b> deyip giriş yapın.</li></ol>"
-        if has_zip
-        else "<p>Sınav ajanı bu adresten dağıtılmıyor.</p>"
+        if has_file
+        else "<p>Sınav programı bu adresten dağıtılmıyor.</p>"
     )
     return f"""<!doctype html>
 <html lang="tr"><head><meta charset="utf-8">

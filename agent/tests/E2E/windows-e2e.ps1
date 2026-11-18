@@ -12,6 +12,7 @@
       indirilmesi -> izinsiz programların kapatılması -> öndeki pencere toleransı -> başka
       masaüstüne geçiş uyarısı -> teslimde dosya seçme ve dosya denetimleri -> teslim klasörü
       denetimi -> elle konan dosyanın teslim sayılması -> ajanın kapanması ve iz bırakmaması
+      -> öğrenciye tek dosya (SinavAjan.exe): ffmpeg içinden açılır, kapanışta silinir
       -> ajan zorla sonlandırıldığında ffmpeg'in de kapanması (Job Object)
       -> ek süre -> sınav bitince programın kapanmaması ve geç teslim -> öğrenci başına uyarı
       dosyaları -> son 10 dakika uyarısı -> panel penceresi kapanınca sistemin kendiliğinden
@@ -20,7 +21,7 @@
     Yönetici olarak ve etkileşimli bir masaüstü oturumunda çalıştırılmalıdır.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File agent\tests\E2E\windows-e2e.ps1 -AgentDir publish\SinavAjan
+    powershell -ExecutionPolicy Bypass -File agent\tests\E2E\windows-e2e.ps1 -AgentDir publish
 #>
 [CmdletBinding()]
 param(
@@ -32,6 +33,15 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $AgentDir = (Resolve-Path $AgentDir).Path
+# The student gets ONE file. It is run from a folder whose name has Turkish letters and a
+# space, like a real student's "Masaüstü".
+$studentDesk = Join-Path ([IO.Path]::GetTempPath()) 'Öğrenci Şule\Masaüstü'
+if (Test-Path $studentDesk) { Remove-Item -Recurse -Force $studentDesk }
+New-Item -ItemType Directory -Force -Path $studentDesk | Out-Null
+Copy-Item -LiteralPath (Join-Path $AgentDir 'SinavAjan.exe') -Destination $studentDesk
+$AgentDir = $studentDesk
+# Where the agent unpacks the ffmpeg it carries inside itself.
+$unpackedFfmpeg = Join-Path $env:LOCALAPPDATA 'SinavAjan\ffmpeg.exe'
 if (-not $OutDir) { $OutDir = Join-Path $root 'e2e-out' }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $OutDir = (Resolve-Path $OutDir).Path
@@ -676,6 +686,19 @@ klasorler:
     $ffmpegIds = @($ffmpeg | ForEach-Object { "$($_.Id)" })
     $consoleWindows = @([Native]::Windows() | Where-Object { $ffmpegIds -contains $_.Split('|', 2)[0] })
     Check ($consoleWindows.Count -eq 0) 'ffmpeg görünür pencere açmıyor (öğrenci komut penceresi görmez)'
+    $agentFiles = @(Get-ChildItem -LiteralPath $AgentDir -File | ForEach-Object { $_.Name })
+    Check (($agentFiles -join ',') -eq 'SinavAjan.exe') "öğrencinin klasöründe tek dosya var: $($agentFiles -join ', ')"
+    Check (Test-Path -LiteralPath $unpackedFfmpeg) 'ffmpeg, SinavAjan.exe''nin içinden %LOCALAPPDATA%\SinavAjan altına açıldı'
+    if ($ffmpeg.Count -eq 1) { Check ($ffmpeg[0].Path -eq $unpackedFfmpeg) "çalışan ffmpeg o kopya: $($ffmpeg[0].Path)" }
+    # A running program can normally still be renamed (and then replaced); the agent holds
+    # the file so that it cannot.
+    $swapped = $false
+    try {
+        Move-Item -LiteralPath $unpackedFfmpeg -Destination ($unpackedFfmpeg + '.eski') -ErrorAction Stop
+        $swapped = $true
+        Move-Item -LiteralPath ($unpackedFfmpeg + '.eski') -Destination $unpackedFfmpeg -ErrorAction SilentlyContinue
+    } catch { }
+    Check (-not $swapped) 'ajan çalışırken ffmpeg kopyası yerinden oynatılamıyor (başka programla değiştirilemez)'
     Check ([bool](Wait-AgentText '^Bağlı — ekranınız aktarılıyor$' 10)) 'ajan ekranında "Bağlı — ekranınız aktarılıyor"'
     Check-PlainTexts 'bekleme ekranı'
     Check ($student -and (Get-Student $numara).status -ne 'lost') 'kutu kırmızı değil'
@@ -928,6 +951,7 @@ klasorler:
     Check $exited 'ajan teslimden sonra kapandı'
     Start-Sleep -Seconds 2
     Check (-not (Get-Process ffmpeg -ErrorAction SilentlyContinue)) 'ajan kapanınca ffmpeg.exe de kapandı'
+    Check (-not (Test-Path -LiteralPath $unpackedFfmpeg)) 'ajan kapanınca ffmpeg kopyası silindi'
     $submitted = Join-Path $submissionsDir '2021001_SukruCagriIsik.pka'
     Check (Test-Path $submitted) 'teslim dosyası sınav klasöründeki "Teslimler"e Türkçe karakterler çevrilerek kaydedildi (2021001_SukruCagriIsik.pka)'
     if (Test-Path $submitted) {
@@ -978,6 +1002,9 @@ klasorler:
     Check (-not (Get-Service | Where-Object { $_.Name -match 'Sinav' -or $_.DisplayName -match 'Sinav' })) 'ajana ait servis yok'
     Check (-not (Get-ScheduledTask | Where-Object { $_.TaskName -match 'Sinav' })) 'ajana ait zamanlanmış görev yok'
     Check (-not (Get-Process SinavAjan -ErrorAction SilentlyContinue)) 'SinavAjan.exe çalışmıyor'
+    Check (-not (Test-Path -LiteralPath $unpackedFfmpeg)) 'ffmpeg kopyası kalmadı'
+    $agentFiles = @(Get-ChildItem -LiteralPath $AgentDir -File | ForEach-Object { $_.Name })
+    Check (($agentFiles -join ',') -eq 'SinavAjan.exe') "öğrencinin klasöründe hâlâ tek dosya var: $($agentFiles -join ', ')"
     Check (Test-Path $pka) 'öğrencinin indirdiği dosya yerinde duruyor (silinmiyor)'
     Write-Host "  $localDir içeriği:"
     Get-ChildItem -Recurse -File $localDir | ForEach-Object { Write-Host "    $($_.FullName.Substring($localDir.Length + 1))  ($($_.Length) bayt)" }
@@ -995,6 +1022,9 @@ klasorler:
     $killedAt = Get-Date
     $ffmpegGone = Wait-Until { -not (Get-Process ffmpeg -ErrorAction SilentlyContinue) } 5 200
     Check ([bool]$ffmpegGone) 'ajan sonlandırıldıktan sonra ffmpeg.exe kalmadı'
+    # A killed agent cannot tidy up; the next start clears the leftover copy (checked below:
+    # the following students stream again, and nothing is left at the end).
+    Write-Host "  zorla sonlandırma sonrası ffmpeg kopyası duruyor mu: $(Test-Path -LiteralPath $unpackedFfmpeg)"
     $lost = Wait-Until { $s = Get-Student $second; if ($s -and $s.status -eq 'lost') { $s } } 16 500
     Check ([bool]$lost) ("kutu kırmızıya döndü ({0:N0} sn sonra)" -f ((Get-Date) - $killedAt).TotalSeconds)
 
@@ -1165,6 +1195,7 @@ klasorler:
     $secondLog = Join-Path $secondFolder 'olay-kaydi.csv'
     Check ((Test-Path $secondLog) -and ((Get-Content $secondLog -Raw -Encoding UTF8) -match 'Sistem kapatıldı')) 'olay kaydında "Sistem kapatıldı"'
     Check (-not (Get-Process ffmpeg -ErrorAction SilentlyContinue)) 'ffmpeg.exe kalmadı'
+    Check (-not (Test-Path -LiteralPath $unpackedFfmpeg)) 'ffmpeg kopyası kalmadı (zorla sonlandırmadan kalan da temizlendi)'
 }
 catch {
     Write-Host ''

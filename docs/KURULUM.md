@@ -24,8 +24,8 @@ Sınavdan önce yapılacak deneme: [PROVA.md](PROVA.md).
 4. **Sınıf adını ve adınızı yazın.** Panelin sol üstündeki **Düzenle**'ye basın. Öğrenciler
    doğru sınıfa bağlandıklarını bu addan anlar; her sınıfta farklı olmalıdır.
 5. **Öğrenci programını indirin.** GitHub sayfasında **Actions → build-agent →** en üstteki
-   yeşil satır **→** sayfanın altında **Artifacts → SinavAjan-win-x64**. İnen zip'i
-   öğrencilere dağıtın. (Adını `SinavAjan.zip` yapıp `dist` klasörüne koyarsanız öğrenciler
+   yeşil satır **→** sayfanın altında **Artifacts → SinavAjan.exe**. Öğrencilere yalnızca bu
+   dosyayı gönderin; başka bir şey gerekmez. (`dist` klasörüne koyarsanız öğrenciler
    sınav günü sınıf ağından da indirebilir.)
 6. **Modemi kontrol edin.** Sizin ve öğrencilerin bilgisayarı aynı modeme bağlı olmalıdır.
    Modemde cihazların birbirini görmesini engelleyen ayar (“AP izolasyonu”) kapalı olmalıdır.

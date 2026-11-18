@@ -34,7 +34,70 @@
     <!-- tests/ ayrı bir projedir; ana projeye derlenmez. -->
     <Compile Remove="tests/**" />
     <None Remove="tests/**" />
-    <None Update="agent.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- agent.json isteğe bağlıdır (varsayılanlar kodda); öğrenciye giden pakete konmaz. -->
+    <None Update="agent.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
   </ItemGroup>
+
+  <!-- ====================================================================================
+       Öğrenciye TEK DOSYA gider: SinavAjan.exe.
+
+       1) ffmpeg.exe gzip ile sıkıştırılıp SinavAjan.exe'nin içine gömülür; ajan çalışırken
+          %LOCALAPPDATA%\SinavAjan\ altına açar, kapanırken siler (Core\FfmpegProvider.cs).
+          Varsayılan kaynak scripts\fetch-ffmpeg.ps1'in indirdiği agent\ffmpeg.exe'dir; başka
+          bir dosya için -p:FfmpegExe=... verin. Dosya yoksa gömülmez; ajan o zaman kendi
+          klasöründeki ffmpeg.exe'yi kullanır (geliştirme).
+       2) WindowsDesktop çalışma zamanı paketi WPF'in yerel kitaplıklarını da getirir
+          (wpfgfx_cor3.dll vb.). WinForms bunları kullanmaz; çıkarılmazlarsa SinavAjan.exe'nin
+          yanında ayrı dosyalar olarak dururlar.
+       ==================================================================================== -->
+  <PropertyGroup>
+    <FfmpegExe Condition="'$(FfmpegExe)' == ''">$(MSBuildProjectDirectory)\ffmpeg.exe</FfmpegExe>
+  </PropertyGroup>
+
+  <UsingTask TaskName="GZipFile" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Source ParameterType="System.String" Required="true" />
+      <Destination ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.IO.Compression" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        using (var input = File.OpenRead(Source))
+        using (var output = File.Create(Destination))
+        using (var gzip = new GZipStream(output, CompressionLevel.Optimal))
+        {
+            input.CopyTo(gzip);
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="GzipFfmpeg" Condition="Exists('$(FfmpegExe)')"
+          Inputs="$(FfmpegExe)" Outputs="$(IntermediateOutputPath)ffmpeg.exe.gz">
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <Message Importance="high" Text="ffmpeg.exe gömülüyor: $(FfmpegExe)" />
+    <GZipFile Source="$(FfmpegExe)" Destination="$(IntermediateOutputPath)ffmpeg.exe.gz" />
+  </Target>
+
+  <Target Name="EmbedFfmpeg" BeforeTargets="BeforeBuild" DependsOnTargets="GzipFfmpeg">
+    <ItemGroup Condition="Exists('$(FfmpegExe)')">
+      <EmbeddedResource Include="$(IntermediateOutputPath)ffmpeg.exe.gz" LogicalName="ffmpeg.exe.gz"
+                        Type="Non-Resx" WithCulture="false" />
+    </ItemGroup>
+    <Warning Condition="!Exists('$(FfmpegExe)')"
+             Text="ffmpeg.exe bulunamadı ($(FfmpegExe)); SinavAjan.exe'ye gömülmedi. Önce scripts\fetch-ffmpeg.ps1 çalıştırın." />
+  </Target>
+
+  <Target Name="DropWpfNativeLibraries" AfterTargets="ResolveRuntimePackAssets">
+    <ItemGroup>
+      <_WpfNativeLibrary Include="@(RuntimePackAsset)"
+                         Condition="'%(RuntimePackAsset.AssetType)' == 'native' and $([System.String]::new('%(RuntimePackAsset.Filename)').EndsWith('_cor3'))" />
+      <!-- Hem yayın listesinden hem bağımlılık dökümünden (deps.json) çıkar. -->
+      <RuntimePackAsset Remove="@(_WpfNativeLibrary)" />
+      <ReferenceCopyLocalPaths Remove="@(_WpfNativeLibrary)" />
+    </ItemGroup>
+  </Target>
 
 </Project>

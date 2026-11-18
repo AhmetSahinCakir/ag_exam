@@ -194,7 +194,7 @@ def describe_agent_event(kind: str, d: dict[str, Any]) -> tuple[str, bool, bool,
         reason = _clean(d.get("reason"), 160)
         return INFO, False, False, "Ekran yayını yeniden başlatıldı" + (f" ({reason})" if reason else "")
     if kind == "ffmpeg_missing":
-        return CRITICAL, True, True, "ffmpeg.exe bulunamadı veya çalıştırılamadı — ekran yayını yok"
+        return CRITICAL, True, True, "Ekran aktarımı başlatılamadı (antivirüs engellemiş olabilir) — ekran yayını yok"
     if kind == "reconnect":
         seconds = d.get("seconds")
         extra = f" ({int(seconds)} sn kesinti)" if isinstance(seconds, (int, float)) else ""

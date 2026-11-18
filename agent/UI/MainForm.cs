@@ -19,6 +19,7 @@ public sealed class MainForm : Form
     private static readonly Regex NumaraPattern = new("^[A-Za-z0-9]{1,20}$", RegexOptions.CultureInvariant);
 
     private readonly AgentConfig _config;
+    private readonly FfmpegProvider _ffmpeg;
     private readonly TableLayoutPanel _frame;
     private readonly System.Windows.Forms.Timer _uiTimer = new() { Interval = 500 };
 
@@ -43,9 +44,10 @@ public sealed class MainForm : Form
     private Button? _downloadButton;
     private string _downloadButtonText = "";
 
-    public MainForm(AgentConfig config)
+    public MainForm(AgentConfig config, FfmpegProvider ffmpeg)
     {
         _config = config;
+        _ffmpeg = ffmpeg;
         Text = AppTitle;
         Font = Theme.Regular(10F);
         ForeColor = Theme.Text;
@@ -425,7 +427,7 @@ public sealed class MainForm : Form
     private void StartSession(LoginRequest request, LoginResponse session)
     {
         LocalLog.Write($"giriş yapıldı: {session.Student.Numara} @ {_server!.Key}");
-        _controller = new ExamController(_api!, _config, request, session);
+        _controller = new ExamController(_api!, _config, request, session, _ffmpeg);
         _controller.Changed += RefreshUi;
         _controller.Notice += (title, text, seconds) => ToastForm.ShowNotice(title, text, ToastTone.Warning, seconds);
         _controller.Finished += OnFinished;

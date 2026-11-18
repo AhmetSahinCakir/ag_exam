@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -34,6 +35,7 @@ internal static class Program
         TurkishCultureTests();
         EnforcementTests();
         FfmpegTests();
+        FfmpegProviderTests();
         DiscoveryParseTests();
         SubmissionRuleTests();
 
@@ -204,6 +206,118 @@ internal static class Program
         Equal(0, CountEvents(r, "monitor_change"), "değişmedikçe tekrar yok");
         r = monitors.Evaluate(new DesktopSnapshot(ptFg, new[] { ptWindow }, 1), policy, 5, T(2));
         Equal(1, CountEvents(r, "monitor_change"), "monitör sayısı değişti: uyarı");
+    }
+
+    private static void FfmpegProviderTests()
+    {
+        Console.WriteLine("gömülü ffmpeg");
+        var root = Path.Combine(Path.GetTempPath(), "sinavajan-test-" + Guid.NewGuid().ToString("N"));
+        var agentDir = Path.Combine(root, "Öğrenci Şule", "Masaüstü");
+        var unpackDir = Path.Combine(root, "Yerel Veri", "SinavAjan");
+        Directory.CreateDirectory(agentDir);
+        try
+        {
+            var payload = new byte[300_000];
+            new Random(7).NextBytes(payload);
+            byte[] packed;
+            using (var buffer = new MemoryStream())
+            {
+                using (var gzip = new GZipStream(buffer, CompressionLevel.Fastest, leaveOpen: true))
+                {
+                    gzip.Write(payload);
+                }
+                packed = buffer.ToArray();
+            }
+
+            // Nothing embedded (development build): ffmpeg.exe is expected next to the agent.
+            var beside = Path.Combine(agentDir, "ffmpeg.exe");
+            using (var plain = new FfmpegProvider(agentDir, unpackDir, () => null))
+            {
+                Check(!plain.Embedded, "gömülü kopya yokken Embedded yanlış");
+                Equal(beside, plain.FilePath, "gömülü kopya yokken ajanın klasörü kullanılır");
+                Check(plain.Ensure() != null, "ffmpeg.exe yokken sorun bildirilir");
+                File.WriteAllBytes(beside, payload);
+                Check(plain.Ensure() == null, "ffmpeg.exe varken hazır");
+            }
+            Check(File.Exists(beside), "gömülü değilken ajanın klasöründeki dosya silinmez");
+
+            // Embedded: leftovers of an earlier run are cleared, other files are left alone.
+            Directory.CreateDirectory(unpackDir);
+            var unpacked = Path.Combine(unpackDir, "ffmpeg.exe");
+            var log = Path.Combine(unpackDir, "ajan.log");
+            File.WriteAllBytes(unpacked, new byte[] { 1, 2, 3 });
+            File.WriteAllBytes(unpacked + ".tmp", new byte[] { 1 });
+            File.WriteAllText(log, "x");
+            var opened = 0;
+            var provider = new FfmpegProvider(agentDir, unpackDir, () =>
+            {
+                opened++;
+                return new MemoryStream(packed);
+            });
+            Check(provider.Embedded, "gömülü kopya varken Embedded doğru");
+            Equal(unpacked, provider.FilePath, "gömülü kopya %LOCALAPPDATA%\\SinavAjan altına açılır");
+            Check(!File.Exists(unpacked) && !File.Exists(unpacked + ".tmp"), "önceki çalışmadan kalan kopya silinir");
+            Check(File.Exists(log), "ajanın diğer dosyalarına dokunulmaz");
+
+            Check(provider.Ensure() == null, "gömülü kopya açılır");
+            Check(File.ReadAllBytes(unpacked).SequenceEqual(payload), "açılan dosya gömülü kopyayla aynı");
+            Check(!File.Exists(unpacked + ".tmp"), "geçici dosya kalmaz");
+            var before = opened;
+            Check(provider.Ensure() == null && opened == before, "hazırken yeniden açılmaz");
+
+            if (OperatingSystem.IsWindows())
+            {
+                // The agent keeps the file open: nobody else can replace or remove it.
+                var replaced = true;
+                try
+                {
+                    File.WriteAllBytes(unpacked, new byte[] { 9 });
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    replaced = false;
+                }
+                Check(!replaced, "ajan çalışırken kopya değiştirilemez");
+                var removed = true;
+                try
+                {
+                    File.Delete(unpacked);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    removed = false;
+                }
+                Check(!removed, "ajan çalışırken kopya silinemez");
+                Check(File.ReadAllBytes(unpacked).SequenceEqual(payload), "kopya değişmedi");
+            }
+            else
+            {
+                File.Delete(unpacked); // e.g. removed by an antivirus
+                Check(provider.Ensure() == null && File.Exists(unpacked), "silinen kopya yeniden açılır");
+            }
+
+            provider.Dispose();
+            Check(!File.Exists(unpacked), "kapanışta kopya silinir");
+            Check(provider.Ensure() != null, "kapandıktan sonra yeniden açılmaz");
+            Check(File.Exists(log), "kapanışta ajanın diğer dosyaları kalır");
+
+            // A broken embedded copy is reported, not run.
+            using (var broken = new FfmpegProvider(agentDir, unpackDir, () => new MemoryStream(new byte[] { 1, 2, 3, 4 })))
+            {
+                Check(broken.Ensure() != null, "bozuk kopya sorun olarak bildirilir");
+                Check(!File.Exists(broken.FilePath) && !File.Exists(broken.FilePath + ".tmp"), "bozuk kopyadan dosya oluşmaz");
+            }
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
     }
 
     private static void FfmpegTests()

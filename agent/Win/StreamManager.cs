@@ -17,6 +17,7 @@ public sealed class StreamManager : IDisposable
 
     private readonly object _gate = new();
     private readonly string _ffmpegPath;
+    private readonly Func<string?>? _prepare;
     private readonly JobObject _job = new();
     private readonly Queue<string> _stderr = new();
 
@@ -36,7 +37,16 @@ public sealed class StreamManager : IDisposable
     /// <summary>ffmpeg.exe is missing or cannot be executed. Raised once.</summary>
     public event Action<string>? Missing;
 
-    public StreamManager(string ffmpegPath) => _ffmpegPath = ffmpegPath;
+    /// <param name="ffmpegPath">Full path of ffmpeg.exe.</param>
+    /// <param name="prepare">
+    /// Called before every start; puts ffmpeg.exe in place if needed. Returns null when the
+    /// file is ready, otherwise what went wrong.
+    /// </param>
+    public StreamManager(string ffmpegPath, Func<string?>? prepare = null)
+    {
+        _ffmpegPath = ffmpegPath;
+        _prepare = prepare;
+    }
 
     /// <summary>True while ffmpeg runs and frames are actually going out.</summary>
     public bool IsAlive
@@ -159,6 +169,12 @@ public sealed class StreamManager : IDisposable
     private bool TryStartProcess()
     {
         _lastStartUtc = DateTime.UtcNow;
+        var problem = _prepare?.Invoke();
+        if (problem != null)
+        {
+            ReportMissing(problem);
+            return false;
+        }
         if (!File.Exists(_ffmpegPath))
         {
             ReportMissing($"bulunamadı: {_ffmpegPath}");

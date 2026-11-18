@@ -9,8 +9,8 @@ aktarır, sınav dosyasını indirmenizi ve sonunda dosyanızı teslim etmenizi 
 2. **Packet Tracer kurulu olsun ve hesabınızla giriş yapmış olun.** Giriş ekranında
    **“Keep me logged in”** seçeneğini açın. Sınav salonunda internet yoktur; ilk girişinizi
    orada yapamazsınız.
-3. **`SinavAjan.zip` dosyasını edinin.** Zip'e sağ tıklayın → **Tümünü ayıkla**. Açılan
-   `SinavAjan` klasöründeki dosyaların hepsi birlikte durmalıdır.
+3. **`SinavAjan.exe` dosyasını edinin** ve kolay bulacağınız bir yere (ör. Masaüstü)
+   kaydedin. Tek dosyadır; kurulum gerekmez.
 
 ## Sınav günü
 
@@ -74,11 +74,13 @@ etmediyseniz dosyanız teslim edilmemiş olur.
 Doğru Wi-Fi ağına bağlı olduğunuza bakıp **Tekrar dene**'ye basın. Olmazsa size söylenen
 adresi alttaki kutuya yazıp **Bağlan**'a basın.
 
-**“Ekran aktarımı başlatılıyor…” yazısı gitmiyor.**
-Antivirüsünüz programı engellemiş olabilir. Antivirüsü kapatmayın; `SinavAjan` klasörünü
-antivirüsün “dışlamalar / istisnalar” listesine ekleyin. Windows Güvenliği için:
-**Başlat → Windows Güvenliği → Virüs ve tehdit koruması → Ayarları yönet → Dışlamalar →
-Dışlama ekle → Klasör.** Dosya silindiyse zip'i yeniden ayıklayın.
+**“Ekran aktarımı başlatılamadı” uyarısı çıktı ya da “Ekran aktarımı başlatılıyor…” yazısı
+gitmiyor.**
+Antivirüsünüz programı engellemiş olabilir. Antivirüsü kapatmayın; `SinavAjan.exe` dosyasını
+ve `%LOCALAPPDATA%\SinavAjan` klasörünü antivirüsün “dışlamalar / istisnalar” listesine
+ekleyip programı yeniden açın. Windows Güvenliği için: **Başlat → Windows Güvenliği → Virüs
+ve tehdit koruması → Ayarları yönet → Dışlamalar → Dışlama ekle.** `SinavAjan.exe`
+silindiyse dosyayı yeniden edinin.
 
 **Packet Tracer giriş istiyor.**
 Sınav başladıktan sonra tarayıcı açılamaz. Bu yüzden girişi sınav başlamadan yapın ve
@@ -99,7 +101,8 @@ Yalnızca giriş yaptığınız andan teslim edene ya da programı kapatana kada
 - Açık olan pencerenin adı, bilgisayarınızın adı ve ağ adresi kaydedilir.
 - Sınav başladıktan sonra izin verilmeyen programlar kapatılır.
 - Teslim ederken **sizin seçtiğiniz** dosya gönderilir; başka hiçbir dosyanız okunmaz.
+- Ekran aktarımı için bir yardımcı dosya geçici olarak açılır; program kapanırken silinir.
 
 Program kurulum yapmaz, Windows ile birlikte açılmaz, kamera ve mikrofonu kullanmaz.
-Kapandıktan sonra hiçbir şey çalışmaya devam etmez. İşiniz bitince `SinavAjan` klasörünü
+Kapandıktan sonra hiçbir şey çalışmaya devam etmez. İşiniz bitince `SinavAjan.exe` dosyasını
 silebilirsiniz.

@@ -942,3 +942,22 @@ def test_texts_for_students_do_not_mention_the_teacher(env: Env):
     refused = env.student().post("/panel/api/end", headers=PANEL).json()["error"]
     for text in (body["error"], refused):
         assert "ğretmen" not in text, text
+
+
+def test_student_program_is_one_file_that_can_be_downloaded_from_the_server(env: Env):
+    student = env.student()
+    page = student.get("/")
+    assert page.status_code == 200
+    assert "dağıtılmıyor" in page.text and "/indir/" not in page.text
+    assert student.get("/indir/SinavAjan.exe").status_code == 404
+
+    env.cfg.dir_dist.mkdir(parents=True, exist_ok=True)
+    (env.cfg.dir_dist / "SinavAjan.exe").write_bytes(b"MZ" + b"x" * 5000)
+    page = student.get("/")
+    assert '/indir/SinavAjan.exe' in page.text
+    assert "Yönetici olarak çalıştır" in page.text
+    assert "zip" not in page.text.lower() and "ayıkla" not in page.text.lower()
+    download = student.get("/indir/SinavAjan.exe")
+    assert download.status_code == 200
+    assert download.content == b"MZ" + b"x" * 5000
+    assert 'filename="SinavAjan.exe"' in download.headers["content-disposition"]

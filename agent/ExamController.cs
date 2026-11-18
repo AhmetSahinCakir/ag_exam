@@ -137,19 +137,20 @@ public sealed class ExamController : IDisposable
     private const int NoticeSeconds = 7;
     public event Action<FinishInfo>? Finished;
 
-    public ExamController(ApiClient api, AgentConfig config, LoginRequest login, LoginResponse session)
+    public ExamController(ApiClient api, AgentConfig config, LoginRequest login, LoginResponse session,
+        FfmpegProvider ffmpeg)
     {
         _api = api;
         _config = config;
         _login = login;
         _session = session;
         _settings = session.Settings;
-        _ffmpegPath = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe");
+        _ffmpegPath = ffmpeg.FilePath;
         _windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         _policy = BuildPolicy(session.Allowlist);
         _submittedSha = session.Student.LastSha256 ?? "";
         _events = new EventQueue(api);
-        _stream = new StreamManager(_ffmpegPath);
+        _stream = new StreamManager(_ffmpegPath, ffmpeg.Ensure);
     }
 
     private Policy BuildPolicy(PolicyDto dto) =>
@@ -527,7 +528,7 @@ public sealed class ExamController : IDisposable
         if (Phase == Phase.Finished) return;
         _events.Enqueue("ffmpeg_missing", new Dictionary<string, object?> { ["reason"] = reason });
         Notice?.Invoke("Ekran aktarımı başlatılamadı",
-            "ffmpeg.exe dosyası SinavAjan.exe ile aynı klasörde olmalı.", NoticeSeconds);
+            "Antivirüs programınız engellemiş olabilir. Sınavı yapan kişiye haber verin.", 12);
     }
 
     // ------------------------------------------------------------------- submit

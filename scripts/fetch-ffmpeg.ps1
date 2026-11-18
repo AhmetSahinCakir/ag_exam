@@ -1,7 +1,8 @@
 ﻿<#
 .SYNOPSIS
     ffmpeg.exe dosyasını indirir. Öğrenci ajanı (SinavAjan.exe) ekranı ffmpeg ile yayınlar;
-    ffmpeg.exe depoya konmaz, bu betikle indirilir ve ajanın yanına yerleştirilir.
+    ffmpeg.exe depoya konmaz, bu betikle agent\ klasörüne indirilir ve derleme sırasında
+    SinavAjan.exe'nin içine gömülür (öğrenciye tek dosya gider).
 
 .DESCRIPTION
     Sürüm sabittir (aşağıdaki $Version). İndirilen arşivin SHA-256 özeti doğrulanır.
@@ -9,7 +10,7 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\fetch-ffmpeg.ps1
-    powershell -ExecutionPolicy Bypass -File scripts\fetch-ffmpeg.ps1 -OutDir publish\SinavAjan
+    powershell -ExecutionPolicy Bypass -File scripts\fetch-ffmpeg.ps1 -OutDir baska\klasor
 #>
 [CmdletBinding()]
 param(
@@ -21,8 +22,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Varsayılan klasör burada hesaplanır, param() içinde değil: Windows PowerShell 5.1'de
-# param() varsayılanı hesaplanırken $PSScriptRoot boş gelebiliyor.
+# Varsayılan klasör burada hesaplanır, param() içinde değil: Windows PowerShell 5.1,
+# -File ile çalıştırılan betikte param() varsayılanlarını hesaplarken $PSScriptRoot'u boş
+# verir (gövdede doludur).
 if (-not $OutDir) {
     $here = $PSScriptRoot
     if (-not $here) { $here = Split-Path -Parent $MyInvocation.MyCommand.Path }
