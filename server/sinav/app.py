@@ -89,7 +89,7 @@ def create_app(cfg: Config) -> FastAPI:
                 if wanted != store.recording_applied:
                     await asyncio.to_thread(set_recording, cfg.mediamtx_api, wanted)
                     store.recording_applied = wanted
-                    log.info("Ekran kaydı: %s", wanted or "kapalı (sınav klasörü seçilmedi)")
+                    log.info("Ekran kaydı: %s", wanted or "kapalı")
             except Exception:  # noqa: BLE001 - MediaMTX not running / restarting
                 store.mediamtx_down()
                 store.recording_applied = None  # a restarted MediaMTX has forgotten the folder
