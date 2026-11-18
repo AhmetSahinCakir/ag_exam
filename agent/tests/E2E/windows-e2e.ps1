@@ -61,6 +61,26 @@ public static class Native
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hwnd, StringBuilder name, int max);
+
+    // The standard message box (window class #32770) of a process, or zero.
+    public static IntPtr FindMessageBox(uint processId)
+    {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr hwnd, IntPtr lParam)
+        {
+            if (!IsWindowVisible(hwnd)) return true;
+            uint pid;
+            GetWindowThreadProcessId(hwnd, out pid);
+            if (pid != processId) return true;
+            var name = new StringBuilder(64);
+            GetClassName(hwnd, name, 64);
+            if (name.ToString() != "#32770") return true;
+            found = hwnd;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
 
@@ -258,10 +278,17 @@ function Click-Agent([string]$pattern, [double]$timeoutSec = 15) {
     Click-Element $button $pattern
 }
 
-# Message box buttons carry the OS language: "OK"/"Yes" or "Tamam"/"Evet".
-function Click-DialogButton([string]$namePattern, [double]$timeoutSec = 10) {
-    $button = Wait-Until { Find-Agent $namePattern $Types::Button } $timeoutSec
-    Click-Element $button "dialog $namePattern"
+# Answers the agent's message box with a dialog command (IDOK=1, IDCANCEL=2, IDYES=6).
+# Independent of the OS language and of how the buttons are exposed to UI Automation.
+function Answer-MessageBox([int[]]$commands, [double]$timeoutSec = 10) {
+    $dialog = Wait-Until { $h = [Native]::FindMessageBox([uint32]$script:agent.Id); if ($h -ne [IntPtr]::Zero) { $h } } $timeoutSec
+    if (-not $dialog) { throw 'İleti kutusu bulunamadı.' }
+    foreach ($command in $commands) {
+        [Native]::PostMessage($dialog, 0x0111, [IntPtr]$command, [IntPtr]::Zero) | Out-Null
+        $closed = Wait-Until { [Native]::FindMessageBox([uint32]$script:agent.Id) -ne $dialog } 2 150
+        if ($closed) { return }
+    }
+    throw "İleti kutusu kapatılamadı (komutlar: $($commands -join ', '))."
 }
 
 function Focus-Window([IntPtr]$hwnd, [int]$processId) {
@@ -499,7 +526,7 @@ klasorler:
     $notSaved = Wait-AgentText 'Ctrl\+S ile kaydedin' 8
     Check ([bool]$notSaved) 'kaydedilmemiş dosyada "Önce Packet Tracer''da Ctrl+S ile kaydedin." uyarısı'
     Shot 'kaydedilmedi'
-    Click-DialogButton '^(OK|Tamam)$'
+    Answer-MessageBox @(1, 2)   # OK
     Start-Sleep -Seconds 1
 
     [IO.File]::AppendAllText($pka, "`ncozum-$numara")   # "Ctrl+S": the file changes on disk
@@ -507,7 +534,7 @@ klasorler:
     Click-Agent '^Teslim et$'
     $confirm = Wait-AgentText 'Teslim etmek istediğinize emin misiniz' 8
     Check ([bool]$confirm) 'onay sorusu: "Teslim etmek istediğinize emin misiniz? …"'
-    Click-DialogButton '^(Yes|Evet)$'
+    Answer-MessageBox @(6)      # Yes
 
     $done = Wait-AgentText 'Teslim alındı' 20
     Check ([bool]$done) '"Teslim alındı" penceresi'
