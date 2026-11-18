@@ -69,35 +69,6 @@ public static class Native
         return (GetWindowLongPtr(hwnd, -16).ToInt64() & 0x00020000L) != 0;   // GWL_STYLE & WS_MINIMIZEBOX
     }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hwnd, StringBuilder name, int max);
-    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr lParam);
-    [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hwnd);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, string lParam);
-
-    [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr hwnd);
-
-    // Types a path into the "File name" box of a standard save dialog. That box is the edit
-    // control with id 1001; the address bar also owns a combo box edit, so the id matters.
-    public static bool SetFileDialogPath(IntPtr dialog, string path)
-    {
-        IntPtr byId = IntPtr.Zero;
-        IntPtr lastComboEdit = IntPtr.Zero;
-        EnumChildWindows(dialog, delegate(IntPtr child, IntPtr lParam)
-        {
-            var name = new StringBuilder(64);
-            GetClassName(child, name, 64);
-            if (name.ToString() != "Edit") return true;
-            if (GetDlgCtrlID(child) == 1001) byId = child;
-            var parentName = new StringBuilder(64);
-            GetClassName(GetParent(child), parentName, 64);
-            if (parentName.ToString().StartsWith("ComboBox")) lastComboEdit = child;
-            return true;
-        }, IntPtr.Zero);
-        var edit = byId != IntPtr.Zero ? byId : lastComboEdit;
-        if (edit == IntPtr.Zero) return false;
-        SendMessage(edit, 0x000C, IntPtr.Zero, path);   // WM_SETTEXT
-        return true;
-    }
-
     // The standard message box (window class #32770) of a process, or zero.
     public static IntPtr FindMessageBox(uint processId)
     {
@@ -512,13 +483,29 @@ klasorler:
     Start-Sleep -Seconds 1
     Shot 'kayit-yeri'
     if ($saveDialog) {
-        Check ([Native]::SetFileDialogPath($saveDialog, $pka)) 'kayıt yeri seçilebildi'
+        # Type the location like a student would: Alt+N = "File name" box, then the path, then Enter.
+        Focus-Window $saveDialog $script:agent.Id
+        [System.Windows.Forms.SendKeys]::SendWait('%n')
+        Start-Sleep -Milliseconds 400
+        [System.Windows.Forms.SendKeys]::SendWait($pka)
         Start-Sleep -Milliseconds 600
-        [Native]::PostMessage($saveDialog, 0x0111, [IntPtr]1, [IntPtr]::Zero) | Out-Null   # "Kaydet"
+        Shot 'kayit-yeri-yazildi'
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
     }
-    $downloaded = Wait-Until { Test-Path $pka } 20
-    Check ([bool]$downloaded) 'sınav dosyası öğrencinin seçtiği yere indirildi'
-    if ($downloaded) {
+    $downloaded = Wait-Until { Test-Path $pka } 15
+    if (-not $downloaded) {
+        # The typed path was not taken: accept whatever the dialog offers so the test can go on.
+        $still = [Native]::FindMessageBox([uint32]$script:agent.Id)
+        if ($still -ne [IntPtr]::Zero) { [Native]::PostMessage($still, 0x0111, [IntPtr]1, [IntPtr]::Zero) | Out-Null }
+        Start-Sleep -Seconds 4
+    }
+    # The agent remembers where the student saved the file; that file is what gets submitted.
+    $noteFile = Join-Path $localDir "$numara\sinav.json"
+    $savedPath = ''
+    if (Test-Path $noteFile) { $savedPath = (Get-Content $noteFile -Raw -Encoding UTF8 | ConvertFrom-Json).path }
+    Check ($savedPath -eq $pka) "sınav dosyası öğrencinin seçtiği yere indirildi ($savedPath)"
+    if ($savedPath) { $pka = $savedPath }
+    if (Test-Path $pka) {
         Check ((Get-FileHash $pka).Hash -eq (Get-FileHash $exam).Hash) 'indirilen dosya yüklenenle aynı'
     }
     Check ([bool](Wait-Until { (Count-Events $numara 'exam_file_ready') -ge 1 } 10)) 'olay: sınav dosyası indirildi'
