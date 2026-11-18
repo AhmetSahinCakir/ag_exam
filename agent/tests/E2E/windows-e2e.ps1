@@ -73,21 +73,26 @@ public static class Native
     [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hwnd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, string lParam);
 
-    // Types a path into the "File name" box of a standard save dialog.
+    [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr hwnd);
+
+    // Types a path into the "File name" box of a standard save dialog. That box is the edit
+    // control with id 1001; the address bar also owns a combo box edit, so the id matters.
     public static bool SetFileDialogPath(IntPtr dialog, string path)
     {
-        IntPtr edit = IntPtr.Zero;
+        IntPtr byId = IntPtr.Zero;
+        IntPtr lastComboEdit = IntPtr.Zero;
         EnumChildWindows(dialog, delegate(IntPtr child, IntPtr lParam)
         {
             var name = new StringBuilder(64);
             GetClassName(child, name, 64);
             if (name.ToString() != "Edit") return true;
+            if (GetDlgCtrlID(child) == 1001) byId = child;
             var parentName = new StringBuilder(64);
             GetClassName(GetParent(child), parentName, 64);
-            if (!parentName.ToString().StartsWith("ComboBox")) return true;
-            edit = child;
-            return false;
+            if (parentName.ToString().StartsWith("ComboBox")) lastComboEdit = child;
+            return true;
         }, IntPtr.Zero);
+        var edit = byId != IntPtr.Zero ? byId : lastComboEdit;
         if (edit == IntPtr.Zero) return false;
         SendMessage(edit, 0x000C, IntPtr.Zero, path);   // WM_SETTEXT
         return true;
