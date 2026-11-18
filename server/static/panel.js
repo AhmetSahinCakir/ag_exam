@@ -339,7 +339,7 @@ function warningAlerts() {
   return S.alerts.filter((alert) => alert.severity !== 'info');
 }
 
-/* Öğretmen "görüldü" dedikten sonra gelen uyarılar görülmemiş sayılır. */
+/* "Görüldü" denildikten sonra gelen uyarılar görülmemiş sayılır. */
 function isUnseen(alert) {
   if (!alert.numara) return alert.id > (S.general_ack_id || 0);
   const st = byNumara.get(alert.numara);
@@ -1258,7 +1258,7 @@ function bindDialogs() {
         json: { sinif_adi: $('identityClass').value, ogretmen_adi: $('identityTeacher').value },
       });
       closeDialogs();
-      toast('Sınıf ve öğretmen adı güncellendi.');
+      toast('Sınıf bilgileri güncellendi.');
     } catch (error) {
       toast(error.message, true);
     }

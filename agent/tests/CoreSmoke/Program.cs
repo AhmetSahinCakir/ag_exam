@@ -268,10 +268,13 @@ internal static class Program
         var lateAnswer = JsonSerializer.Deserialize<SubmitResponse>("{\"sha256\":\"ab\",\"filename\":\"1_A.pka\",\"late\":true}")!;
         Check(lateAnswer.Late && !JsonSerializer.Deserialize<SubmitResponse>("{\"sha256\":\"ab\"}")!.Late, "teslim yanıtındaki 'late' (geç teslim) alanı okunuyor");
         Check(status.EndsAt == 0 && status.ScheduledAt == 0, "süre ve planlama yoksa 0");
-        Equal("Kalan süre: 34 dk", ExamClock.Remaining(33 * 60 + 1), "kalan süre dakikaya yukarı yuvarlanır");
-        Equal("Kalan süre: 1 dk", ExamClock.Remaining(60), "son dakika");
-        Equal("Kalan süre: 1 dakikadan az", ExamClock.Remaining(59), "bir dakikadan az");
-        Equal("Kalan süre: 1 sa 5 dk", ExamClock.Remaining(65 * 60), "bir saatten uzun süre");
+        Equal("Kalan süre: 34:12", ExamClock.Remaining(34 * 60 + 11.2), "geri sayım dakika:saniye");
+        Equal("Kalan süre: 1:00", ExamClock.Remaining(60), "son dakika");
+        Equal("Kalan süre: 0:07", ExamClock.Remaining(6.5), "son saniyeler");
+        Equal("Kalan süre: 0:00", ExamClock.Remaining(-3), "süre bittiğinde eksiye düşmez");
+        Equal("Kalan süre: 1:05:09", ExamClock.Remaining(65 * 60 + 9), "bir saatten uzun süre");
+        Check(!ExamClock.InLastMinutes(601) && ExamClock.InLastMinutes(600) && ExamClock.InLastMinutes(12), "son 10 dakika sınırı");
+        Equal("Sınıf: B-102", new ServerInfo { SinifAdi = "B-102" }.Display, "ad yazılmamışsa yalnızca sınıf gösterilir");
     }
 
     private static void DiscoveryParseTests()
@@ -282,7 +285,7 @@ internal static class Program
         var info = Discovery.Parse(Encoding.UTF8.GetBytes(json), sender);
         Equal("192.168.2.10", info?.Host, "sunucu adresi");
         Equal(8000, info?.Port ?? 0, "port");
-        Equal("Sınıf: B-102 — Öğretmen: Ayşe Öğretmen", info?.Display, "gösterim metni");
+        Equal("Sınıf: B-102 — Ayşe Öğretmen", info?.Display, "gösterim metni");
         Equal("", info?.InstanceId, "kimliksiz (eski) yanıt");
         Check(Discovery.Parse(Encoding.UTF8.GetBytes("çöp"), sender) == null, "bozuk yanıt yok sayılır");
 

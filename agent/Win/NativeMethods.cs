@@ -23,6 +23,40 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
 
+    public const uint FLASHW_ALL = 0x00000003;
+    public const uint FLASHW_TIMERNOFG = 0x0000000C;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FLASHWINFO
+    {
+        public uint cbSize;
+        public IntPtr hwnd;
+        public uint dwFlags;
+        public uint uCount;
+        public uint dwTimeout;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool FlashWindowEx(ref FLASHWINFO info);
+
+    /// <summary>
+    /// Asks for attention the quiet way: the window's taskbar button blinks until the user
+    /// opens the window. The window is not brought to the front and takes no focus.
+    /// </summary>
+    public static void FlashTaskbar(IntPtr window)
+    {
+        var info = new FLASHWINFO
+        {
+            cbSize = (uint)Marshal.SizeOf<FLASHWINFO>(),
+            hwnd = window,
+            dwFlags = FLASHW_ALL | FLASHW_TIMERNOFG,
+            uCount = uint.MaxValue,
+            dwTimeout = 0,
+        };
+        FlashWindowEx(ref info);
+    }
+
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 

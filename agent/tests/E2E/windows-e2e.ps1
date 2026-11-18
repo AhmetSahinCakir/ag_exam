@@ -14,7 +14,8 @@
       denetimi -> elle konan dosyanın teslim sayılması -> ajanın kapanması ve iz bırakmaması
       -> ajan zorla sonlandırıldığında ffmpeg'in de kapanması (Job Object)
       -> ek süre -> sınav bitince programın kapanmaması ve geç teslim -> öğrenci başına uyarı
-      dosyaları -> panel penceresi kapanınca çıkan soru ve "Sistemi kapat"
+      dosyaları -> son 10 dakika uyarısı -> panel penceresi kapanınca sistemin kendiliğinden
+      kapanması (öğrenci bağlıyken bekleme süresi içinde yeniden açılırsa kapanmaması)
 
     Yönetici olarak ve etkileşimli bir masaüstü oturumunda çalıştırılmalıdır.
 
@@ -97,6 +98,11 @@ public static class Native
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+
+    public static bool IsTopMost(IntPtr hwnd)
+    {
+        return (GetWindowLongPtr(hwnd, -20).ToInt64() & 0x00000008L) != 0;   // GWL_EXSTYLE & WS_EX_TOPMOST
+    }
 
     public static bool HasMinimizeBox(IntPtr hwnd)
     {
@@ -455,9 +461,18 @@ function Get-AgentWindowHandle([string]$titlePattern) {
     return [IntPtr]::Zero
 }
 
-function Remaining-Minutes {
-    foreach ($text in (Agent-Texts)) { if ($text -match '^Kalan süre: (\d+) dk$') { return [int]$Matches[1] } }
+# The student's countdown ("Kalan süre: 29:41") in seconds; -1 when no time limit is shown.
+function Remaining-Seconds {
+    foreach ($text in (Agent-Texts)) {
+        if ($text -match '^Kalan süre: (\d+):(\d\d)$') { return [int]$Matches[1] * 60 + [int]$Matches[2] }
+    }
     return -1
+}
+
+# Nothing the student sees mentions the teacher.
+function Check-PlainTexts([string]$where) {
+    $found = @(Agent-Texts | Where-Object { $_ -match 'ğretmen' -and $_ -notmatch '^Dr\. Işıl Öztürk$' })
+    Check ($found.Count -eq 0) "$where`: öğrenciye gösterilen metinlerde \"öğretmen\" kelimesi yok $($found -join ' | ')"
 }
 
 function Dump-Events {
@@ -483,7 +498,8 @@ function Login-Agent([string]$numara, [string]$ad, [string]$soyad) {
     }
     $texts = Agent-Texts
     Check ([bool]($texts | Where-Object { $_ -eq 'Sınıf: CI-101' })) 'keşif: sınıf adı büyük harflerle gösteriliyor (Sınıf: CI-101)'
-    Check ([bool]($texts | Where-Object { $_ -eq 'Öğretmen: E2E Öğretmen' })) 'keşif: öğretmen adı gösteriliyor (Türkçe karakterler doğru)'
+    Check ([bool]($texts | Where-Object { $_ -eq 'Dr. Işıl Öztürk' })) 'keşif: sınıfın altında ad soyad gösteriliyor (Türkçe karakterler doğru)'
+    Check-PlainTexts 'onay ekranı'
     Shot "onay-$numara"
     Click-Element $found 'Doğru'
 
@@ -518,7 +534,7 @@ try {
     $yaml = @"
 # Sınıf ve öğretmen adı aşağıda PANELDEN değiştirilir; ajanın bunları görmesi beklenir.
 sinif_adi: "AYAR-DOSYASI"
-ogretmen_adi: "Ayar Dosyası Öğretmeni"
+ogretmen_adi: "Ayar Dosyası Adı"
 yayin:
   kullanici: "sinavajan"
   sifre: "sinav-yayin-2026"
@@ -544,6 +560,9 @@ esikler:
   on_pencere_toleransi_sn: 5
   kopma_suresi_sn: 10
   kapatma_geri_sayim_sn: 4
+  # Panel penceresi kapanınca sistemin kapanmadan önce beklediği süreler (test için kısa).
+  panel_kapaninca_bekleme_sn: 3
+  ogrenci_bagliyken_bekleme_sn: 40
 klasorler:
   veri: '$OutDir\data'
   dagitim: '$OutDir\dist'
@@ -568,8 +587,8 @@ klasorler:
 
     # ------------------------------------------------------- panel: before the exam
     Step 'Panel: sınıf ve öğretmen adı'
-    $identity = Panel-Post '/panel/api/identity' (@{ sinif_adi = 'CI-101'; ogretmen_adi = 'E2E Öğretmen' } | ConvertTo-Json -Compress)
-    Check ($identity -match 'CI-101' -and $identity -match 'E2E Öğretmen') "sınıf ve öğretmen adı panelden değiştirildi ($identity)"
+    $identity = Panel-Post '/panel/api/identity' (@{ sinif_adi = 'CI-101'; ogretmen_adi = 'Dr. Işıl Öztürk' } | ConvertTo-Json -Compress)
+    Check ($identity -match 'CI-101' -and $identity -match 'Dr. Işıl Öztürk') "sınıf bilgileri panelden değiştirildi ($identity)"
     Check ((Curl-Text @('-m', '2', "$base/api/info")) -match 'CI-101') 'öğrencilerin gördüğü ad güncellendi (/api/info)'
 
     Step 'Panel: sınav klasörü'
@@ -657,7 +676,8 @@ klasorler:
     $ffmpegIds = @($ffmpeg | ForEach-Object { "$($_.Id)" })
     $consoleWindows = @([Native]::Windows() | Where-Object { $ffmpegIds -contains $_.Split('|', 2)[0] })
     Check ($consoleWindows.Count -eq 0) 'ffmpeg görünür pencere açmıyor (öğrenci komut penceresi görmez)'
-    Check ([bool](Wait-AgentText '^Bağlı — ekranınız öğretmene aktarılıyor$' 10)) 'ajan ekranında "Bağlı — ekranınız öğretmene aktarılıyor"'
+    Check ([bool](Wait-AgentText '^Bağlı — ekranınız aktarılıyor$' 10)) 'ajan ekranında "Bağlı — ekranınız aktarılıyor"'
+    Check-PlainTexts 'bekleme ekranı'
     Check ($student -and (Get-Student $numara).status -ne 'lost') 'kutu kırmızı değil'
     Shot 'bekleme'
 
@@ -700,7 +720,12 @@ klasorler:
     Shot 'geri-sayim'
     $running = Wait-AgentText '^Sınav sürüyor$' 20
     Check ([bool]$running) 'geri sayımdan sonra sınav paneli: "Sınav sürüyor"'
-    Check ([bool](Wait-AgentText '^Kalan süre: (29|30) dk$' 6)) 'süre verildiği için öğrenci panelinde kalan süre yazıyor ("Kalan süre: 30 dk")'
+    Check ([bool](Wait-AgentText '^Kalan süre: (29|30):\d\d$' 6)) 'süre verildiği için öğrenci panelinde geri sayım var ("Kalan süre: 29:55")'
+    $first = Remaining-Seconds
+    Start-Sleep -Seconds 3
+    $second = Remaining-Seconds
+    Check ($second -lt $first -and $second -ge $first - 6) "geri sayım saniye saniye ilerliyor ($first sn -> $second sn)"
+    Check-PlainTexts 'sınav paneli'
     Check ([bool](Wait-Until { (Count-Events $numara 'enforcement_started') -ge 1 } 10)) 'olay: uygulama denetimi başladı'
     Check (-not (Find-Agent '^Teslim et$' $Types::Button)) 'dosya indirilmeden "Teslim et" görünmüyor'
     Shot 'panel-indirmeden-once'
@@ -777,6 +802,7 @@ klasorler:
     Check ([bool]$agentWindow) 'sınav paneli bulundu (pencere başlığı "Sınav")'
     if ($agentWindow) {
         Check ([Native]::HasMinimizeBox($agentWindow)) 'sınav panelinde simge durumuna küçültme düğmesi var'
+        Check (-not [Native]::IsTopMost($agentWindow)) 'sınav paneli "her zaman üstte" değil: kendini öne atmıyor'
         [Native]::ShowWindow($agentWindow, 6) | Out-Null      # SW_MINIMIZE
         Start-Sleep -Milliseconds 700
         Check ([Native]::IsIconic($agentWindow)) 'sınav paneli simge durumuna küçültülebiliyor'
@@ -986,11 +1012,11 @@ klasorler:
     [IO.File]::AppendAllText($latePka, "`ncozum-$fourth")
 
     # "Sınavı bitir" penceresindeki "Ek süre ver".
-    $remainingBefore = Remaining-Minutes
+    $remainingBefore = Remaining-Seconds
     $extended = Panel-Post '/panel/api/extend' '{"minutes": 10}'
     Check ($extended -match 'ends_at') "ek süre verildi ($extended)"
-    $grown = Wait-Until { $now = Remaining-Minutes; if ($now -ge $remainingBefore + 9) { $now } } 10
-    Check ([bool]$grown) "öğrencideki kalan süre 10 dakika arttı ($remainingBefore dk -> $grown dk)"
+    $grown = Wait-Until { $now = Remaining-Seconds; if ($now -ge $remainingBefore + 570) { $now } } 10
+    Check ([bool]$grown) "öğrencideki geri sayım 10 dakika arttı ($remainingBefore sn -> $grown sn)"
 
     $end = Panel-Post '/panel/api/end'
     $endedAt = Get-Date
@@ -1060,7 +1086,7 @@ klasorler:
     Start-Agent
     Login-Agent $fifth 'Son' 'Öğrenci'
     Check ([bool](Wait-AgentText '^Sınav sürüyor$' 40)) 'beşinci öğrenci sınavda'
-    Check ((Remaining-Minutes) -eq -1) 'süre verilmeyen sınavda öğrenci süre görmüyor'
+    Check ((Remaining-Seconds) -eq -1) 'süre verilmeyen sınavda öğrenci süre görmüyor'
     $streaming = Wait-Until { $s = Get-Student $fifth; if ($s -and $s.stream_ready) { $s } } 40
     Check ([bool]$streaming) 'ekranı öğretmene aktarılıyor'
     $lastPka = Join-Path $studentFolder 'son-ogrenci.pka'
@@ -1072,51 +1098,63 @@ klasorler:
     $state = Get-Snapshot
     Check (-not $state.health.recording -and -not (Get-ChildItem (Join-Path $secondFolder 'Kayıtlar') -Recurse -File)) '"Ekranları kaydet" seçilmeyince ekranlar diske yazılmıyor (canlı izleme sürüyor)'
 
-    Step 'Panel kendi penceresinde; pencere kapanınca soru; "Sistemi kapat"'
+    Step 'Son 10 dakika: tek uyarı, kırmızı geri sayım; panel öne atlamıyor'
+    $panelHandle = Wait-Until { $h = Get-AgentWindowHandle '^Sınav$'; if ($h -ne [IntPtr]::Zero) { $h } } 10
+    $other = Start-Process winver.exe -PassThru      # another window is in front, like Packet Tracer would be
+    $otherWindow = Wait-Until { $other.Refresh(); if ($other.MainWindowHandle -ne [IntPtr]::Zero) { $other.MainWindowHandle } } 10
+    if ($otherWindow) { Focus-Window $otherWindow $other.Id }
+    $short = Panel-Post '/panel/api/extend' '{"minutes": 9}'     # the exam now ends in nine minutes
+    Check ($short -match 'ends_at') 'sınava 9 dakikalık süre verildi'
+    Check ([bool](Wait-AgentText '^Son 10 dakika$' 12)) 'son 10 dakikaya girilince öğrenciye bir uyarı gösteriliyor'
+    Check ([bool](Wait-AgentText '^Kalan süre: [0-8]:\d\d$' 6)) 'panelde geri sayım yazıyor (son 10 dakikada kırmızı)'
+    Start-Sleep -Milliseconds 800
+    Shot 'son-10-dakika'
+    if ($otherWindow) { Check ([Native]::ForegroundPid() -eq $other.Id) 'uyarı çıkarken sınav paneli öne atlamıyor (öndeki pencere değişmedi)' }
+    if ($panelHandle) { Check (-not [Native]::IsTopMost($panelHandle)) 'sınav paneli "her zaman üstte" değil' }
+    $gone = Wait-Until { -not (Agent-Texts | Where-Object { $_ -eq 'Son 10 dakika' }) } 25
+    Start-Sleep -Seconds 5
+    Check ([bool]$gone -and -not (Agent-Texts | Where-Object { $_ -eq 'Son 10 dakika' })) 'uyarı bir kez gösterilip kayboluyor, yinelenmiyor'
+    if (-not $other.HasExited) { $other.Kill() }
+
+    Step 'Panel kendi penceresinde; pencere kapanınca sistem kendiliğinden kapanıyor'
     # What start-teacher.bat does: the panel opens like an application, in a window of its own.
-    $question = '^Sınav İzleme Sistemi$'          # the question shown on the teacher's desktop
+    $panelTitle = '^Sınav İzleme($| — )'
     $opened = Panel-Post '/panel/api/open-window'
     Check ($opened -match '"window":\s*"app"') "panel uygulama penceresi olarak açılıyor ($opened)"
-    $panelWindow = Wait-Until { $h = [Native]::FindWindowByTitle('^Sınav İzleme($| — )'); if ($h -ne [IntPtr]::Zero) { $h } } 90
+    $panelWindow = Wait-Until { $h = [Native]::FindWindowByTitle($panelTitle); if ($h -ne [IntPtr]::Zero) { $h } } 90
     Check ([bool]$panelWindow) 'panel penceresi açıldı (Edge, sekmesiz)'
-    $panelPage = $null
-    if (-not $panelWindow) {
-        # No browser window on this machine: keep a live connection like the page's own.
-        $panelPage = Start-Process -FilePath 'curl.exe' -ArgumentList @('-s', '-N', "$base/panel/api/stream") `
-            -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $OutDir 'panel-akisi.txt')
-    }
+    if (-not $panelWindow) { throw 'Panel penceresi açılmadı; kalan adımlar yapılamaz.' }
     $connected = Wait-Until { $s = Get-Snapshot; if ($s -and $s.health.panel_clients -ge 1) { $s } } 60
     Check ([bool]$connected) 'panel sunucuya bağlandı (canlı durum akışı)'
     Start-Sleep -Seconds 6
     Shot 'panel-penceresi'
-    Check (-not ([Native]::FindWindowByTitle($question) -ne [IntPtr]::Zero)) 'panel açıkken soru çıkmıyor'
 
-    # The X of the window.
-    if ($panelWindow) { [Native]::PostMessage($panelWindow, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
-    else { Stop-Process -Id $panelPage.Id -Force }
+    # 1) Closed by accident while a student is in the exam: opened again in time, nothing stops.
+    [Native]::PostMessage($panelWindow, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null     # the X of the window
     $closedAt = Get-Date
-    $question = Wait-Until { $h = [Native]::FindWindowByTitle('^Sınav İzleme Sistemi$'); if ($h -ne [IntPtr]::Zero) { $h } } 30
-    Check ([bool]$question) ("pencere kapanınca öğretmen bilgisayarında soru çıkıyor ({0:N1} sn sonra)" -f ((Get-Date) - $closedAt).TotalSeconds)
-    Start-Sleep -Seconds 1
-    Shot 'pencere-kapandi-sorusu'
-    if (-not $question) { throw 'Kapanış sorusu çıkmadı; kalan adımlar yapılamaz.' }
-    Check (-not (Agent-Texts | Where-Object { $_ -match 'Pencereyi kapattınız|Sistemi kapat' })) 'öğrenci programına bu soruyla ilgili hiçbir şey gitmiyor'
-    $choices = @([Native]::ChildTexts($question))
-    Check (($choices -contains 'Yalnızca pencere kapansın') -and ($choices -contains 'Paneli yeniden aç') -and ($choices -contains 'Sistemi kapat')) 'seçenekler: Yalnızca pencere kapansın / Paneli yeniden aç / Sistemi kapat'
-    Check (-not $server.HasExited -and -not $script:agent.HasExited) 'soru yanıtlanana kadar sistem çalışmaya devam ediyor'
-    $shutdownButton = [Native]::FindChildByText($question, 'Sistemi kapat')
-    if ($shutdownButton -eq [IntPtr]::Zero) { throw "Kapanış sorusunda 'Sistemi kapat' düğmesi bulunamadı (bulunanlar: $($choices -join ' | '))." }
-    [Native]::PostMessage($shutdownButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null   # BM_CLICK
-    # The exam is running: a second question makes sure.
-    $questionPid = [Native]::PidOf($question)
-    $sure = Wait-Until { $h = [Native]::FindMessageBox($questionPid); if ($h -ne [IntPtr]::Zero) { $h } } 10
-    Check ([bool]$sure) 'sınav sürerken "Sistem kapatılsın mı?" diye bir kez daha soruluyor'
-    Start-Sleep -Milliseconds 500
-    Shot 'sistemi-kapat-onay'
-    if ($sure) { [Native]::PostMessage($sure, 0x0111, [IntPtr]6, [IntPtr]::Zero) | Out-Null }   # Yes
+    Check ([bool](Wait-Until { $s = Get-Snapshot; if ($s -and $s.health.panel_clients -eq 0) { $s } } 15)) 'pencere kapandı'
+    Start-Sleep -Seconds 4
+    Check ([Native]::FindWindowByTitle('^Sınav İzleme Sistemi$') -eq [IntPtr]::Zero) 'pencere kapanınca hiçbir soru çıkmıyor'
+    Check (-not $server.HasExited -and -not $script:agent.HasExited) 'öğrenci bağlıyken sistem hemen kapanmıyor'
+    Panel-Post '/panel/api/open-window' | Out-Null
+    $reconnected = Wait-Until { $s = Get-Snapshot; if ($s -and $s.health.panel_clients -ge 1) { $s } } 30
+    Check ([bool]$reconnected) ("panel yeniden açıldı ({0:N0} sn sonra)" -f ((Get-Date) - $closedAt).TotalSeconds)
+    $wait = 48 - ((Get-Date) - $closedAt).TotalSeconds          # past the 40 s the system would have waited
+    if ($wait -gt 0) { Start-Sleep -Seconds ([int][Math]::Ceiling($wait)) }
+    $state = Get-Snapshot
+    Check (-not $server.HasExited -and $state -and $state.exam.state -eq 'RUNNING' -and -not $script:agent.HasExited) 'süre içinde yeniden açılınca sistem kapanmıyor, sınav sürüyor'
 
-    Check ([bool](Wait-AgentText '^Sınav kapatıldı$' 25)) 'öğrenci programı "Sınav kapatıldı" diyor'
-    Check ([bool](Wait-AgentText 'Dosyanızı teslim etmediniz' 5)) 'teslim etmemiş öğrenciye dosyasının teslim edilmediği söyleniyor'
+    # 2) Closed for good: the system shuts down by itself.
+    $panelWindow = Wait-Until { $h = [Native]::FindWindowByTitle($panelTitle); if ($h -ne [IntPtr]::Zero) { $h } } 20
+    Check ([bool]$panelWindow) 'yeniden açılan panel penceresi bulundu'
+    if ($panelWindow) { [Native]::PostMessage($panelWindow, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
+    else { Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
+    $closedAt = Get-Date
+
+    Check ([bool](Wait-AgentText '^Sınav kapatıldı$' 80)) ("pencere kapatılınca sistem kendiliğinden kapanıyor: öğrenci programı \"Sınav kapatıldı\" diyor ({0:N0} sn sonra)" -f ((Get-Date) - $closedAt).TotalSeconds)
+    Check ([bool](Wait-AgentText '^Dosyanızı teslim etmediniz\.$' 5)) 'teslim etmemiş öğrenciye dosyasının teslim edilmediği söyleniyor'
+    Check-PlainTexts 'kapanış penceresi'
+    Check ([Native]::FindWindowByTitle('^Sınav İzleme Sistemi$') -eq [IntPtr]::Zero) 'kapanırken de soru çıkmıyor'
     Shot 'sinav-kapatildi'
     Click-Agent '^Kapat'
     Check ($script:agent.WaitForExit(20000)) 'öğrenci programı kapandı'
@@ -1143,10 +1181,6 @@ finally {
         else { Write-Host '  (sunucu kapalı; olaylar yukarıda ve olay-kaydi.csv dosyalarında)' }
     } catch { Write-Host "  (olaylar okunamadı: $($_.Exception.Message))" }
     Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    foreach ($leftover in @('^Sınav İzleme Sistemi$')) {
-        $h = [Native]::FindWindowByTitle($leftover)
-        if ($h -ne [IntPtr]::Zero) { [Native]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
-    }
     Write-Host '  görünür pencereler:'
     try { Show-Windows } catch { }
 

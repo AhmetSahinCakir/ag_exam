@@ -32,7 +32,7 @@ public sealed class MessageDialog : Form
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = standalone;
-        TopMost = true; // above the exam panel, which is itself always on top
+        TopMost = true; // the student just asked for it: never hidden behind another window
         StartPosition = FormStartPosition.CenterScreen;
 
         var width = LogicalToDeviceUnits(ContentWidth);

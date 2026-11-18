@@ -25,12 +25,12 @@ def main() -> int:
         except (AttributeError, ValueError):
             pass
 
-    parser = argparse.ArgumentParser(description="Sınav İzleme Sistemi — öğretmen sunucusu")
+    parser = argparse.ArgumentParser(description="Sınav İzleme Sistemi — sunucu")
     parser.add_argument("--config", default=str(HERE / "config.yaml"), help="config.yaml yolu")
     parser.add_argument("--host", default="0.0.0.0",
                         help="dinlenecek adres (varsayılan: tüm ağ arayüzleri)")
     parser.add_argument("--open-panel", action="store_true",
-                        help="sunucu başlayınca öğretmen panelini aç")
+                        help="sunucu başlayınca paneli aç")
     args = parser.parse_args()
 
     try:
@@ -57,15 +57,15 @@ def main() -> int:
 
     ips = lan_ips()
     print("=" * 66)
-    print(f"  Sınıf: {cfg.sinif_adi}   Öğretmen: {cfg.ogretmen_adi}")
-    print(f"  Öğretmen paneli : http://localhost:{cfg.port}/panel  (yalnızca bu bilgisayar)")
+    print(f"  Sınıf: {cfg.sinif_adi}   {cfg.ogretmen_adi}")
+    print(f"  Panel           : http://localhost:{cfg.port}/panel  (yalnızca bu bilgisayar)")
     if ips:
         for ip in ips:
             print(f"  Öğrenci adresi  : http://{ip}:{cfg.port}/   (elle IP girişi için: {ip})")
     else:
         print("  UYARI: Ağ bağlantısı bulunamadı. Sınıf modemine bağlı mısınız?")
     print(f"  Keşif           : UDP {cfg.discovery_port}    Ekran yayını: RTSP TCP {cfg.rtsp_port}")
-    print("  Durdurmak için bu pencerede Ctrl+C")
+    print("  Kapatmak için panel penceresini kapatın (ya da bu pencerede Ctrl+C)")
     print("=" * 66)
 
     server = uvicorn.Server(uvicorn.Config(app, host=args.host, port=cfg.port, access_log=False,

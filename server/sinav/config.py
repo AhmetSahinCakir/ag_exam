@@ -72,7 +72,7 @@ class Policy:
 class Config:
     path: Path
     sinif_adi: str = "Sınıf"
-    ogretmen_adi: str = "Öğretmen"
+    ogretmen_adi: str = ""
     port: int = 8000
     discovery_port: int = 47000
     panel_as_app: bool = True  # open the panel in its own window (no tabs, no address bar)
@@ -86,6 +86,11 @@ class Config:
     mediamtx_webrtc: str = "http://127.0.0.1:8889"
     policy: Policy = field(default_factory=Policy)
     disconnect_s: float = 10.0
+    # Closing the panel window closes the system: after this many seconds ...
+    close_after_s: float = 5.0
+    # ... or, while student programs are connected, after this many (time to reopen the panel
+    # after an accidental close or a browser crash).
+    close_after_busy_s: float = 120.0
     dir_data: Path = Path("../data")
     dir_dist: Path = Path("../dist")
     retention_note: str = ""
@@ -176,7 +181,7 @@ def load_config(path: str | Path) -> Config:
     cfg = Config(
         path=path,
         sinif_adi=str(raw.get("sinif_adi") or "Sınıf").strip(),
-        ogretmen_adi=str(raw.get("ogretmen_adi") or "Öğretmen").strip(),
+        ogretmen_adi=str(raw.get("ogretmen_adi") or "").strip(),
         port=int(_number(server, "port", 8000, 1, 65535)),
         discovery_port=int(_number(server, "kesif_portu", 47000, 1, 65535)),
         panel_as_app=str(server.get("panel_penceresi") or "uygulama").strip().lower() != "tarayici",
@@ -190,6 +195,8 @@ def load_config(path: str | Path) -> Config:
         mediamtx_webrtc=str(mediamtx.get("webrtc") or "http://127.0.0.1:8889").rstrip("/"),
         policy=parse_policy(raw),
         disconnect_s=_number(thresholds, "kopma_suresi_sn", 10, 4, 300),
+        close_after_s=_number(thresholds, "panel_kapaninca_bekleme_sn", 5, 2, 600),
+        close_after_busy_s=_number(thresholds, "ogrenci_bagliyken_bekleme_sn", 120, 2, 3600),
         dir_data=folder("veri", "../data"),
         dir_dist=folder("dagitim", "../dist"),
         retention_note=" ".join(str(raw.get("kayit_saklama_notu") or "").split()),

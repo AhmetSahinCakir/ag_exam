@@ -42,15 +42,22 @@ public enum SubmitProblem
 /// <summary>Texts about time that are shown to the student.</summary>
 public static class ExamClock
 {
-    /// <summary>"Kalan süre: 34 dk", "Kalan süre: 1 sa 5 dk", "Kalan süre: 1 dakikadan az".</summary>
+    /// <summary>From this many seconds on the countdown is shown in red and one notice is given.</summary>
+    public const double LastMinutesSeconds = 10 * 60;
+
+    /// <summary>The countdown: "Kalan süre: 34:12", or "Kalan süre: 1:05:09" above an hour.</summary>
     public static string Remaining(double seconds)
     {
-        if (seconds < 60) return "Kalan süre: 1 dakikadan az";
-        var minutes = (int)Math.Ceiling(seconds / 60);
-        return minutes >= 60
-            ? $"Kalan süre: {minutes / 60} sa {minutes % 60} dk"
-            : $"Kalan süre: {minutes} dk";
+        var total = (long)Math.Ceiling(Math.Max(0, seconds));
+        var hours = total / 3600;
+        var minutes = total % 3600 / 60;
+        var rest = total % 60;
+        return hours > 0
+            ? $"Kalan süre: {hours}:{minutes:00}:{rest:00}"
+            : $"Kalan süre: {minutes}:{rest:00}";
     }
+
+    public static bool InLastMinutes(double seconds) => seconds <= LastMinutesSeconds;
 }
 
 /// <summary>Checks made on the student's computer before a file is uploaded.</summary>

@@ -550,11 +550,11 @@ class Store:
 
     def set_identity(self, sinif_adi: Any, ogretmen_adi: Any) -> None:
         if self.state == RUNNING:
-            raise ApiError(409, "Sınav sürerken sınıf ve öğretmen adı değiştirilemez.")
+            raise ApiError(409, "Sınav sürerken sınıf bilgileri değiştirilemez.")
         sinif = _clean(sinif_adi, 60)
         ogretmen = _clean(ogretmen_adi, 60)
         if not sinif or not ogretmen:
-            raise ApiError(422, "Sınıf (salon) adı ve öğretmen adı boş bırakılamaz.")
+            raise ApiError(422, "Sınıf (salon) adı ve ad soyad boş bırakılamaz.")
         self.cfg.sinif_adi, self.cfg.ogretmen_adi = sinif, ogretmen
         try:
             self.settings_path.write_text(
@@ -835,7 +835,7 @@ class Store:
                 raise ApiError(
                     409,
                     "Bu numarayla başka bir bilgisayarda açık bir oturum var. "
-                    "Numaranızı kontrol edin veya öğretmeninize haber verin.",
+                    "Numaranızı kontrol edin.",
                 )
 
         if st is None:
@@ -963,6 +963,16 @@ class Store:
             st.closed_seen = True
         return status
 
+    def close_grace_s(self) -> float:
+        """How long the system keeps running after the panel window was closed.
+
+        Short when nobody is connected. Long while student programs are connected, so that
+        an accidental close or a browser crash does not end an exam: reopening the panel
+        within this time keeps everything running.
+        """
+        busy = self.state == RUNNING or bool(self.open_agents())
+        return self.cfg.close_after_busy_s if busy else self.cfg.close_after_s
+
     def open_agents(self) -> list[Student]:
         """Students whose program is still running and has nothing handed in."""
         now_mono = time.monotonic()
@@ -1008,7 +1018,7 @@ class Store:
             raise ApiError(409, "Sınav henüz başlamadı; teslim alınamaz.")
         folder = self.dir_submissions
         if folder is None:
-            raise ApiError(409, "Sınav klasörü seçilmemiş; teslim alınamıyor. Öğretmeninize haber verin.")
+            raise ApiError(409, "Sınav klasörü seçilmemiş; teslim alınamıyor.")
         self._check_pka(filename, data)
         sha = _sha256(data)
         if claimed_sha and claimed_sha.strip().lower() != sha:
@@ -1032,9 +1042,9 @@ class Store:
             stored_ok = _sha256(target.read_bytes()) == sha
         except OSError as exc:
             log.error("Teslim dosyası yazılamadı (%s): %s", name, exc)
-            raise ApiError(500, "Dosya öğretmen bilgisayarına kaydedilemedi. Öğretmeninize haber verin.") from exc
+            raise ApiError(500, "Dosya kaydedilemedi. Yeniden deneyin.") from exc
         if not stored_ok:
-            raise ApiError(500, "Dosya öğretmen bilgisayarına doğru kaydedilemedi. Yeniden deneyin.")
+            raise ApiError(500, "Dosya doğru kaydedilemedi. Yeniden deneyin.")
 
         submission = self._register_submission(
             st, name, data, sha, version, from_folder=False,

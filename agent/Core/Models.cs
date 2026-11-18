@@ -25,7 +25,7 @@ public sealed class ServerInfo
     public string RetentionNote { get; set; } = "";
 
     public string Key => $"{Host}:{Port}";
-    public string Display => $"Sınıf: {SinifAdi} — Öğretmen: {OgretmenAdi}";
+    public string Display => OgretmenAdi.Length > 0 ? $"Sınıf: {SinifAdi} — {OgretmenAdi}" : $"Sınıf: {SinifAdi}";
 }
 
 public sealed class InfoResponse

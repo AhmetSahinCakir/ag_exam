@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 rem ============================================================================
-rem  Sınav İzleme Sistemi - öğretmen başlatıcı
+rem  Sınav İzleme Sistemi - başlatıcı
 rem
 rem  1) İlk çalıştırmada, internet varken: Python ortamını kurar, MediaMTX'i indirir
 rem  2) Güvenlik duvarı kurallarını denetler; eksikse yönetici izniyle ekler:
@@ -26,9 +26,9 @@ set "ROOT=%CD%"
 
 if /i "%~1"=="--firewall" goto firewall
 
-title Sınav İzleme - Öğretmen
+title Sınav İzleme Sistemi
 echo.
-echo  ==== Sınav İzleme Sistemi - öğretmen başlatıcı ====
+echo  ==== Sınav İzleme Sistemi ====
 echo.
 
 rem Sistem arka planda zaten çalışıyorsa (panel penceresi kapatılmış olabilir) yalnızca

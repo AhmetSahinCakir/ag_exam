@@ -71,6 +71,7 @@ public sealed class MainForm : Form
 
         _uiTimer.Tick += (_, _) =>
         {
+            _controller?.TickClock();
             UpdateDynamic();
             CheckVirtualDesktop();
         };
@@ -203,7 +204,7 @@ public sealed class MainForm : Form
     {
         NewScreen();
         AddTitle("Sınav sunucusu aranıyor");
-        AddNote("Bağlı olduğunuz Wi-Fi ağında öğretmen bilgisayarı aranıyor. Bu birkaç saniye sürer.", 20);
+        AddNote("Bağlı olduğunuz Wi-Fi ağında sınav sunucusu aranıyor. Bu birkaç saniye sürer.", 20);
         Add(new ProgressBar
         {
             Style = ProgressBarStyle.Marquee,
@@ -217,10 +218,10 @@ public sealed class MainForm : Form
     {
         NewScreen();
         AddTitle("Sınav sunucusu bulunamadı");
-        AddText(problem ?? "Öğretmeninizin verdiği Wi-Fi ağına bağlı olduğunuzdan emin olun.", 18);
+        AddText(problem ?? "Sınav için verilen Wi-Fi ağına bağlı olduğunuzdan emin olun.", 18);
         var retry = AddPrimary("Tekrar dene", 30);
 
-        AddNote("Otomatik arama çalışmıyorsa öğretmeninizin söylediği IP adresini yazın:", 6);
+        AddNote("Otomatik arama çalışmıyorsa size söylenen IP adresini yazın:", 6);
         var address = AddInput("Sunucu IP adresi", 64, 8);
         address.PlaceholderText = "ör. 192.168.1.10";
         var connect = AddSecondary("Bağlan", 10);
@@ -268,7 +269,7 @@ public sealed class MainForm : Form
     {
         NewScreen();
         AddTitle("Birden fazla sınav bulundu");
-        AddText("Sınavına gireceğiniz sınıfı ve öğretmeni seçin. Emin değilseniz öğretmeninize sorun.", 14);
+        AddText("Sınavına gireceğiniz sınıfı seçin.", 14);
         var list = Add(new ListBox
         {
             Width = _contentWidth,
@@ -277,7 +278,10 @@ public sealed class MainForm : Form
             BorderStyle = BorderStyle.FixedSingle,
             IntegralHeight = false,
         }, 14);
-        foreach (var server in servers) list.Items.Add($"{server.SinifAdi} — {server.OgretmenAdi}");
+        foreach (var server in servers)
+        {
+            list.Items.Add(server.OgretmenAdi.Length > 0 ? $"{server.SinifAdi} — {server.OgretmenAdi}" : server.SinifAdi);
+        }
         list.SelectedIndex = 0;
 
         var choose = AddPrimary("Seç");
@@ -309,7 +313,7 @@ public sealed class MainForm : Form
             LocalLog.Write($"sunucu doğrulanamadı ({server.Key}): {ex.Message}");
             if (IsDisposed) return;
             ShowNotFound($"{server.Host} adresindeki sunucuya bağlanılamadı. Doğru Wi-Fi ağına bağlı " +
-                         "olduğunuzdan emin olun; sorun sürerse öğretmeninize haber verin.");
+                         "olduğunuzdan emin olun.");
             return;
         }
         if (IsDisposed) return;
@@ -321,15 +325,16 @@ public sealed class MainForm : Form
         NewScreen();
         AddNote("Sınav sunucusu bulundu", 12);
         // Large on purpose: a student on the wrong Wi-Fi network must notice it here.
-        AddLabel($"Sınıf: {server.SinifAdi}", Theme.Semibold(19F), Theme.Text, 2);
-        AddLabel($"Öğretmen: {server.OgretmenAdi}", Theme.Semibold(19F), Theme.Text, 20);
-        AddText("Bu sizin sınıfınız ve öğretmeniniz mi?", 14);
+        var hasName = server.OgretmenAdi.Length > 0;
+        AddLabel($"Sınıf: {server.SinifAdi}", Theme.Semibold(19F), Theme.Text, hasName ? 4 : 20);
+        if (hasName) AddLabel(server.OgretmenAdi, Theme.Semibold(13F), Theme.Muted, 20);
+        AddText("Bu sizin sınıfınız mı?", 14);
 
         var yes = AddPrimary("Doğru");
         var no = AddSecondary("Yanlış", 12);
         var hint = AddNote("", 12, Theme.Bad);
-        AddNote(("Giriş yaptığınız andan teslim edene ya da programı kapatana kadar ekranınız öğretmen " +
-                 "bilgisayarına aktarılır ve kaydedilir. " + server.RetentionNote).Trim(), 0);
+        AddNote(("Giriş yaptığınız andan teslim edene ya da programı kapatana kadar ekranınız izlenir ve " +
+                 "kaydedilebilir. " + server.RetentionNote).Trim(), 0);
 
         yes.Click += (_, _) =>
         {
@@ -347,7 +352,7 @@ public sealed class MainForm : Form
                 return;
             }
             rejected = true;
-            hint.Text = "Yanlış Wi-Fi ağına bağlısınız. Öğretmeninizin verdiği ağa bağlanın, sonra “Tekrar ara”ya basın.";
+            hint.Text = "Yanlış Wi-Fi ağına bağlısınız. Sınav için verilen ağa bağlanın, sonra “Tekrar ara”ya basın.";
             no.Text = "Tekrar ara";
             yes.Enabled = false;
         };
@@ -422,7 +427,7 @@ public sealed class MainForm : Form
         LocalLog.Write($"giriş yapıldı: {session.Student.Numara} @ {_server!.Key}");
         _controller = new ExamController(_api!, _config, request, session);
         _controller.Changed += RefreshUi;
-        _controller.Notice += (title, text) => ToastForm.ShowNotice(title, text);
+        _controller.Notice += (title, text, seconds) => ToastForm.ShowNotice(title, text, ToastTone.Warning, seconds);
         _controller.Finished += OnFinished;
         _shownPhase = null;
         _controller.Start();
@@ -452,10 +457,11 @@ public sealed class MainForm : Form
                     ShowExamPanel();
                     break;
                 case Phase.Ended:
-                    // The exam is over but nothing was handed in: the panel stays, where it is.
+                    // The exam is over but nothing was handed in: the panel stays where it is.
+                    // It is not pushed to the front; a notice is shown and its taskbar button blinks.
                     if (previous == Phase.Running) BuildExamPanel();
                     else ShowExamPanel();
-                    if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+                    if (IsHandleCreated) NativeMethods.FlashTaskbar(Handle);
                     break;
             }
         }
@@ -492,15 +498,16 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// During the exam the window becomes a small panel at the right edge of the screen. It stays
-    /// above Packet Tracer so that its buttons are always at hand, and it can be moved or minimised.
+    /// During the exam the window becomes a small panel at the right edge of the screen. It is an
+    /// ordinary window: it does not stay above Packet Tracer and never pushes itself to the front;
+    /// the student opens it from the taskbar when needed. It can be moved or minimised.
     /// </summary>
     private void ShowExamPanel()
     {
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         MinimizeBox = true;
-        TopMost = true;
+        TopMost = false;
         Text = PanelTitle;
 
         BuildExamPanel();
@@ -597,7 +604,7 @@ public sealed class MainForm : Form
             }
             else
             {
-                text = controller.Phase == Phase.Waiting ? "Bağlı — ekranınız öğretmene aktarılıyor" : "Bağlı";
+                text = controller.Phase == Phase.Waiting ? "Bağlı — ekranınız aktarılıyor" : "Bağlı";
                 color = Theme.Good;
             }
             if (_statusLabel.Text != text) _statusLabel.Text = text;
@@ -629,8 +636,10 @@ public sealed class MainForm : Form
             _submitButton.Text = "Teslim et";
         }
 
-        // Shown only when the teacher planned a start time / set a time limit.
+        // Shown only when a start time was planned / a time limit was set: the planned time
+        // while waiting, a countdown during the exam (red in the last ten minutes).
         var info = "";
+        var infoColor = Theme.Text;
         if (controller.Phase == Phase.Waiting && controller.PlannedStart is { } planned)
         {
             info = $"Sınav saat {planned:HH:mm} için planlandı.";
@@ -638,11 +647,16 @@ public sealed class MainForm : Form
         else if (controller.Phase == Phase.Running && controller.RemainingSeconds is { } left)
         {
             info = ExamClock.Remaining(left);
+            if (ExamClock.InLastMinutes(left)) infoColor = Theme.Bad;
         }
-        if (_infoLabel != null && _infoLabel.Text != info)
+        if (_infoLabel != null)
         {
-            _infoLabel.Text = info;
-            _infoLabel.Margin = new Padding(0, 0, 0, info.Length > 0 ? Px(_infoGap) : 0);
+            if (_infoLabel.Text != info)
+            {
+                _infoLabel.Text = info;
+                _infoLabel.Margin = new Padding(0, 0, 0, info.Length > 0 ? Px(_infoGap) : 0);
+            }
+            if (_infoLabel.ForeColor != infoColor) _infoLabel.ForeColor = infoColor;
         }
 
         var layoutKey = note + (info.Length > 0 ? "\u0001" : "");
@@ -813,11 +827,11 @@ public sealed class MainForm : Form
 
         var text = controller.Phase switch
         {
-            Phase.Waiting => "Programı kapatırsanız sınava katılamazsınız ve bu durum öğretmeninize bildirilir.",
+            Phase.Waiting => "Programı kapatırsanız sınava katılamazsınız.",
             Phase.Ended => "Sınav bitti ama dosyanızı teslim etmediniz. Programı kapatırsanız dosyanız teslim " +
                            "edilmemiş olur.\n\nTeslim etmek için “Vazgeç” deyip “Teslim et” düğmesini kullanın.",
-            _ => "Sınav devam ediyor. Programı kapatırsanız bu durum öğretmeninize bildirilir ve dosyanız " +
-                 "teslim edilmez.\n\nTeslim etmek için “Vazgeç” deyip “Teslim et” düğmesini kullanın.",
+            _ => "Sınav devam ediyor. Programı kapatırsanız bu durum kaydedilir ve dosyanız teslim " +
+                 "edilmez.\n\nTeslim etmek için “Vazgeç” deyip “Teslim et” düğmesini kullanın.",
         };
         e.Cancel = true; // decided below; closing continues asynchronously
         if (!MessageDialog.Confirm(this, DialogTone.Warning, "Program kapatılsın mı?", text, "Yine de kapat",

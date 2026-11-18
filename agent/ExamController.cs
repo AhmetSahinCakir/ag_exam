@@ -68,6 +68,7 @@ public sealed class ExamController : IDisposable
     private double _endsAt;            // server clock; 0 = no time limit
     private double _scheduledAt;       // server clock; 0 = no planned start
     private double _serverClockAhead;  // seconds the server's clock is ahead of this computer's
+    private bool _lastMinutesNoticed;
     private int _otherDesktopReadings;
     private bool _ending;
     private bool _submitting;
@@ -107,14 +108,33 @@ public sealed class ExamController : IDisposable
         ? Math.Max(0, _endsAt - (NetInfo.UnixNow() + _serverClockAhead))
         : null;
 
+    /// <summary>
+    /// Called by the window twice a second. When the last ten minutes begin the student gets
+    /// one notice; nothing else happens (the panel is not brought to the front).
+    /// </summary>
+    public void TickClock()
+    {
+        if (Phase != Phase.Running || RemainingSeconds is not { } left) return;
+        if (!ExamClock.InLastMinutes(left))
+        {
+            _lastMinutesNoticed = false; // extra time was given: warn again when it runs low
+            return;
+        }
+        if (_lastMinutesNoticed) return;
+        _lastMinutesNoticed = true;
+        Notice?.Invoke("Son 10 dakika", "Sınavın bitmesine 10 dakikadan az kaldı. Dosyanızı kaydedip teslim etmeyi unutmayın.", 12);
+    }
+
     /// <summary>The time of day the teacher planned the exam to start; null when nothing is planned.</summary>
     public DateTime? PlannedStart => _scheduledAt > 0 && Phase == Phase.Waiting
         ? DateTimeOffset.FromUnixTimeMilliseconds((long)(_scheduledAt * 1000)).LocalDateTime
         : null;
 
     public event Action? Changed;
-    /// <summary>A short notice for the student: (headline, text).</summary>
-    public event Action<string, string>? Notice;
+    /// <summary>A short notice for the student: (headline, text, seconds on screen).</summary>
+    public event Action<string, string, int>? Notice;
+
+    private const int NoticeSeconds = 7;
     public event Action<FinishInfo>? Finished;
 
     public ExamController(ApiClient api, AgentConfig config, LoginRequest login, LoginResponse session)
@@ -239,7 +259,7 @@ public sealed class ExamController : IDisposable
             if (!_sessionProblemNotified)
             {
                 _sessionProblemNotified = true;
-                Notice?.Invoke("Oturum yenilenemedi", ex.Message);
+                Notice?.Invoke("Oturum yenilenemedi", ex.Message, NoticeSeconds);
             }
         }
     }
@@ -294,7 +314,7 @@ public sealed class ExamController : IDisposable
         {
             // The teacher's computer has this student's file in its submissions folder
             // (it checks the folder itself): nothing is left to do here.
-            _ = FinishAsync(new FinishInfo("Teslim alındı", "Dosyanız öğretmen bilgisayarında teslim alındı.", true));
+            _ = FinishAsync(new FinishInfo("Teslim alındı", "Dosyanız teslim alındı.", true));
         }
         else if (status.ExamState == "ENDED" && Phase != Phase.Ended)
         {
@@ -303,8 +323,7 @@ public sealed class ExamController : IDisposable
         else if (status.ExamState == "WAITING" && inExam)
         {
             // The teacher's computer no longer knows this exam (a new one was prepared).
-            _ = FinishAsync(new FinishInfo("Sınav kapatıldı",
-                "Öğretmen sınavı kapattı. Dosyanız teslim edilmedi; öğretmeninize haber verin.", false));
+            _ = FinishAsync(new FinishInfo("Sınav kapatıldı", "Dosyanızı teslim etmediniz.", false));
         }
     }
 
@@ -319,7 +338,8 @@ public sealed class ExamController : IDisposable
         Phase = Phase.Ended; // still streamed and controlled, see EnforceLoopAsync
         LocalLog.Write("sınav bitti; teslim bekleniyor (geç teslim)");
         Changed?.Invoke();
-        Notice?.Invoke("Sınav bitti", "Dosyanızı hemen teslim edin. Teslim geç olarak kaydedilecek.");
+        // Stays on screen longer: the panel itself is not pushed to the front.
+        Notice?.Invoke("Sınav bitti", "Dosyanızı hemen teslim edin. Teslim geç olarak kaydedilecek.", 20);
     }
 
     private async Task RefreshPolicyAsync()
@@ -485,7 +505,7 @@ public sealed class ExamController : IDisposable
         // The same program reopening repeatedly should not flood the student with popups.
         if (_noticeTimes.TryGetValue(program, out var last) && DateTime.UtcNow - last < TimeSpan.FromSeconds(10)) return;
         _noticeTimes[program] = DateTime.UtcNow;
-        Notice?.Invoke("Program kapatıldı", $"{program} sınav sırasında kullanılamaz.");
+        Notice?.Invoke("Program kapatıldı", $"{program} sınav sırasında kullanılamaz.", NoticeSeconds);
     }
 
     private void OnStreamRestarted(string reason)
@@ -507,7 +527,7 @@ public sealed class ExamController : IDisposable
         if (Phase == Phase.Finished) return;
         _events.Enqueue("ffmpeg_missing", new Dictionary<string, object?> { ["reason"] = reason });
         Notice?.Invoke("Ekran aktarımı başlatılamadı",
-            "ffmpeg.exe dosyası SinavAjan.exe ile aynı klasörde olmalı. Öğretmeninize haber verin.");
+            "ffmpeg.exe dosyası SinavAjan.exe ile aynı klasörde olmalı.", NoticeSeconds);
     }
 
     // ------------------------------------------------------------------- submit
@@ -560,8 +580,8 @@ public sealed class ExamController : IDisposable
             }
             if (!string.Equals(candidate.Sha256, response.Sha256, StringComparison.OrdinalIgnoreCase))
             {
-                message += "\r\n\r\nUYARI: Öğretmene ulaşan dosya bu bilgisayardakiyle aynı görünmüyor. " +
-                           "Öğretmeninize haber verin.";
+                message += "\r\n\r\nUYARI: Teslim edilen dosya bu bilgisayardakiyle aynı görünmüyor. " +
+                           "Durumu hemen bildirin.";
             }
             await FinishAsync(new FinishInfo("Teslim alındı", message, true));
             return null;
@@ -599,7 +619,7 @@ public sealed class ExamController : IDisposable
             LocalLog.Write("başka bir sanal masaüstüne geçildi");
             _events.Enqueue("desktop_switch");
             Notice?.Invoke("Başka bir masaüstündesiniz",
-                "Bu durum öğretmeninize bildirildi. Sınav masaüstüne geri dönün.");
+                "Bu durum kaydedildi. Sınav masaüstüne geri dönün.", NoticeSeconds);
             return;
         }
         _otherDesktopReadings = 0;
@@ -631,7 +651,7 @@ public sealed class ExamController : IDisposable
         _ending = true;
         var inExam = Phase is Phase.Countdown or Phase.Running or Phase.Ended;
         StatusNote = "Sınav kapatılıyor…";
-        LocalLog.Write("öğretmen sınavı kapattı");
+        LocalLog.Write("sınav kapatıldı");
         Changed?.Invoke();
 
         // Let a submission the student already started finish first.
@@ -639,9 +659,8 @@ public sealed class ExamController : IDisposable
         if (Phase == Phase.Finished) return;
 
         var info = inExam
-            ? new FinishInfo("Sınav kapatıldı",
-                "Öğretmen sınavı kapattı.\r\n\r\nDosyanızı teslim etmediniz; öğretmeninize haber verin.", false)
-            : new FinishInfo("Sınav kapatıldı", "Öğretmen sınav sistemini kapattı.", true);
+            ? new FinishInfo("Sınav kapatıldı", "Dosyanızı teslim etmediniz.", false)
+            : new FinishInfo("Sınav kapatıldı", "Bu pencereyi kapatabilirsiniz.", true);
         await FinishAsync(info);
     }
 

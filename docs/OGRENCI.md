@@ -29,9 +29,9 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
 3. Program sınavı kendisi bulur ve büyük harflerle gösterir:
 
    > **Sınıf: B-102**
-   > **Öğretmen: …**
+   > Ad Soyad
 
-   Bu sizin sınıfınız ve öğretmeniniz ise **Doğru**'ya basın. Değilse yanlış Wi-Fi ağına
+   Bu sizin sınıfınız ise **Doğru**'ya basın. Değilse yanlış Wi-Fi ağına
    bağlısınız: **Yanlış**'a basın, doğru ağa bağlanın, **Tekrar ara** deyin.
 4. **Öğrenci numaranızı, adınızı ve soyadınızı** yazıp **Giriş yap**'a basın.
 5. **“Sınavın başlamasını bekleyin”** ekranı gelir. Bu andan itibaren ekranınız öğretmene
@@ -46,8 +46,9 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
 6. Öğretmen sınavı başlattığında:
    - “Sınav başlıyor. İzin verilmeyen programlar 10 saniye içinde kapatılacak.” uyarısı ve
      geri sayım görünür.
-   - Program ekranın sağında küçük bir panele dönüşür. Paneli başlığından tutup taşıyabilir
-     ya da simge durumuna küçültebilirsiniz; görev çubuğundaki simgesine tıklayınca geri gelir.
+   - Program ekranın sağında küçük bir panele dönüşür. Panel sıradan bir penceredir:
+     Packet Tracer'ın üstünde durmaz ve kendiliğinden öne gelmez. Taşıyabilir ya da simge
+     durumuna küçültebilirsiniz; gerektiğinde görev çubuğundaki **Sınav** simgesine tıklayın.
 7. Paneldeki **Sınav dosyasını indir** düğmesine basın, dosyayı **nereye kaydedeceğinizi
    seçin** (ör. Masaüstü) ve **Kaydet** deyin.
 8. Packet Tracer'da **File → Open** ile indirdiğiniz dosyayı açın ve sınava başlayın.
@@ -65,9 +66,11 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
   masaüstündesiniz” bildirimi çıkar ve öğretmene bildirilir.
 - **Sık sık Ctrl+S ile kaydedin** ve dosyayı **indirdiğiniz yerde, aynı adla** tutun.
   Teslimde bu dosyayı seçeceksiniz.
-- Öğretmeniniz süre verdiyse panelde **“Kalan süre: … dk”** yazar ve süre dolunca sınav
-  biter. Süre yazmıyorsa süreyi öğretmeniniz tutar. **Süre dolmadan teslim edin:** sınav
-  bittikten sonra da teslim edebilirsiniz ama tesliminiz **geç teslim** olarak kaydedilir.
+- Süre verildiyse panelde **geri sayım** görünür (“Kalan süre: 34:12”). Son 10 dakikaya
+  girildiğinde sağ altta **bir kez** “Son 10 dakika” uyarısı çıkar ve geri sayım kırmızıya
+  döner; süre dolunca sınav biter. Panelde süre yazmıyorsa süre ayrıca tutuluyordur.
+  **Süre dolmadan teslim edin:** sınav bittikten sonra da teslim edebilirsiniz ama tesliminiz
+  **geç teslim** olarak kaydedilir.
 - Wi-Fi koparsa panelde “Sunucuya ulaşılamıyor — yeniden deneniyor…” yazar; program
   kendiliğinden yeniden bağlanır, siz çalışmaya devam edin. Uzun sürerse öğretmeninize haber verin.
 - Program çökerse veya bilgisayar yeniden başlarsa programı yeniden çalıştırıp **aynı
@@ -96,8 +99,9 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
 
 ### Sınav bitti ve teslim etmediniz
 
-Program **kapanmaz.** Panelde **“Sınav bitti”** yazar ve “Sınav bitti — dosyanızı hemen
-teslim edin” bildirimi çıkar. **Teslim et** ile dosyanızı yine teslim edebilirsiniz; teslim
+Program **kapanmaz.** Panelde **“Sınav bitti”** yazar, sağ altta “Sınav bitti — dosyanızı
+hemen teslim edin” bildirimi çıkar ve görev çubuğundaki **Sınav** simgesi yanıp söner (panel
+kendiliğinden öne gelmez; simgeye tıklayın). **Teslim et** ile dosyanızı yine teslim edebilirsiniz; teslim
 alınır ama **geç teslim** olarak kaydedilir ve öğretmeninize bildirilir. Teslim edene kadar
 ekranınız aktarılmaya ve izin verilmeyen programlar kapatılmaya devam eder. Sınav bittikten
 sonra sınav dosyası yeniden indirilemez.

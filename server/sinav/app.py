@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from . import __version__
 from .config import Config, ConfigError, reload_policy
 from .discovery import DiscoveryResponder, lan_ips
-from .folderdialog import DialogUnavailable, ask_panel_closed, open_folder, open_panel_window, pick_folder
+from .folderdialog import DialogUnavailable, open_folder, open_panel_window, pick_folder
 from .mediamtx import fetch_streams, kick_publishers, set_recording
 from .roster import RosterError, parse_roster
 from .store import MAX_UPLOAD_BYTES, RUNNING, WAITING, ApiError, Store, Student
@@ -31,9 +31,6 @@ LOCAL_HOSTS = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 AGENT_ZIP = "SinavAjan.zip"
 MAX_JSON_BYTES = 64 * 1024
 SSE_MIN_INTERVAL_S = 0.4
-# The panel window counts as closed when no panel page has been connected for this long
-# (a reload reconnects much faster).
-PANEL_CLOSED_AFTER_S = 1.5
 # Closing the exam for everybody: how long to wait until every open student program has
 # been told (they ask every 2 s).
 CLOSE_NOTICE_S = 7.0
@@ -56,17 +53,19 @@ def create_app(cfg: Config) -> FastAPI:
     dialog_open = False
     panel_clients = 0          # panel pages connected to the live stream
     panel_gone_since = 0.0     # monotonic time the last one disconnected; 0 = never seen / connected
-    panel_asked = False        # the "window closed" question was already asked for this closing
+    panel_gone_logged = False
     shutting_down = False
     panel_url = f"http://localhost:{cfg.port}/panel"
 
     def count_panel(delta: int) -> None:
-        nonlocal panel_clients, panel_gone_since, panel_asked
+        nonlocal panel_clients, panel_gone_since, panel_gone_logged
         panel_clients += delta
         store.panel_clients = panel_clients
         if delta > 0:
+            if panel_gone_logged and not shutting_down:
+                log.info("Panel yeniden açıldı; sistem çalışmaya devam ediyor.")
             panel_gone_since = 0.0
-            panel_asked = False
+            panel_gone_logged = False
         elif panel_clients == 0:
             panel_gone_since = time.monotonic()
 
@@ -164,38 +163,25 @@ def create_app(cfg: Config) -> FastAPI:
             stop()
 
     async def panel_watch() -> None:
-        """After the panel window was closed, ask on the desktop: keep running or shut down?"""
-        nonlocal panel_asked
+        """Closing the panel window (the browser, or its tab) closes the system.
+
+        Nothing is asked. A reload reconnects within a second and does not count. While student
+        programs are connected the wait is longer (see Store.close_grace_s), so that an
+        accidental close or a browser crash can be undone by opening the panel again.
+        """
+        nonlocal panel_gone_logged
         while True:
             await asyncio.sleep(0.25)
-            if (panel_asked or shutting_down or panel_clients > 0 or not panel_gone_since
-                    or time.monotonic() - panel_gone_since < PANEL_CLOSED_AFTER_S):
+            if shutting_down or panel_clients > 0 or not panel_gone_since:
                 continue
-            panel_asked = True
-            open_count = len(store.open_agents())
-            text = ("Yalnızca panel penceresi kapandı. Sınav sistemi çalışmaya devam ediyor: öğrenciler "
-                    "bağlı, ekranlar ve teslimler alınıyor.\n\n"
-                    "Sistemi de kapatmak istiyor musunuz?")
-            confirm = ""
-            if store.state == RUNNING or open_count:
-                confirm = ("Sınav sürüyor." if store.state == RUNNING
-                           else f"{open_count} öğrencinin programı hâlâ açık.")
-                confirm += (" Sistemi kapatırsanız sınav biter ve açık olan öğrenci programları kapanır; "
-                            "teslim etmemiş öğrencilerin dosyası alınmaz.\n\nSistem kapatılsın mı?")
-            try:
-                answer = await asyncio.to_thread(ask_panel_closed, text, confirm, lambda: panel_clients > 0)
-            except DialogUnavailable:
-                answer = "background"
-            except Exception:  # noqa: BLE001 - a broken dialog must never stop the exam
-                log.exception("Kapanış sorusu gösterilemedi")
-                answer = "background"
-            if answer == "shutdown":
+            gone = time.monotonic() - panel_gone_since
+            grace = store.close_grace_s()
+            if gone >= 1.5 and not panel_gone_logged:
+                panel_gone_logged = True
+                log.info("Panel penceresi kapandı. Sistem %d sn sonra kapanacak; vazgeçmek için paneli "
+                         "yeniden açın (start-teacher.bat).", max(0, round(grace - gone)))
+            if gone >= grace:
                 await shutdown_system("panel penceresi kapatıldı")
-            elif answer == "reopen":
-                await asyncio.to_thread(open_panel_window, panel_url, cfg.panel_as_app)
-            elif panel_clients == 0:
-                log.info("Panel penceresi kapalı; sistem arka planda çalışıyor. Yeniden açmak için "
-                         "start-teacher.bat dosyasını çalıştırın (ya da tarayıcıda %s).", panel_url)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -280,7 +266,7 @@ def create_app(cfg: Config) -> FastAPI:
 
     def local_only(request: Request) -> None:
         if not is_local(request):
-            raise ApiError(403, "Öğretmen paneli yalnızca öğretmen bilgisayarından (localhost) açılabilir.")
+            raise ApiError(403, "Panel yalnızca sistemin çalıştığı bilgisayardan (localhost) açılabilir.")
         if request.method not in ("GET", "HEAD") and request.headers.get("x-panel") != "1":
             # Blocks cross-site form posts from other pages open in the teacher's browser.
             raise ApiError(403, "Geçersiz panel isteği.")
@@ -349,7 +335,7 @@ def create_app(cfg: Config) -> FastAPI:
     async def download_agent() -> Response:
         path = cfg.dir_dist / AGENT_ZIP
         if not path.is_file():
-            raise ApiError(404, "Ajan paketi bu sunucuya konmamış. Öğretmeninizden isteyin.")
+            raise ApiError(404, "Ajan paketi bu sunucuya konmamış.")
         return FileResponse(path, filename=AGENT_ZIP, media_type="application/zip")
 
     @app.get("/panel", dependencies=[Depends(local_only)])
@@ -531,9 +517,9 @@ def student_page(cfg: Config) -> str:
         "<ol><li>İndirdiğiniz zip dosyasına sağ tıklayıp <b>Tümünü ayıkla</b> deyin.</li>"
         "<li>Açılan klasörde <b>SinavAjan.exe</b> dosyasına sağ tıklayın → "
         "<b>Yönetici olarak çalıştır</b>.</li>"
-        "<li>Ekranda bu sınıfın ve öğretmenin adını görünce <b>Doğru</b> deyip giriş yapın.</li></ol>"
+        "<li>Ekranda bu sınıfın adını görünce <b>Doğru</b> deyip giriş yapın.</li></ol>"
         if has_zip
-        else "<p>Sınav ajanı bu adresten dağıtılmıyor. Ajanı öğretmeninizden alın.</p>"
+        else "<p>Sınav ajanı bu adresten dağıtılmıyor.</p>"
     )
     return f"""<!doctype html>
 <html lang="tr"><head><meta charset="utf-8">
@@ -548,6 +534,6 @@ def student_page(cfg: Config) -> str:
  li{{margin:6px 0}}
 </style></head><body>
 <h1>Sınıf: {html.escape(cfg.sinif_adi)}</h1>
-<p class="sub">Öğretmen: {html.escape(cfg.ogretmen_adi)}</p>
+<p class="sub">{html.escape(cfg.ogretmen_adi)}</p>
 {download}
 </body></html>"""

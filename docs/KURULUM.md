@@ -80,7 +80,7 @@ Panel (`/panel`), MediaMTX'in WebRTC'si (8889, 8189) ve denetim API'si (9997) ya
    - MediaMTX'i ayrı (simge durumunda) bir pencerede, sunucuyu bu pencerede başlatır
      ve paneli kendi penceresinde açar (adresi: <http://localhost:8000/panel>).
 4. **Sınıf (salon) ve öğretmen adını yazın.** Panelin sol üstünde sınıf adının yanındaki
-   **Düzenle**'ye basın, **Sınıf / salon adı** ile **Öğretmen adı**nı yazıp **Kaydet** deyin.
+   **Düzenle**'ye basın, **Sınıf / salon adı** ile **Ad soyad**ı yazıp **Kaydet** deyin.
    Öğrenciler programı açtığında bu adları görür. Sınıf adı **her sınıfın bilgisayarında
    farklı** olmalı. Yazdığınız adlar kalıcıdır; sınav sürerken değiştirilemez.
    (İlk açılıştaki adlar `server\config.yaml` dosyasındaki `sinif_adi` / `ogretmen_adi`
@@ -208,30 +208,35 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
    **Sınav klasörünü aç** düğmesi klasörü Dosya Gezgini'nde açar: kayıtlar, teslimler,
    uyarılar ve olay kaydı oradadır.
 
-### Paneli kapatmak ve sistemi kapatmak
+### Paneli kapatmak = sistemi kapatmak
 
-Panel, öğretmen bilgisayarındaki sunucunun gösterdiği bir **web sayfasıdır**; Edge (yoksa
-Chrome) ile **kendi penceresinde**, sekmesiz ve adres çubuksuz açılır. Bir uygulama gibi
-görünür ve davranır: küçültebilir, alta alabilir, görev çubuğundan geri çağırabilirsiniz.
-Sistemin kendisi (sunucu, ekran kaydı) bu pencereden ayrıdır ve arka planda çalışır.
+Panel, bu bilgisayardaki sunucunun gösterdiği bir **web sayfasıdır**; Edge (yoksa Chrome) ile
+**kendi penceresinde**, sekmesiz ve adres çubuksuz açılır. Küçültebilir, alta alabilir, görev
+çubuğundan geri çağırabilirsiniz; küçültmek hiçbir şeyi durdurmaz.
 
-**Pencereyi çarpıdan kapattığınızda** sistem kapanmaz; bir iki saniye içinde **öğretmen
-bilgisayarının** ekranında bir soru çıkar — “Pencereyi kapattınız”:
+**Panel penceresini (tarayıcıyı ya da sekmeyi) kapattığınızda sistem kendiliğinden kapanır.**
+Hiçbir şey sorulmaz: sınav sürüyorsa biter, öğrenci programları kapanır, sunucu, MediaMTX ve
+başlatma penceresi kapanır. Sayfayı yenilemek (F5) kapatma sayılmaz.
 
-- **Yalnızca pencere kapansın** — sistem arka planda çalışmaya devam eder: öğrenciler bağlı
-  kalır, ekranlar ve teslimler alınır. Paneli yeniden açmak için `start-teacher.bat`
-  dosyasını bir kez daha çalıştırın (sistem zaten çalışıyorsa yalnızca paneli açar).
-- **Paneli yeniden aç** — yanlışlıkla kapattıysanız.
-- **Sistemi kapat** — sınav sürüyorsa ya da teslim etmemiş öğrencinin programı açıksa bir kez
-  daha sorulur. Sınav biter, öğrenci programları kapanır, sunucu, MediaMTX ve başlatma
-  penceresi kapanır.
+Sistem kapanmadan önce kısa bir süre bekler:
 
-Bu soru yalnızca öğretmen bilgisayarında görünür; **öğrencilere hiçbir şey gitmez.** Bir web
-sayfası kendi penceresi kapanırken soru soramadığı için soru, pencere kapandıktan hemen
-sonra çıkar. Sistemi panelin içinden de kapatabilirsiniz: **Diğer → Sistemi kapat…**
+- **Bağlı öğrenci yokken 5 saniye.**
+- **Öğrenci programları bağlıyken 2 dakika** (sınav sürerken ya da teslim etmemiş öğrenci
+  varken). Bu, pencere yanlışlıkla kapanırsa ya da tarayıcı çökerse sınavın bitmemesi içindir:
+  bu süre içinde `start-teacher.bat` dosyasını yeniden çalıştırırsanız panel geri açılır ve
+  **sistem kapanmaz, sınav kaldığı yerden sürer.** Başlatma penceresinde “Panel penceresi
+  kapandı. Sistem … sn sonra kapanacak” yazar.
+
+Süreler `server\config.yaml` içinde `esikler.panel_kapaninca_bekleme_sn` ve
+`esikler.ogrenci_bagliyken_bekleme_sn` ile değiştirilir. Beklemeden hemen kapatmak için
+**Diğer → Sistemi kapat…** kullanın (teslim etmemiş öğrenci varsa sayısıyla uyarır).
+
+**Otomatik teslim olmadığı için, teslim etmemiş öğrenci varken sistemi kapatırsanız o
+öğrencilerin dosyası alınmaz.** Paneli kapatmadan önce sağdaki listede herkesin “Teslim
+etti” olduğuna bakın.
 
 Paneli sıradan bir tarayıcı sekmesinde açmak isterseniz `server\config.yaml` içinde
-`sunucu.panel_penceresi: tarayici` yazın.
+`sunucu.panel_penceresi: tarayici` yazın; sekmeyi kapatmak yine sistemi kapatır.
 
 ### Teslim nasıl denetlenir?
 

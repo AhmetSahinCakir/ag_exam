@@ -13,7 +13,7 @@
     <div class="identity">
       <div class="class-line">
         <span id="className" class="class-name">—</span>
-        <button id="btnIdentity" type="button" class="link small" title="Sınıf (salon) ve öğretmen adını değiştir">Düzenle</button>
+        <button id="btnIdentity" type="button" class="link small" title="Sınıf bilgilerini değiştir">Düzenle</button>
       </div>
       <div id="teacherName" class="teacher-name"></div>
     </div>
@@ -225,8 +225,8 @@
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="shutdownTitle">
       <h2 id="shutdownTitle">Sistemi kapat</h2>
       <p id="shutdownNote" class="dialog-note"></p>
-      <p class="field-hint">Yalnızca bu pencereyi kapatmak isterseniz pencerenin çarpısını kullanın: sistem arka
-        planda çalışmaya devam eder ve ne yapmak istediğiniz sorulur.</p>
+      <p class="field-hint">Bu pencereyi (ya da tarayıcıyı) kapatmak da sistemi kapatır. Öğrenci programları
+        bağlıyken sistem kapanmadan önce bir süre bekler; o sürede paneli yeniden açarsanız kapanmaz.</p>
       <div class="dialog-actions">
         <button id="shutdownCancel" type="button">Vazgeç</button>
         <button id="btnShutdownGo" type="button" class="danger">Sistemi kapat</button>
@@ -234,14 +234,14 @@
     </div>
   </div>
 
-  <!-- Sınıf (salon) ve öğretmen adı -->
+  <!-- Sınıf bilgileri -->
   <div id="identityDialog" class="modal" hidden>
     <form id="identityForm" class="dialog" role="dialog" aria-modal="true" aria-labelledby="identityTitle">
-      <h2 id="identityTitle">Sınıf ve öğretmen</h2>
+      <h2 id="identityTitle">Sınıf bilgileri</h2>
       <p class="dialog-note">Öğrenciler programı açtığında bu adları görür; doğru sınıfa bağlandıklarını buradan anlarlar.</p>
       <label for="identityClass">Sınıf / salon adı</label>
       <input id="identityClass" type="text" maxlength="60" required autocomplete="off">
-      <label for="identityTeacher">Öğretmen adı</label>
+      <label for="identityTeacher">Ad soyad</label>
       <input id="identityTeacher" type="text" maxlength="60" required autocomplete="off">
       <div class="dialog-actions">
         <button id="identityCancel" type="button">Vazgeç</button>

@@ -23,7 +23,7 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
   SHA-256, boş teslim, şüpheli boyut ve eski dosya uyarıları, MAC/ikinci oturum uyarıları,
   kopma tespiti, başka masaüstü uyarısı, sınıf/öğretmen adının panelden değiştirilmesi,
   yeniden başlatmada durumun geri yüklenmesi, panelin yalnızca `localhost`'tan
-  erişilebilmesi; başlangıç planlama, isteğe bağlı süre, ek süre ve kayıt seçeneği; geç teslim, öğrenci başına uyarı dosyaları, sınavın herkes için kapatılması ve sistemin kapatılması → `server/tests` (62 test).
+  erişilebilmesi; başlangıç planlama, isteğe bağlı süre, ek süre ve kayıt seçeneği; geç teslim, öğrenci başına uyarı dosyaları, sınavın herkes için kapatılması, panel kapanınca bekleme süreleri ve sistemin kapatılması → `server/tests` (64 test).
 - `mediamtx.yml`: yayın yetkisi (yanlış şifre ve numara dışı yollar reddediliyor), kaydın
   sınav klasörü seçilince çalışırken açılması ve `Kayıtlar\<numara>\` altına yazılması
   (Türkçe harfli ve boşluklu klasör adıyla), teslim edenin yayınının durdurulması, denetim
@@ -47,7 +47,7 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
   kaydedilmesi; ffmpeg'in görünür bir pencere açmaması.
 - Bekleme aşamasında hiçbir programın kapatılmaması ve ekranın kaydedilmemesi; planlanan
   başlangıç saatinin ajanda görünmesi; sınav başlayınca geri sayım, sınav paneli
-  (küçültülebilir; süre verildiyse “Kalan süre” yazar), “Sınav dosyasını indir” ile dosyanın
+  (küçültülebilir; süre verildiyse geri sayım gösterir), “Sınav dosyasını indir” ile dosyanın
   öğrencinin seçtiği yere kaydedilmesi.
 - Not Defteri ve Chrome'un kapatılması, öğrenciye bildirim, panelde uyarı.
 - Öndeki pencere toleransı: 2,5 sn'lik geçişte uyarı yok, 5 sn'den sonra uyarı var;
@@ -66,9 +66,13 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
   izinsiz programların kapatılmaya devam etmesi, geç teslimin alınıp işaretlenmesi; öğrenci
   başına uyarı dosyaları (`Uyarılar`); “Ekranları kaydet” seçilmeden başlatılan sınavda kayıt
   yapılmaması.
-- Panelin kendi penceresinde (Edge, sekmesiz) açılması; pencere kapanınca öğretmen
-  bilgisayarında çıkan soru; “Sistemi kapat” ile açık öğrenci programının kapanması
-  (otomatik teslim yapılmaması) ve sunucunun kendiliğinden kapanması.
+- Panelin kendi penceresinde (Edge, sekmesiz) açılması; pencere kapatılınca hiçbir şey
+  sorulmadan sistemin kendiliğinden kapanması; öğrenci bağlıyken bekleme süresi içinde panel
+  yeniden açılırsa kapanmaması; kapanırken açık öğrenci programının kapanması (otomatik
+  teslim yapılmaması).
+- Öğrenci panelindeki geri sayımın ilerlemesi, son 10 dakika uyarısının bir kez çıkması,
+  panelin öne atlamaması ve “her zaman üstte” olmaması; öğrenciye gösterilen metinlerde
+  “öğretmen” kelimesinin geçmemesi.
 - `start-teacher.bat` güvenlik duvarı kurallarının eklenmesi; sunucu testleri (Windows, Python 3.11).
 
 **Otomatik sınanamayanlar** — bu provada asıl bakılacak yerler:
@@ -195,11 +199,16 @@ Ek denemeler (önerilir):
 - [ ] **Uyarı dosyaları.** Sınav klasöründeki `Uyarılar` klasöründe uyarı alan her öğrenci
       için `<numara>_<AdSoyad>.csv` oluşuyor; Excel'de Türkçe harfler doğru açılıyor.
 - [ ] **Panel penceresi ve kapatma.** `start-teacher.bat` paneli kendi penceresinde (sekmesiz,
-      adres çubuksuz) açıyor. Pencereyi çarpıdan kapatın: bir iki saniye içinde **öğretmen
-      bilgisayarında** “Pencereyi kapattınız” sorusu çıkıyor (başka pencerelerin önünde mi?).
-      “Yalnızca pencere kapansın” deyin: öğrenciler bağlı kalıyor; `start-teacher.bat`'ı
-      yeniden çalıştırınca yalnızca panel açılıyor. Pencereyi yeniden kapatıp “Sistemi kapat”
-      deyin: öğrenci programları, sunucu, MediaMTX ve başlatma penceresi kapanıyor.
+      adres çubuksuz) açıyor. Bir öğrenci bağlıyken pencereyi çarpıdan kapatın: hiçbir şey
+      sorulmuyor, başlatma penceresinde “Sistem … sn sonra kapanacak” yazıyor. 2 dakika
+      dolmadan `start-teacher.bat`'ı yeniden çalıştırın: panel geri açılıyor, öğrenci bağlı,
+      sistem kapanmıyor. Pencereyi yeniden kapatıp bekleyin: 2 dakika sonra öğrenci programı
+      “Sınav kapatıldı” diyor; sunucu, MediaMTX ve başlatma penceresi kapanıyor. Bağlı öğrenci
+      yokken pencereyi kapatınca sistem 5 saniyede kapanıyor.
+- [ ] **Geri sayım ve son 10 dakika.** Süreli sınavda öğrenci panelinde “Kalan süre: 34:12”
+      saniye saniye ilerliyor. Son 10 dakikada bir kez “Son 10 dakika” uyarısı çıkıyor ve
+      süre kırmızıya dönüyor. Panel bu sırada (ve sınav boyunca) kendiliğinden öne gelmiyor,
+      Packet Tracer'ın arkasında kalabiliyor.
 - [ ] **Teslimde dosya seçme.** “Teslim et” dosya seçme penceresini açıyor; pencere
       indirilen dosyanın klasöründe açılıyor. **Packet Tracer'da gerçekten kaydedilmiş**
       dosya seçilince ad ve son kayıt saatiyle onay soruluyor; “Evet, teslim et” → “Teslim

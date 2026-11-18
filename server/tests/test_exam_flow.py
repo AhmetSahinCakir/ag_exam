@@ -895,3 +895,33 @@ def test_panel_window_is_opened_like_an_application(env: Env, monkeypatch):
     text = (other / "config.yaml").read_text(encoding="utf-8").replace("  port: 8000", "  port: 8000\n  panel_penceresi: tarayici")
     (other / "config.yaml").write_text(text, encoding="utf-8")
     assert load_config(other / "config.yaml").panel_as_app is False
+
+
+def test_closing_the_panel_closes_the_system_but_waits_while_students_are_connected(env: Env):
+    # Nothing is asked when the panel window (or the browser tab) is closed: the system shuts
+    # down by itself. How long it waits first depends on whether anybody is connected.
+    assert (env.cfg.close_after_s, env.cfg.close_after_busy_s) == (5, 120)
+    assert env.store.close_grace_s() == 5
+
+    client, _ = env.login()
+    assert env.store.close_grace_s() == 120  # a student program is connected: time to reopen the panel
+    env.start()
+    env.submit(client, EXAM_BYTES + b"-cozum")
+    assert env.store.open_agents() == [] and env.store.close_grace_s() == 120  # the exam is still running
+    env.panel.post("/panel/api/end", headers=PANEL)
+    assert env.store.close_grace_s() == 5  # over, everybody handed in
+
+    # A student who has not handed in yet keeps the system up for the longer time.
+    env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    assert env.store.close_grace_s() == 120
+
+
+def test_texts_for_students_do_not_mention_the_teacher(env: Env):
+    page = env.student().get("/").text
+    assert "ğretmen" not in page.replace("Ayşe Öğretmen", "")  # only the configured name itself
+    assert "Ayşe Öğretmen" in page
+    client, _ = env.login()
+    _, body = env.login(ip="192.168.1.51", mac="AA:BB:CC:00:00:02", hostname="PC-02", expect=409)
+    refused = env.student().post("/panel/api/end", headers=PANEL).json()["error"]
+    for text in (body["error"], refused):
+        assert "ğretmen" not in text, text
