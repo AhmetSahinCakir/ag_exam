@@ -61,6 +61,13 @@ public static class Native
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+
+    public static bool HasMinimizeBox(IntPtr hwnd)
+    {
+        return (GetWindowLongPtr(hwnd, -16).ToInt64() & 0x00020000L) != 0;   // GWL_STYLE & WS_MINIMIZEBOX
+    }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hwnd, StringBuilder name, int max);
 
     // The standard message box (window class #32770) of a process, or zero.
@@ -307,10 +314,10 @@ function Set-AgentText([string]$name, [string]$text) {
 }
 
 # The agent's own main window (not the notice popup, which is also a top-level window).
-function Get-AgentWindowHandle([string]$title) {
+function Get-AgentWindowHandle([string]$titlePattern) {
     $byProcess = New-Object System.Windows.Automation.PropertyCondition($AE::ProcessIdProperty, $script:agent.Id)
     foreach ($window in $AE::RootElement.FindAll($Scope::Children, $byProcess)) {
-        try { if ($window.Current.Name -eq $title) { return [IntPtr]$window.Current.NativeWindowHandle } } catch { }
+        try { if ($window.Current.Name -match $titlePattern) { return [IntPtr]$window.Current.NativeWindowHandle } } catch { }
     }
     return [IntPtr]::Zero
 }
@@ -359,6 +366,8 @@ try {
     Write-Host '  görünür pencereler:'
     Show-Windows
     if (Test-Path $localDir) { Remove-Item -Recurse -Force $localDir }
+    # Hide the CI machine's own windows so that the screenshots show what a student sees.
+    try { (New-Object -ComObject Shell.Application).MinimizeAll() } catch { }
 
     $config = Join-Path $OutDir 'config.yaml'
     $yaml = @"
@@ -432,7 +441,10 @@ klasorler:
     Check ([bool]$alive) 'ajan ffmpeg''in kare gönderdiğini bildiriyor (ffmpeg_alive)'
     $ffmpeg = @(Get-Process ffmpeg -ErrorAction SilentlyContinue)
     Check ($ffmpeg.Count -eq 1) "tek bir ffmpeg.exe çalışıyor ($($ffmpeg.Count))"
-    Check ([bool](Wait-AgentText 'Ekran yayını: gönderiliyor' 10)) 'ajan ekranında "Ekran yayını: gönderiliyor"'
+    $ffmpegIds = @($ffmpeg | ForEach-Object { "$($_.Id)" })
+    $consoleWindows = @([Native]::Windows() | Where-Object { $ffmpegIds -contains $_.Split('|', 2)[0] })
+    Check ($consoleWindows.Count -eq 0) 'ffmpeg görünür pencere açmıyor (öğrenci komut penceresi görmez)'
+    Check ([bool](Wait-AgentText '^Bağlı — ekranınız öğretmene aktarılıyor$' 10)) 'ajan ekranında "Bağlı — ekranınız öğretmene aktarılıyor"'
     Check ($student -and (Get-Student $numara).status -ne 'lost') 'kutu kırmızı değil'
     Shot 'bekleme'
 
@@ -456,8 +468,8 @@ klasorler:
     Check ([bool]$countdown) 'ajan: "Sınav başlıyor." uyarısı ve geri sayım'
     Shot 'geri-sayim'
     $running = Wait-AgentText '^Sınav sürüyor$' 20
-    Check ([bool]$running) 'geri sayımdan sonra yan panel: "Sınav sürüyor"'
-    Check ([bool](Wait-AgentText '^Kalan süre: \d\d:\d\d$' 5)) 'yan panelde kalan süre görünüyor'
+    Check ([bool]$running) 'geri sayımdan sonra sınav paneli: "Sınav sürüyor"'
+    Check ([bool](Wait-AgentText '^\d\d:\d\d$' 5)) 'sınav panelinde kalan süre görünüyor'
 
     $pka = Join-Path $localDir "$numara\sinav.pka"
     $downloaded = Wait-Until { Test-Path $pka } 10
@@ -494,8 +506,19 @@ klasorler:
 
     # ----------------------------------------------------------- foreground rule
     Step 'Öndeki pencere toleransı (5 sn)'
-    $agentWindow = Wait-Until { $h = Get-AgentWindowHandle 'Sınav'; if ($h -ne [IntPtr]::Zero) { $h } } 10
-    Check ([bool]$agentWindow) 'ajanın yan paneli bulundu (pencere başlığı "Sınav")'
+    # The panel title is "Sınav" or "Sınav — 29:41" (remaining time), never "Sınav Ajanı".
+    $agentWindow = Wait-Until { $h = Get-AgentWindowHandle '^Sınav( — .+)?$'; if ($h -ne [IntPtr]::Zero) { $h } } 10
+    Check ([bool]$agentWindow) 'sınav paneli bulundu (pencere başlığı "Sınav — kalan süre")'
+    if ($agentWindow) {
+        Check ([Native]::HasMinimizeBox($agentWindow)) 'sınav panelinde simge durumuna küçültme düğmesi var'
+        [Native]::ShowWindow($agentWindow, 6) | Out-Null      # SW_MINIMIZE
+        Start-Sleep -Milliseconds 700
+        Check ([Native]::IsIconic($agentWindow)) 'sınav paneli simge durumuna küçültülebiliyor'
+        Shot 'panel-kucultulmus'
+        [Native]::ShowWindow($agentWindow, 9) | Out-Null      # SW_RESTORE
+        Start-Sleep -Milliseconds 700
+        Check (-not [Native]::IsIconic($agentWindow)) 'sınav paneli geri açılabiliyor'
+    }
     $winver = Start-Process winver.exe -PassThru   # C:\Windows altında: kapatılmaz, yalnızca izlenir
     $winverWindow = Wait-Until { $winver.Refresh(); if ($winver.MainWindowHandle -ne [IntPtr]::Zero) { $winver.MainWindowHandle } } 10
     Check ([bool]$winverWindow) 'winver penceresi açıldı (C:\Windows altı)'

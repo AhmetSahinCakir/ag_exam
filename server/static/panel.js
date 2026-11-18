@@ -1,32 +1,36 @@
-/* Sınav İzleme Paneli. Harici kaynak kullanılmaz; her şey bu sunucudan ve yerel MediaMTX'ten gelir.
+/* Sınav İzleme paneli. Harici kaynak kullanılmaz; her şey bu sunucudan ve yerel MediaMTX'ten gelir.
  * Öğrenciden gelen tüm metinler (ad, bilgisayar adı, pencere başlığı…) yalnızca textContent ile
  * yazılır; hiçbir zaman HTML olarak yorumlanmaz. */
 'use strict';
 
 const $ = (id) => document.getElementById(id);
 
-const STATUS_LABEL = {
-  ok: 'Normal',
-  warn: 'Uyarı',
+const STATUS_TEXT = {
+  ok: 'Bağlı',
+  warn: 'Uyarı var',
   lost: 'Bağlantı yok',
   done: 'Teslim etti',
   nosubmit: 'Teslim yok',
 };
-const STATE_LABEL = { WAITING: 'BEKLİYOR', RUNNING: 'SINAV SÜRÜYOR', ENDED: 'SINAV BİTTİ' };
-const ROSTER_LABEL = {
+const STATE_TEXT = { WAITING: 'Sınav başlamadı', RUNNING: 'Sınav sürüyor', ENDED: 'Sınav bitti' };
+const ROSTER_TEXT = {
   no_roster: 'Liste yüklü değil',
-  ok: 'Listede, ad uyuşuyor',
-  name_mismatch: 'Listede, AD UYUŞMUYOR',
-  not_in_list: 'LİSTEDE YOK',
+  ok: 'Listede',
+  name_mismatch: 'Listede, ad uyuşmuyor',
+  not_in_list: 'Listede yok',
 };
+const ROW_EVENT_LIMIT = 6;
 
-let S = null;               // son durum (sunucudan)
-let clockOffset = 0;        // sunucu saati - yerel saat (sn)
-let lastAlertId = null;     // sesli bildirim için
-let alertSignature = '';
+let S = null;                    // sunucudan gelen son durum
+let clockOffset = 0;             // sunucu saati - yerel saat (sn)
+let lastAlertId = null;          // sesli uyarı için
+let filter = 'all';              // 'all' | 'alerts'
 let modalNumara = null;
 let modalEvCount = -1;
-const tiles = new Map();    // numara -> { root, parçalar, player, visible }
+const tiles = new Map();         // numara -> kutu
+const rows = new Map();          // numara -> liste satırı
+const expanded = new Set();      // açık satırlar
+const eventCache = new Map();    // numara -> { count, events }
 
 /* ----------------------------------------------------------------- yardımcılar */
 
@@ -42,6 +46,10 @@ function setText(node, text) {
 }
 
 function fmtClock(ts) {
+  return new Date(ts * 1000).toLocaleTimeString('tr-TR', { hour12: false, hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtClockSeconds(ts) {
   return new Date(ts * 1000).toLocaleTimeString('tr-TR', { hour12: false });
 }
 
@@ -52,12 +60,6 @@ function fmtDuration(seconds) {
   const s = seconds % 60;
   const pad = (n) => String(n).padStart(2, '0');
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
-}
-
-function fmtBytes(n) {
-  if (n < 1024) return `${n} bayt`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function toast(message, isError) {
@@ -91,7 +93,7 @@ async function api(path, options) {
   try {
     response = await fetch(path, init);
   } catch (_) {
-    throw new Error('Sunucuya ulaşılamadı. Sunucu penceresi açık mı?');
+    throw new Error('Sunucuya ulaşılamadı. Başlatma penceresi açık mı?');
   }
   let data = {};
   try { data = await response.json(); } catch (_) { /* gövde yok */ }
@@ -288,7 +290,38 @@ function updatePlayback(tile) {
 
 setInterval(() => { tiles.forEach((tile) => tile.player.checkStall()); }, 5000);
 
-/* ----------------------------------------------------------------- öğrenci kutuları */
+/* ----------------------------------------------------------------- ortak metinler */
+
+function fullName(st) {
+  return `${st.ad} ${st.soyad}`.trim();
+}
+
+function statusText(st) {
+  if (st.status === 'lost') return st.lost_reason ? `Bağlantı yok — ${st.lost_reason}` : 'Bağlantı yok';
+  return STATUS_TEXT[st.status] || st.status;
+}
+
+function noVideoText(st) {
+  if (st.status === 'done') return 'Teslim etti';
+  if (st.status === 'nosubmit') return 'Teslim yok';
+  if (st.status === 'lost') return 'Bağlantı yok';
+  return st.stream_ready ? 'Görüntü bağlanıyor…' : 'Ekran bekleniyor…';
+}
+
+/* Her öğrencinin en son uyarısı (S.alerts en yeni üstte gelir). */
+function latestAlerts() {
+  const latest = new Map();
+  for (const alert of S.alerts) {
+    if (alert.numara && alert.severity !== 'info' && !latest.has(alert.numara)) latest.set(alert.numara, alert);
+  }
+  return latest;
+}
+
+function needsAttention(st) {
+  return st.warn_count > 0 || st.status === 'lost' || st.status === 'nosubmit';
+}
+
+/* ----------------------------------------------------------------- ekran kutuları */
 
 function createTile(numara) {
   const root = el('div', 'tile');
@@ -298,25 +331,22 @@ function createTile(numara) {
   video.muted = true;
   video.autoplay = true;
   video.playsInline = true;
-  const noVideo = el('div', 'novideo', 'Görüntü yok');
-  videoBox.append(video, noVideo);
+  const noVideo = el('div', 'novideo');
+  const flag = el('span', 'flag');
+  flag.hidden = true;
+  videoBox.append(video, noVideo, flag);
 
-  const meta = el('div', 'meta');
-  const row1 = el('div', 'row1');
+  const cap = el('div', 'cap');
+  const who = el('span', 'who');
   const num = el('span', 'num', numara);
-  const warn = el('span', 'warncount');
-  warn.hidden = true;
-  const badge = el('span', 'badge');
-  row1.append(num, warn, badge);
-  const name = el('div', 'name');
-  const net = el('div', 'net');
-  const fg = el('div', 'fg');
-  meta.append(row1, name, net, fg);
-  root.append(videoBox, meta);
+  const name = el('span', 'name');
+  who.append(num, name);
+  cap.append(el('span', 'dot'), who);
+  root.append(videoBox, cap);
 
   root.addEventListener('click', () => openModal(numara));
   const tile = {
-    root, video, noVideo, warn, badge, name, net, fg,
+    root, video, noVideo, flag, name,
     player: new Player(numara, video, videoBox),
     visible: true,
     data: null,
@@ -324,14 +354,6 @@ function createTile(numara) {
   };
   visibility.observe(root);
   return tile;
-}
-
-function noVideoText(st) {
-  if (st.status === 'done') return 'Teslim etti';
-  if (st.status === 'nosubmit') return 'Sınav bitti — teslim yok';
-  if (st.status === 'lost') return `Bağlantı yok — ${st.lost_reason || 'sinyal gelmiyor'}`;
-  if (!st.stream_ready) return 'Ekran yayını bekleniyor…';
-  return 'Görüntü bağlanıyor…';
 }
 
 function renderTiles() {
@@ -357,15 +379,10 @@ function renderTiles() {
       tile.root.classList.add(statusClass);
       tile.statusClass = statusClass;
     }
-    setText(tile.badge, STATUS_LABEL[st.status] || st.status);
-    setText(tile.name, `${st.ad} ${st.soyad}`.trim());
-    setText(tile.net, [st.ip || '?', st.hostname || '?', st.mac || 'MAC yok'].join(' · '));
-    tile.net.title = `IP: ${st.ip}\nBilgisayar: ${st.hostname}\nMAC: ${st.mac}`;
-    setText(tile.fg, st.fg_process ? `Önde: ${st.fg_process}` : '');
-    tile.fg.title = st.fg_title || '';
-    tile.warn.hidden = st.warn_count === 0;
-    setText(tile.warn, String(st.warn_count));
-    tile.warn.title = `${st.warn_count} görülmemiş uyarı`;
+    setText(tile.name, fullName(st));
+    tile.root.title = `${st.numara} ${fullName(st)} — ${statusText(st)}`;
+    tile.flag.hidden = st.warn_count === 0;
+    setText(tile.flag, String(st.warn_count));
     setText(tile.noVideo, noVideoText(st));
     updatePlayback(tile);
   }
@@ -378,84 +395,103 @@ function renderTiles() {
     }
   }
   $('empty').hidden = S.students.length > 0;
+  layoutGrid();
 }
+
+/* Kutuları ekrana sığdır: kaydırma gerekmeyecek en büyük kutu genişliğini bulur. */
+function layoutGrid() {
+  const grid = $('grid');
+  const count = tiles.size;
+  if (!$('fit').checked || count === 0) {
+    grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${$('tileSize').value}px, 1fr))`;
+    return;
+  }
+  const wrap = $('gridWrap');
+  const gap = 12;
+  const caption = 36;
+  const width = wrap.clientWidth - 32;
+  const height = wrap.clientHeight - 32;
+  let best = 1;
+  for (let cols = 1; cols <= count; cols += 1) {
+    const tileWidth = (width - (cols - 1) * gap) / cols;
+    if (tileWidth < 150) break;
+    const rowsNeeded = Math.ceil(count / cols);
+    const total = rowsNeeded * (tileWidth * 9 / 16 + caption) + (rowsNeeded - 1) * gap;
+    best = cols;
+    if (total <= height) break;       // ilk sığan sütun sayısı = en büyük kutu
+  }
+  const tileWidth = Math.min(560, (width - (best - 1) * gap) / best);
+  grid.style.gridTemplateColumns = `repeat(${best}, minmax(0, ${Math.floor(tileWidth)}px))`;
+}
+window.addEventListener('resize', layoutGrid);
 
 /* ----------------------------------------------------------------- üst bölüm */
 
 function renderHeader() {
-  setText($('className'), `Sınıf: ${S.class.sinif_adi}`);
-  setText($('teacherName'), `Öğretmen: ${S.class.ogretmen_adi}`);
-  document.title = `Sınav — ${S.class.sinif_adi}`;
+  setText($('className'), S.class.sinif_adi);
+  setText($('teacherName'), S.class.ogretmen_adi);
+  document.title = `Sınav İzleme — ${S.class.sinif_adi}`;
 
   const state = S.exam.state;
-  const stateNode = $('examState');
-  setText(stateNode, STATE_LABEL[state] || state);
-  stateNode.className = `state state-${state.toLowerCase()}`;
+  setText($('examState'), STATE_TEXT[state] || state);
+  const exam = document.querySelector('.exam');
+  exam.classList.toggle('running', state === 'RUNNING');
+  exam.classList.toggle('ended', state === 'ENDED');
 
-  setText($('sumConnected'), String(S.summary.connected));
-  setText($('sumWarned'), String(S.summary.warned));
-  setText($('sumLost'), String(S.summary.lost));
-  setText($('sumSubmitted'), String(S.summary.submitted));
+  $('setup').hidden = state !== 'WAITING';
+  $('btnEnd').hidden = state !== 'RUNNING';
+  $('btnExportTop').hidden = state !== 'ENDED';
+  $('btnResetTop').hidden = state !== 'ENDED';
+  $('btnReset').disabled = state === 'RUNNING';
 
   const file = S.exam.file;
-  const fileInfo = $('examFileInfo');
-  setText(fileInfo, file ? `${file.name} (${fmtBytes(file.size)})` : 'Dosya yüklenmedi');
-  fileInfo.classList.toggle('set', Boolean(file));
-  fileInfo.title = file ? `SHA-256: ${file.sha256}` : '';
+  setText($('examFileInfo'), file ? file.name : 'Henüz seçilmedi');
+  $('examFileInfo').title = file ? file.name : '';
+  $('btnExamFile').parentElement.classList.toggle('done', Boolean(file));
+  setText($('btnExamFile'), file ? 'Değiştir' : 'Dosya seç');
+  setText($('rosterInfo'), S.roster.count ? `${S.roster.count} öğrenci — ${S.roster.name}` : 'Yüklenmedi');
+  $('btnRoster').parentElement.classList.toggle('done', S.roster.count > 0);
+  setText($('btnRoster'), S.roster.count ? 'Değiştir' : 'Dosya seç');
+  $('btnStart').disabled = !file;
+  $('btnStart').title = file ? '' : 'Önce sınav dosyasını seçin';
 
-  const rosterInfo = $('rosterInfo');
-  setText(rosterInfo, S.roster.count ? `${S.roster.name} — ${S.roster.count} öğrenci` : 'Liste yüklenmedi');
-  rosterInfo.classList.toggle('set', S.roster.count > 0);
-
-  $('btnExamFile').disabled = state !== 'WAITING';
-  $('btnStart').disabled = state !== 'WAITING';
-  $('duration').disabled = state !== 'WAITING';
-  $('btnEnd').disabled = state !== 'RUNNING';
-  $('btnReset').disabled = state === 'RUNNING';
-  $('btnStart').title = state === 'WAITING' && !file ? 'Önce sınav dosyasını yükleyin' : '';
-
-  const missing = S.roster.missing;
-  $('missing').hidden = missing.length === 0;
-  setText($('missingCount'), String(missing.length));
-  const signature = missing.map((m) => m.numara).join(',');
-  const list = $('missingList');
-  if (list.dataset.signature !== signature) {
-    list.dataset.signature = signature;
-    list.replaceChildren(...missing.map((m) => el('span', '', `${m.numara} ${m.ad} ${m.soyad}`.trim())));
-  }
-
+  renderMenuInfo();
   renderBanners();
-  renderFooter();
   renderTimer();
+}
+
+function renderMenuInfo() {
+  const lines = [];
+  const ips = S.health.lan_ips;
+  if (ips.length) {
+    lines.push(`Ajan sunucuyu kendisi bulamazsa öğrenci şu adresi yazabilir: ${ips.join(' veya ')}`);
+  }
+  lines.push(`Teslim dosyaları: ${S.paths.submissions}`);
+  lines.push(`Ekran kayıtları: ${S.paths.recordings}`);
+  const box = $('menuInfo');
+  const signature = lines.join('\n');
+  if (box.dataset.signature === signature) return;
+  box.dataset.signature = signature;
+  box.replaceChildren(...lines.map((line) => el('div', '', line)));
 }
 
 function renderBanners() {
   const messages = [];
   const health = S.health;
   if (!health.mediamtx_ok) {
-    messages.push(['', 'MediaMTX çalışmıyor veya yanıt vermiyor: ekran görüntüleri gelmez ve kayıt yapılmaz. '
-      + 'start-teacher.bat ile açılan MediaMTX penceresini kontrol edin.']);
+    messages.push('Ekran görüntüleri alınamıyor ve kayıt yapılmıyor. Başlatma penceresini kapatıp '
+      + 'start-teacher.bat dosyasını yeniden çalıştırın.');
   }
-  if (health.discovery_error) messages.push(['', health.discovery_error]);
-  if (health.config_error) messages.push(['', health.config_error]);
+  if (health.discovery_error) messages.push(health.discovery_error);
+  if (health.config_error) messages.push(health.config_error);
   if (!health.lan_ips.length) {
-    messages.push(['', 'Bu bilgisayarın ağ bağlantısı bulunamadı. Sınıf modemine bağlı olduğunuzdan emin olun.']);
-  } else if (S.exam.state === 'WAITING') {
-    messages.push(['note', `Keşif çalışmazsa öğrenciler ajana elle şu IP adresini girebilir: ${health.lan_ips.join('  veya  ')}`]);
+    messages.push('Bu bilgisayar bir ağa bağlı görünmüyor. Sınıf modemine bağlı olduğunuzdan emin olun.');
   }
   const box = $('banners');
   const signature = JSON.stringify(messages);
   if (box.dataset.signature === signature) return;
   box.dataset.signature = signature;
-  box.replaceChildren(...messages.map(([kind, text]) => el('div', `banner ${kind}`.trim(), text)));
-}
-
-function renderFooter() {
-  const parts = [];
-  if (S.retention_note) parts.push(`Kayıt saklama: ${S.retention_note}`);
-  parts.push(`Teslimler: ${S.paths.submissions}`);
-  parts.push(`Ekran kayıtları: ${S.paths.recordings}`);
-  setText($('footer'), parts.join('   •   '));
+  box.replaceChildren(...messages.map((text) => el('div', 'banner', text)));
 }
 
 function renderTimer() {
@@ -464,70 +500,259 @@ function renderTimer() {
   const exam = S.exam;
   let text = '';
   if (exam.state === 'RUNNING') {
-    text = `Geçen: ${fmtDuration(now - exam.started_at)}`;
+    text = fmtDuration(now - exam.started_at);
     if (exam.ends_at) {
       const left = exam.ends_at - now;
-      text += left >= 0 ? `   Kalan: ${fmtDuration(left)}` : `   Süre doldu (+${fmtDuration(-left)})`;
+      text += left >= 0 ? ` · kalan ${fmtDuration(left)}` : ' · süre doldu';
     }
   } else if (exam.state === 'ENDED' && exam.started_at) {
-    text = `Süre: ${fmtDuration(exam.ended_at - exam.started_at)}`;
+    text = `süre ${fmtDuration(exam.ended_at - exam.started_at)}`;
   }
   setText($('timer'), text);
 }
 setInterval(renderTimer, 1000);
 
-/* ----------------------------------------------------------------- uyarı akışı */
+/* ----------------------------------------------------------------- öğrenci listesi (sağ) */
 
-function renderAlerts() {
-  const alerts = S.alerts;   // en yeni üstte
-  const signature = alerts.length ? `${alerts[0].id}:${alerts.length}` : '';
-  if (signature === alertSignature) return;
-  alertSignature = signature;
+function summaryItem(dotColor, count, label) {
+  const item = el('span');
+  const dot = el('span', 'dot');
+  dot.style.background = dotColor;
+  item.append(dot, el('b', '', String(count)), document.createTextNode(` ${label}`));
+  return item;
+}
 
-  const newest = alerts.length ? alerts[0].id : 0;
-  if (lastAlertId !== null && newest > lastAlertId) {
-    const fresh = alerts.filter((a) => a.id > lastAlertId && a.severity !== 'info');
-    if (fresh.length) beep(fresh.some((a) => a.severity === 'critical'));
+function renderSummary() {
+  const sum = S.summary;
+  const signature = `${sum.connected}|${sum.warned}|${sum.lost}|${sum.submitted}`;
+  const box = $('summary');
+  if (box.dataset.signature !== signature) {
+    box.dataset.signature = signature;
+    box.replaceChildren(
+      summaryItem('var(--ok)', sum.connected, 'bağlı'),
+      summaryItem('var(--warn)', sum.warned, 'uyarılı'),
+      summaryItem('var(--lost)', sum.lost, 'kopuk'),
+      summaryItem('var(--done)', sum.submitted, 'teslim etti'),
+    );
   }
-  lastAlertId = newest;
+  const attention = S.students.filter(needsAttention).length;
+  setText($('countAll'), String(S.students.length));
+  setText($('countAlerts'), String(attention));
+  $('filterAlerts').classList.toggle('attention', attention > 0);
+}
 
-  // Art arda gelen aynı uyarıları tek satırda topla.
-  const groups = [];
-  for (const alert of alerts) {
-    const last = groups[groups.length - 1];
-    if (last && last.alert.numara === alert.numara && last.alert.message === alert.message) {
-      last.count += 1;
-    } else {
-      groups.push({ alert, count: 1 });
+function createRow(numara) {
+  const root = el('li', 'row');
+  root.dataset.numara = numara;
+
+  const head = el('button', 'row-head');
+  head.type = 'button';
+  const who = el('span', 'who');
+  const name = el('span', 'name');
+  who.append(el('span', 'num', numara), name);
+  const status = el('span', 'status');
+  head.append(el('span', 'dot'), who, status, el('span', 'chev'));
+
+  const alert = el('div', 'row-alert');
+  alert.hidden = true;
+
+  const body = el('div', 'row-body');
+  body.hidden = true;
+  const events = el('ul', 'row-events');
+  const meta = el('div', 'row-meta');
+  const actions = el('div', 'row-actions');
+  const zoom = el('button', '', 'Ekranı büyüt');
+  zoom.type = 'button';
+  const ack = el('button', '', 'Görüldü');
+  ack.type = 'button';
+  actions.append(zoom, ack);
+  body.append(events, meta, actions);
+  root.append(head, alert, body);
+
+  head.addEventListener('click', () => toggleRow(numara));
+  zoom.addEventListener('click', () => openModal(numara));
+  ack.addEventListener('click', async () => {
+    try { await api('/panel/api/ack', { json: { numara } }); } catch (error) { toast(error.message, true); }
+  });
+
+  return { root, head, name, status, alert, body, events, meta, ack, statusClass: '', signature: '', eventSignature: '' };
+}
+
+function toggleRow(numara) {
+  if (expanded.has(numara)) expanded.delete(numara);
+  else expanded.add(numara);
+  renderList();
+}
+
+function rowStatusText(st) {
+  const warnings = st.warn_count > 0 ? `${st.warn_count} uyarı` : '';
+  if (st.status === 'ok') return '';
+  if (st.status === 'warn') return warnings;
+  const base = STATUS_TEXT[st.status] || st.status;
+  return warnings ? `${base} · ${warnings}` : base;
+}
+
+function renderList() {
+  renderSummary();
+  const latest = latestAlerts();
+  let students = S.students;
+  if (filter === 'alerts') {
+    students = students.filter(needsAttention).sort((a, b) => {
+      const ta = latest.has(a.numara) ? latest.get(a.numara).ts : 0;
+      const tb = latest.has(b.numara) ? latest.get(b.numara).ts : 0;
+      return tb - ta;                       // en yeni uyarı üstte
+    });
+  }
+
+  const list = $('studentList');
+  const seen = new Set();
+  let previous = null;
+  for (const st of students) {
+    seen.add(st.numara);
+    let row = rows.get(st.numara);
+    if (!row) {
+      row = createRow(st.numara);
+      rows.set(st.numara, row);
+    }
+    const expectedNext = previous ? previous.root.nextSibling : list.firstChild;
+    if (expectedNext !== row.root) list.insertBefore(row.root, expectedNext);
+    previous = row;
+    updateRow(row, st, latest.get(st.numara));
+  }
+  for (const [numara, row] of rows) {
+    if (!seen.has(numara)) {
+      row.root.remove();
+      rows.delete(numara);
     }
   }
 
-  const items = groups.map(({ alert, count }) => {
-    const li = el('li', `sev-${alert.severity}`);
-    const head = el('div', 'a-head');
-    const who = alert.numara ? `${alert.numara} ${alert.name}`.trim() : 'Genel';
-    head.append(el('span', 'who', who), el('span', 'when', fmtClock(alert.ts)));
-    const message = el('div', 'a-msg', alert.message);
-    if (count > 1) message.append(el('span', 'a-repeat', `×${count}`));
-    li.append(head, message);
-    if (alert.numara) li.addEventListener('click', () => openModal(alert.numara));
-    else li.classList.add('general');
-    return li;
-  });
-  $('alertList').replaceChildren(...items);
-  $('alertEmpty').hidden = items.length > 0;
+  const emptyBox = $('listEmpty');
+  emptyBox.hidden = students.length > 0;
+  if (students.length === 0) {
+    setText(emptyBox, filter === 'alerts' ? 'Dikkat gerektiren öğrenci yok.' : 'Henüz giriş yapan öğrenci yok.');
+  }
+
+  const general = S.alerts.filter((a) => !a.numara && a.severity !== 'info').slice(0, 3);
+  const generalBox = $('general');
+  generalBox.hidden = general.length === 0;
+  const generalSignature = general.map((a) => a.id).join(',');
+  if (generalBox.dataset.signature !== generalSignature) {
+    generalBox.dataset.signature = generalSignature;
+    generalBox.replaceChildren(...general.map((a) => el('div', '', `${a.message} (${fmtClock(a.ts)})`)));
+  }
+
+  const missing = S.roster.missing;
+  $('missing').hidden = missing.length === 0;
+  setText($('missingCount'), String(missing.length));
+  const missingSignature = missing.map((m) => m.numara).join(',');
+  const missingList = $('missingList');
+  if (missingList.dataset.signature !== missingSignature) {
+    missingList.dataset.signature = missingSignature;
+    missingList.replaceChildren(...missing.map((m) => el('div', '', `${m.numara} ${m.ad} ${m.soyad}`.trim())));
+  }
 }
 
-/* ----------------------------------------------------------------- büyük pencere */
+function updateRow(row, st, alert) {
+  const open = expanded.has(st.numara);
+  const statusClass = `st-${st.status}`;
+  if (row.statusClass !== statusClass) {
+    if (row.statusClass) row.root.classList.remove(row.statusClass);
+    row.root.classList.add(statusClass);
+    row.statusClass = statusClass;
+  }
+  row.root.classList.toggle('open', open);
+  row.head.setAttribute('aria-expanded', open ? 'true' : 'false');
+  setText(row.name, fullName(st));
+  setText(row.status, rowStatusText(st));
+
+  // Satırdaki uyarı: en son görülmemiş uyarı ya da bağlantı durumu.
+  let alertText = '';
+  let alertTime = '';
+  if (st.status === 'lost') {
+    alertText = statusText(st);
+  } else if (st.warn_count > 0 && alert) {
+    alertText = alert.message;
+    alertTime = fmtClock(alert.ts);
+  }
+  const signature = `${alertText}|${alertTime}`;
+  if (row.signature !== signature) {
+    row.signature = signature;
+    row.alert.replaceChildren(document.createTextNode(alertText));
+    if (alertTime) row.alert.append(el('span', 'when', alertTime));
+  }
+  row.alert.hidden = alertText === '' || open;
+
+  row.body.hidden = !open;
+  if (!open) return;
+
+  row.ack.hidden = st.warn_count === 0;
+  setText(row.meta, [st.ip, st.hostname, st.mac].filter(Boolean).join(' · '));
+  row.meta.title = 'IP adresi · bilgisayar adı · ağ (MAC) adresi';
+
+  const cached = eventCache.get(st.numara);
+  if (!cached || cached.count !== st.ev_count) loadEvents(st.numara, st.ev_count);
+  const events = cached ? cached.events.filter((e) => e.alert).slice(-ROW_EVENT_LIMIT).reverse() : null;
+  const eventSignature = events ? events.map((e) => e.id).join(',') : 'loading';
+  if (row.eventSignature !== eventSignature) {
+    row.eventSignature = eventSignature;
+    if (!events) {
+      row.events.replaceChildren(el('li', 'none', 'Yükleniyor…'));
+    } else if (events.length === 0) {
+      row.events.replaceChildren(el('li', 'none', 'Bu öğrenci için uyarı yok.'));
+    } else {
+      row.events.replaceChildren(...events.map((event) => {
+        const li = el('li');
+        li.append(el('span', 'when', fmtClock(event.ts)), document.createTextNode(event.message));
+        return li;
+      }));
+    }
+  }
+}
+
+const loadingEvents = new Set();
+async function loadEvents(numara, count) {
+  if (loadingEvents.has(numara)) return;
+  loadingEvents.add(numara);
+  try {
+    const data = await api(`/panel/api/events?numara=${encodeURIComponent(numara)}`, { method: 'GET' });
+    eventCache.set(numara, { count, events: data.events });
+    if (S) {
+      renderList();
+      renderModal();
+    }
+  } catch (_) {
+    /* bir sonraki güncellemede yeniden denenir */
+  } finally {
+    loadingEvents.delete(numara);
+  }
+}
+
+function setFilter(next) {
+  filter = next;
+  $('filterAll').classList.toggle('active', next === 'all');
+  $('filterAlerts').classList.toggle('active', next === 'alerts');
+  if (S) renderList();
+}
+
+/* ----------------------------------------------------------------- sesli uyarı */
+
+function checkNewAlerts() {
+  const newest = S.alerts.length ? S.alerts[0].id : 0;
+  if (lastAlertId !== null && newest > lastAlertId) {
+    const fresh = S.alerts.filter((a) => a.id > lastAlertId && a.severity !== 'info');
+    if (fresh.length) beep(fresh.some((a) => a.severity === 'critical'));
+  }
+  lastAlertId = newest;
+}
+
+/* ----------------------------------------------------------------- tek öğrenci görünümü */
 
 function openModal(numara) {
-  if (!tiles.has(numara)) {
-    toast(`${numara} şu anda listede değil.`, true);
-    return;
-  }
+  if (!tiles.has(numara)) return;
   modalNumara = numara;
   modalEvCount = -1;
   $('modalEvents').replaceChildren();
+  $('modalDetails').open = false;
   $('modal').hidden = false;
   renderModal();
 }
@@ -542,7 +767,8 @@ function closeModal() {
 }
 
 function infoRow(list, label, value) {
-  list.append(el('dt', '', label), el('dd', '', value === '' || value == null ? '—' : String(value)));
+  if (value === '' || value === null || value === undefined) return;
+  list.append(el('dt', '', label), el('dd', '', String(value)));
 }
 
 function renderModal() {
@@ -555,12 +781,14 @@ function renderModal() {
   const st = tile.data;
   updatePlayback(tile);
 
-  setText($('modalTitle'), `${st.numara} — ${st.ad} ${st.soyad}`);
-  const badge = $('modalBadge');
-  setText(badge, STATUS_LABEL[st.status] || st.status);
-  badge.className = `badge st-badge-${st.status}`;
-  badge.style.background = getComputedStyle(tile.badge).backgroundColor;
-  badge.style.color = getComputedStyle(tile.badge).color;
+  setText($('modalTitle'), `${st.numara} — ${fullName(st)}`);
+  const status = $('modalStatus');
+  status.className = `modal-status st-${st.status}`;
+  const statusSignature = statusText(st);
+  if (status.dataset.signature !== statusSignature) {
+    status.dataset.signature = statusSignature;
+    status.replaceChildren(el('span', 'dot'), document.createTextNode(statusSignature));
+  }
   $('modalAck').disabled = st.warn_count === 0;
 
   // Büyük görüntü, kutudaki akışın aynısını paylaşır (ikinci bağlantı açılmaz).
@@ -578,50 +806,33 @@ function renderModal() {
   setText(noVideo, noVideoText(st));
 
   const info = document.createDocumentFragment();
-  infoRow(info, 'Durum', (STATUS_LABEL[st.status] || st.status) + (st.lost_reason ? ` — ${st.lost_reason}` : ''));
   infoRow(info, 'IP adresi', st.ip);
   infoRow(info, 'Bilgisayar adı', st.hostname);
-  infoRow(info, 'MAC adresi', st.mac);
-  infoRow(info, 'Liste', ROSTER_LABEL[st.roster] || st.roster);
-  infoRow(info, 'Giriş', `${fmtClock(st.login_ts)}${st.login_count > 1 ? ` (${st.login_count}. giriş)` : ''}`);
-  infoRow(info, 'Son sinyal', `${st.last_seen_s} sn önce`);
-  infoRow(info, 'Öndeki pencere', st.fg_process ? `${st.fg_process}${st.fg_title ? ` — ${st.fg_title}` : ''}` : '');
-  infoRow(info, 'Monitör sayısı', st.monitors || '');
-  infoRow(info, 'Ekran yayını', `${st.stream_ready ? 'var' : 'YOK'} (ffmpeg ${st.ffmpeg_alive ? 'çalışıyor' : 'çalışmıyor'})`);
-  infoRow(info, 'Görülmemiş uyarı', st.warn_count);
+  infoRow(info, 'Ağ (MAC) adresi', st.mac);
+  infoRow(info, 'Öğrenci listesi', ROSTER_TEXT[st.roster] || st.roster);
+  infoRow(info, 'Giriş saati', fmtClockSeconds(st.login_ts) + (st.login_count > 1 ? ` (${st.login_count}. giriş)` : ''));
+  infoRow(info, 'Açık pencere', st.fg_process ? `${st.fg_process}${st.fg_title ? ` — ${st.fg_title}` : ''}` : '');
+  if (st.monitors > 1) infoRow(info, 'Monitör sayısı', st.monitors);
   if (st.submission) {
     const sub = st.submission;
-    infoRow(info, 'Teslim', `${sub.filename}${sub.auto ? ' (otomatik)' : ''} — ${fmtClock(sub.ts)}`
-      + (st.submission_count > 1 ? `, toplam ${st.submission_count} sürüm` : ''));
-    infoRow(info, 'SHA-256', sub.sha256);
-  } else {
-    infoRow(info, 'Teslim', 'yok');
+    infoRow(info, 'Teslim', `${sub.filename}${sub.auto ? ' (otomatik)' : ''}, ${fmtClockSeconds(sub.ts)}`);
+    infoRow(info, 'Dosya özeti', sub.sha256);
   }
   const sep = S.paths.recordings.includes('\\') ? '\\' : '/';
   infoRow(info, 'Kayıt klasörü', `${S.paths.recordings}${sep}s${sep}${st.numara}`);
-  infoRow(info, 'Ajan sürümü', st.agent_version);
   $('modalInfo').replaceChildren(info);
 
-  if (st.ev_count !== modalEvCount) {
-    modalEvCount = st.ev_count;
-    loadModalEvents(st.numara);
+  const cached = eventCache.get(st.numara);
+  if (!cached || cached.count !== st.ev_count) loadEvents(st.numara, st.ev_count);
+  if (cached && modalEvCount !== cached.events.length) {
+    modalEvCount = cached.events.length;
+    const items = cached.events.slice().reverse().map((event) => {
+      const li = el('li', `sev-${event.severity}${event.alert ? '' : ' minor'}`);
+      li.append(el('span', 'when', fmtClockSeconds(event.ts)), document.createTextNode(event.message));
+      return li;
+    });
+    $('modalEvents').replaceChildren(...items);
   }
-}
-
-async function loadModalEvents(numara) {
-  let data;
-  try {
-    data = await api(`/panel/api/events?numara=${encodeURIComponent(numara)}`, { method: 'GET' });
-  } catch (_) {
-    return;
-  }
-  if (modalNumara !== numara) return;
-  const items = data.events.slice().reverse().map((event) => {
-    const li = el('li', `sev-${event.severity}`);
-    li.append(el('span', 'when', fmtClock(event.ts)), document.createTextNode(event.message));
-    return li;
-  });
-  $('modalEvents').replaceChildren(...items);
 }
 
 /* ----------------------------------------------------------------- ana çizim + canlı bağlantı */
@@ -629,8 +840,9 @@ async function loadModalEvents(numara) {
 function render() {
   renderHeader();
   renderTiles();
-  renderAlerts();
+  renderList();
   renderModal();
+  checkNewAlerts();
 }
 
 function connectStream() {
@@ -638,9 +850,8 @@ function connectStream() {
   source.onmessage = (message) => {
     S = JSON.parse(message.data);
     clockOffset = S.server_time - Date.now() / 1000;
-    document.body.classList.remove('offline');
-    const banner = $('banners').querySelector('.server-down');
-    if (banner) { banner.remove(); $('banners').dataset.signature = ''; }
+    const down = $('banners').querySelector('.server-down');
+    if (down) { down.remove(); $('banners').dataset.signature = ''; }
     render();
   };
   source.onerror = () => {
@@ -648,7 +859,7 @@ function connectStream() {
     const box = $('banners');
     if (!box.querySelector('.server-down')) {
       box.prepend(el('div', 'banner server-down',
-        'Sunucuyla bağlantı kesildi. Sunucu penceresi (start-teacher.bat) açık mı? Yeniden bağlanılıyor…'));
+        'Sunucuyla bağlantı kesildi. Başlatma penceresi (start-teacher.bat) açık mı? Yeniden bağlanılıyor…'));
     }
   };
 }
@@ -669,24 +880,44 @@ async function uploadFile(input, path, successText) {
   }
 }
 
+function closeMenu() {
+  $('menu').hidden = true;
+  $('btnMenu').setAttribute('aria-expanded', 'false');
+}
+
+async function resetExam() {
+  closeMenu();
+  const question = 'Yeni sınav hazırlansın mı?\n\n'
+    + 'Bu sınavın teslim dosyaları ve olay kaydı silinmez; tarihli bir arşiv klasörüne taşınır. '
+    + 'Öğrenci listesi korunur.';
+  if (!confirm(question)) return;
+  try {
+    await api('/panel/api/reset');
+    toast('Yeni sınav hazır.');
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
 function bindControls() {
   $('btnExamFile').addEventListener('click', () => $('fileExam').click());
   $('fileExam').addEventListener('change', () => uploadFile(
     $('fileExam'), '/panel/api/exam-file', (file) => `Sınav dosyası yüklendi: ${file.name}`));
 
-  $('btnRoster').addEventListener('click', () => $('fileRoster').click());
+  const chooseRoster = () => { closeMenu(); $('fileRoster').click(); };
+  $('btnRoster').addEventListener('click', chooseRoster);
+  $('btnRosterMenu').addEventListener('click', chooseRoster);
   $('fileRoster').addEventListener('change', () => uploadFile(
     $('fileRoster'), '/panel/api/roster', (file, data) => `Öğrenci listesi yüklendi: ${data.count} öğrenci`));
 
   $('btnStart').addEventListener('click', async () => {
     const duration = parseInt($('duration').value, 10) || 0;
     const question = 'Sınav başlatılsın mı?\n\n'
-      + 'Tüm öğrencilerde sınav dosyası açılacak ve izin verilmeyen programlar kısa bir geri sayımdan sonra kapatılacak.'
+      + 'Öğrencilerde sınav dosyası açılacak ve izin verilmeyen programlar kısa bir geri sayımdan sonra kapatılacak.'
       + (duration ? `\nSüre: ${duration} dakika.` : '');
     if (!confirm(question)) return;
     try {
       await api('/panel/api/start', { json: { duration_min: duration } });
-      toast('Sınav başlatıldı.');
     } catch (error) {
       toast(error.message, true);
     }
@@ -694,39 +925,44 @@ function bindControls() {
 
   $('btnEnd').addEventListener('click', async () => {
     const question = 'Sınavı bitirmek istediğinize emin misiniz?\n\n'
-      + 'Teslim etmemiş öğrencilerin son kaydettiği dosya otomatik toplanacak ve ajanlar kapanacak. Bu işlem geri alınamaz.';
+      + 'Teslim etmemiş öğrencilerin son kaydettiği dosya otomatik toplanır ve öğrenci programları kapanır. '
+      + 'Bu işlem geri alınamaz.';
     if (!confirm(question)) return;
     try {
       await api('/panel/api/end');
-      toast('Sınav bitirildi. Otomatik teslimler toplanıyor…');
+      toast('Sınav bitirildi. Teslimler toplanıyor…');
     } catch (error) {
       toast(error.message, true);
     }
   });
 
-  $('btnReset').addEventListener('click', async () => {
-    const question = 'Yeni sınav hazırlansın mı?\n\n'
-      + 'Mevcut öğrenci oturumları, olay kaydı ve teslim dosyaları silinmez; data/arsiv/ altında '
-      + 'tarihli bir klasöre taşınır. Öğrenci listesi korunur, sınav dosyasını yeniden yüklemeniz gerekir.';
-    if (!confirm(question)) return;
-    try {
-      const data = await api('/panel/api/reset');
-      toast(data.archive ? `Yeni sınav hazır. Önceki sınav arşivlendi: ${data.archive}` : 'Yeni sınav hazır.');
-    } catch (error) {
-      toast(error.message, true);
-    }
-  });
+  $('btnReset').addEventListener('click', resetExam);
+  $('btnResetTop').addEventListener('click', resetExam);
+  $('btnExport').addEventListener('click', closeMenu);
 
-  $('ackAll').addEventListener('click', async () => {
-    try { await api('/panel/api/ack', { json: {} }); } catch (error) { toast(error.message, true); }
+  $('btnMenu').addEventListener('click', (event) => {
+    event.stopPropagation();
+    const open = $('menu').hidden;
+    $('menu').hidden = !open;
+    $('btnMenu').setAttribute('aria-expanded', open ? 'true' : 'false');
   });
+  $('menu').addEventListener('click', (event) => event.stopPropagation());
+  document.addEventListener('click', closeMenu);
+
+  $('filterAll').addEventListener('click', () => setFilter('all'));
+  $('filterAlerts').addEventListener('click', () => setFilter('alerts'));
+
   $('modalAck').addEventListener('click', async () => {
     if (!modalNumara) return;
     try { await api('/panel/api/ack', { json: { numara: modalNumara } }); } catch (error) { toast(error.message, true); }
   });
   $('modalClose').addEventListener('click', closeModal);
   $('modal').addEventListener('click', (event) => { if (event.target === $('modal')) closeModal(); });
-  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && modalNumara) closeModal(); });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (modalNumara) closeModal();
+    else closeMenu();
+  });
 
   const sound = $('sound');
   sound.checked = pref('sound', '0') === '1';
@@ -742,11 +978,17 @@ function bindControls() {
     tiles.forEach(updatePlayback);
   });
 
+  const fit = $('fit');
   const size = $('tileSize');
+  fit.checked = pref('fit', '1') === '1';
   size.value = pref('tileSize', '230');
-  const applySize = () => document.documentElement.style.setProperty('--tile', `${size.value}px`);
-  applySize();
-  size.addEventListener('input', () => { applySize(); setPref('tileSize', size.value); });
+  size.disabled = fit.checked;
+  fit.addEventListener('change', () => {
+    setPref('fit', fit.checked ? '1' : '0');
+    size.disabled = fit.checked;
+    layoutGrid();
+  });
+  size.addEventListener('input', () => { setPref('tileSize', size.value); layoutGrid(); });
 }
 
 bindControls();

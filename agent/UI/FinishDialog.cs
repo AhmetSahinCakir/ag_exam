@@ -7,6 +7,7 @@ namespace SinavAjan.UI;
 public sealed class FinishDialog : Form
 {
     private const int AutoCloseSeconds = 180;
+    private const int ContentWidth = 420; // logical pixels
 
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 1000 };
     private readonly Button _close;
@@ -18,7 +19,9 @@ public sealed class FinishDialog : Form
     public FinishDialog(FinishInfo info)
     {
         Text = "Sınav Ajanı";
-        Font = new Font("Segoe UI", 10F);
+        Font = Theme.Regular(10F);
+        ForeColor = Theme.Text;
+        BackColor = Theme.Background;
         AutoScaleMode = AutoScaleMode.Dpi;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -26,22 +29,32 @@ public sealed class FinishDialog : Form
         ShowInTaskbar = true;
         TopMost = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(LogicalToDeviceUnits(600), LogicalToDeviceUnits(360));
-        Padding = new Padding(LogicalToDeviceUnits(18));
 
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        var width = LogicalToDeviceUnits(ContentWidth);
+        var pad = LogicalToDeviceUnits(28);
+        ClientSize = new Size(width + 2 * pad, LogicalToDeviceUnits(info.Success ? 380 : 340));
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 4,
+            Padding = new Padding(pad, pad, pad, LogicalToDeviceUnits(22)),
+            BackColor = Theme.Background,
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, width));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-        var title = new Label
+        var title = new StatusLabel
         {
             Text = info.Title,
-            AutoSize = true,
-            Font = new Font("Segoe UI", 18F, FontStyle.Bold),
-            ForeColor = info.Success ? Color.FromArgb(22, 120, 50) : Color.FromArgb(190, 30, 30),
-            Margin = new Padding(0, 0, 0, 12),
+            Font = Theme.Semibold(15F),
+            DotColor = info.Success ? Theme.Good : Theme.Bad,
+            MaximumSize = new Size(width, 0),
+            Margin = new Padding(0, 0, 0, LogicalToDeviceUnits(14)),
         };
         var message = new TextBox
         {
@@ -49,43 +62,37 @@ public sealed class FinishDialog : Form
             Multiline = true,
             ReadOnly = true,
             BorderStyle = BorderStyle.None,
-            BackColor = SystemColors.Control,
+            BackColor = Theme.Background,
+            ForeColor = Theme.Text,
+            Font = Theme.Regular(10F),
             Dock = DockStyle.Fill,
-            ScrollBars = ScrollBars.Vertical,
+            Margin = new Padding(0, 0, 0, LogicalToDeviceUnits(16)),
             TabStop = false,
         };
 
-        var buttons = new FlowLayoutPanel
-        {
-            FlowDirection = FlowDirection.RightToLeft,
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            Margin = new Padding(0, 12, 0, 0),
-        };
-        _close = new Button { AutoSize = true, Padding = new Padding(12, 4, 12, 4) };
+        _close = Theme.PrimaryButton("Kapat", LogicalToDeviceUnits(40));
+        _close.Width = width;
+        _close.Margin = new Padding(0, 0, 0, LogicalToDeviceUnits(8));
         _close.Click += (_, _) => Close();
-        buttons.Controls.Add(_close);
+
+        layout.Controls.Add(title, 0, 0);
+        layout.Controls.Add(message, 0, 1);
+        layout.Controls.Add(_close, 0, 2);
 
         // Deleting is only offered when the server confirmed the submission.
         if (info.Success)
         {
-            var clean = new Button
-            {
-                Text = "Sınav dosyalarımı temizle ve kapat",
-                AutoSize = true,
-                Padding = new Padding(12, 4, 12, 4),
-            };
+            var clean = Theme.SecondaryButton("Sınav dosyalarını bu bilgisayardan sil ve kapat",
+                LogicalToDeviceUnits(36));
+            clean.Width = width;
             clean.Click += (_, _) =>
             {
                 CleanRequested = true;
                 Close();
             };
-            buttons.Controls.Add(clean);
+            layout.Controls.Add(clean, 0, 3);
         }
 
-        layout.Controls.Add(title, 0, 0);
-        layout.Controls.Add(message, 0, 1);
-        layout.Controls.Add(buttons, 0, 2);
         Controls.Add(layout);
         AcceptButton = _close;
 
@@ -100,6 +107,12 @@ public sealed class FinishDialog : Form
     }
 
     private void UpdateCloseText() => _close.Text = $"Kapat ({_left})";
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        _close.Select();
+    }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {

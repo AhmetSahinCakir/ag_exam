@@ -6,59 +6,64 @@ namespace SinavAjan.UI;
 
 /// <summary>
 /// The agent window. Steps: find the server → confirm class/teacher → log in → wait →
-/// countdown → small side panel during the exam → final message.
+/// countdown → small panel during the exam → final message.
+/// Every screen is one centred column so that headings, fields and buttons share the same edges.
 /// </summary>
 public sealed class MainForm : Form
 {
     private const string AppTitle = "Sınav Ajanı";
+    private const string PanelTitle = "Sınav";
+    private const int ContentWidth = 340; // logical pixels
+    private const int PanelWidth = 228;
     private static readonly Regex NumaraPattern = new("^[A-Za-z0-9]{1,20}$", RegexOptions.CultureInvariant);
-    private static readonly Color Good = Color.FromArgb(22, 120, 50);
-    private static readonly Color Bad = Color.FromArgb(190, 30, 30);
-    private static readonly Color Muted = Color.FromArgb(90, 96, 105);
 
     private readonly AgentConfig _config;
-    private readonly Panel _host = new() { Dock = DockStyle.Fill };
-    private readonly Panel _bottom = new() { Dock = DockStyle.Bottom };
-    private readonly LinkLabel _cleanLink = new();
+    private readonly TableLayoutPanel _frame;
     private readonly System.Windows.Forms.Timer _uiTimer = new() { Interval = 500 };
 
+    private TableLayoutPanel _screen = new();
+    private int _contentWidth;
     private ApiClient? _api;
     private ServerInfo? _server;
     private ExamController? _controller;
     private Phase? _shownPhase;
     private bool _closeAllowed;
     private bool _searching;
+    private string _panelLayoutKey = "";
 
     // Controls that are refreshed while a screen is shown.
-    private Label? _connectionLabel;
-    private Label? _streamLabel;
-    private Label? _noteLabel;
-    private Label? _countdownLabel;
-    private Label? _remainingLabel;
+    private StatusLabel? _statusLabel;
+    private PlainLabel? _noteLabel;
+    private PlainLabel? _countdownLabel;
+    private PlainLabel? _remainingCaption;
+    private PlainLabel? _remainingLabel;
     private Button? _submitButton;
 
     public MainForm(AgentConfig config)
     {
         _config = config;
         Text = AppTitle;
-        Font = new Font("Segoe UI", 10F);
+        Font = Theme.Regular(10F);
+        ForeColor = Theme.Text;
+        BackColor = Theme.Background;
         AutoScaleMode = AutoScaleMode.Dpi;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(Px(620), Px(480));
+        ClientSize = new Size(Px(460), Px(560));
 
-        _host.Padding = new Padding(Px(24), Px(20), Px(24), Px(8));
-        _bottom.Height = Px(34);
-        _bottom.Padding = new Padding(Px(24), Px(6), Px(24), 0);
-        _cleanLink.Text = "Sınav dosyalarımı temizle";
-        _cleanLink.AutoSize = true;
-        _cleanLink.Dock = DockStyle.Left;
-        _cleanLink.LinkClicked += (_, _) => CleanFiles();
-        _bottom.Controls.Add(_cleanLink);
-
-        Controls.Add(_host);
-        Controls.Add(_bottom);
+        _frame = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 1,
+            BackColor = Theme.Background,
+        };
+        _frame.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        _frame.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, Px(ContentWidth)));
+        _frame.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        _frame.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        Controls.Add(_frame);
 
         _uiTimer.Tick += (_, _) => UpdateDynamic();
     }
@@ -73,80 +78,87 @@ public sealed class MainForm : Form
 
     private int Px(int logical) => LogicalToDeviceUnits(logical);
 
-    private int WrapWidth => Math.Max(Px(160), _host.ClientSize.Width - _host.Padding.Horizontal - Px(6));
-
-    private TableLayoutPanel NewScreen()
+    /// <summary>Starts an empty screen: a single column of the given width, centred in the window.</summary>
+    private void NewScreen(int logicalWidth = ContentWidth, int topPadding = 36)
     {
-        _connectionLabel = _streamLabel = _noteLabel = _countdownLabel = _remainingLabel = null;
+        _statusLabel = null;
+        _noteLabel = _countdownLabel = _remainingCaption = _remainingLabel = null;
         _submitButton = null;
         AcceptButton = null;
-        foreach (var control in _host.Controls.Cast<Control>().ToArray())
+
+        _frame.SuspendLayout();
+        foreach (var control in _frame.Controls.Cast<Control>().ToArray())
         {
-            _host.Controls.Remove(control);
+            _frame.Controls.Remove(control);
             control.Dispose();
         }
-        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true };
-        table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        _host.Controls.Add(table);
-        return table;
-    }
-
-    private Label AddText(TableLayoutPanel screen, string text, float size = 10F, bool bold = false,
-        Color? color = null, int gap = 10)
-    {
-        var label = new Label
+        _contentWidth = Px(logicalWidth);
+        _frame.ColumnStyles[1].Width = _contentWidth;
+        _screen = new TableLayoutPanel
         {
-            Text = text,
-            AutoSize = true,
-            UseMnemonic = false, // names may contain "&"
-            Font = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular),
-            MaximumSize = new Size(WrapWidth, 0),
-            Margin = new Padding(0, 0, 0, Px(gap)),
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            Margin = Padding.Empty,
+            Padding = new Padding(0, Px(topPadding), 0, 0),
+            BackColor = Theme.Background,
         };
-        if (color != null) label.ForeColor = color.Value;
-        screen.Controls.Add(label);
-        return label;
+        _screen.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, _contentWidth));
+        _frame.Controls.Add(_screen, 1, 0);
+        _frame.ResumeLayout();
     }
 
-    private FlowLayoutPanel AddRow(TableLayoutPanel screen, int gap = 10)
+    private T Add<T>(T control, int gap) where T : Control
     {
-        var row = new FlowLayoutPanel
-        {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            WrapContents = true,
-            Margin = new Padding(0, 0, 0, Px(gap)),
-        };
-        screen.Controls.Add(row);
-        return row;
+        control.Margin = new Padding(0, 0, 0, Px(gap));
+        _screen.Controls.Add(control);
+        return control;
     }
 
-    private Button NewButton(string text, bool primary = false)
+    private PlainLabel AddLabel(string text, Font font, Color color, int gap) =>
+        Add(new PlainLabel { Text = text, Font = font, ForeColor = color, MaximumSize = new Size(_contentWidth, 0) }, gap);
+
+    private PlainLabel AddTitle(string text, int gap = 10) => AddLabel(text, Theme.Semibold(15F), Theme.Text, gap);
+
+    private PlainLabel AddText(string text, int gap = 12) => AddLabel(text, Theme.Regular(10F), Theme.Text, gap);
+
+    private PlainLabel AddNote(string text, int gap = 12, Color? color = null) =>
+        AddLabel(text, Theme.Regular(9F), color ?? Theme.Muted, gap);
+
+    private StatusLabel AddStatus(int gap) =>
+        Add(new StatusLabel { Font = Theme.Regular(10F), MaximumSize = new Size(_contentWidth, 0) }, gap);
+
+    private Button AddPrimary(string text, int gap = 8, int height = 40)
     {
-        var button = new Button
-        {
-            Text = text,
-            AutoSize = true,
-            UseMnemonic = false,
-            Padding = new Padding(Px(12), Px(4), Px(12), Px(4)),
-            Margin = new Padding(0, 0, Px(8), 0),
-        };
-        if (primary) button.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-        return button;
+        var button = Theme.PrimaryButton(text, Px(height));
+        button.Width = _contentWidth;
+        return Add(button, gap);
     }
 
-    private TextBox AddField(TableLayoutPanel screen, string caption, int maxLength)
+    private Button AddSecondary(string text, int gap = 8, int height = 36)
     {
-        AddText(screen, caption, gap: 2);
+        var button = Theme.SecondaryButton(text, Px(height));
+        button.Width = _contentWidth;
+        return Add(button, gap);
+    }
+
+    private TextBox AddInput(string accessibleName, int maxLength, int gap)
+    {
         var box = new TextBox
         {
-            Width = Px(320),
+            Font = Theme.Regular(11F),
+            BorderStyle = BorderStyle.FixedSingle,
             MaxLength = maxLength,
-            AccessibleName = caption,
-            Margin = new Padding(0, 0, 0, Px(10)),
+            AccessibleName = accessibleName,
+            Width = _contentWidth,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
         };
-        screen.Controls.Add(box);
-        return box;
+        return Add(box, gap);
+    }
+
+    private TextBox AddField(string caption, int maxLength)
+    {
+        AddLabel(caption, Theme.Regular(9F), Theme.Muted, 4);
+        return AddInput(caption, maxLength, 14);
     }
 
     // ------------------------------------------------------------------ discovery
@@ -182,60 +194,46 @@ public sealed class MainForm : Form
 
     private void ShowSearching()
     {
-        var screen = NewScreen();
-        AddText(screen, "Sınav sunucusu aranıyor…", 16F, bold: true, gap: 16);
-        AddText(screen, "Bağlı olduğunuz Wi-Fi ağında öğretmen bilgisayarı aranıyor. Bu işlem birkaç saniye sürer.",
-            color: Muted, gap: 16);
-        screen.Controls.Add(new ProgressBar
+        NewScreen();
+        AddTitle("Sınav sunucusu aranıyor");
+        AddNote("Bağlı olduğunuz Wi-Fi ağında öğretmen bilgisayarı aranıyor. Bu birkaç saniye sürer.", 20);
+        Add(new ProgressBar
         {
             Style = ProgressBarStyle.Marquee,
             MarqueeAnimationSpeed = 30,
-            Width = Px(360),
-            Height = Px(14),
-        });
+            Width = _contentWidth,
+            Height = Px(6),
+        }, 0);
     }
 
     private void ShowNotFound(string? problem)
     {
-        var screen = NewScreen();
-        AddText(screen, "Sınav sunucusu bulunamadı.", 16F, bold: true, color: Bad, gap: 12);
-        AddText(screen, problem ?? "Öğretmeninizin verdiği Wi-Fi ağına bağlı olduğunuzdan emin olun.", 11F, gap: 16);
+        NewScreen();
+        AddTitle("Sınav sunucusu bulunamadı");
+        AddText(problem ?? "Öğretmeninizin verdiği Wi-Fi ağına bağlı olduğunuzdan emin olun.", 18);
+        var retry = AddPrimary("Tekrar dene", 30);
 
-        var retryRow = AddRow(screen, gap: 24);
-        var retry = NewButton("Tekrar dene", primary: true);
-        retry.Click += (_, _) => _ = DiscoverAsync();
-        retryRow.Controls.Add(retry);
+        AddNote("Otomatik arama çalışmıyorsa öğretmeninizin söylediği IP adresini yazın:", 6);
+        var address = AddInput("Sunucu IP adresi", 64, 8);
+        address.PlaceholderText = "ör. 192.168.1.10";
+        var connect = AddSecondary("Bağlan", 10);
+        var error = AddNote("", 0, Theme.Bad);
 
-        AddText(screen, "Otomatik arama çalışmıyorsa öğretmeninizin söylediği IP adresini elle girin:",
-            color: Muted, gap: 4);
-        var manualRow = AddRow(screen);
-        var address = new TextBox
-        {
-            Width = Px(200),
-            MaxLength = 64,
-            PlaceholderText = "ör. 192.168.1.10",
-            AccessibleName = "Sunucu IP adresi",
-        };
-        address.Margin = new Padding(0, Px(4), Px(8), 0);
-        var connect = NewButton("Bağlan");
-        var error = AddText(screen, "", color: Bad);
-
-        async Task ConnectManualAsync()
+        connect.Click += async (_, _) =>
         {
             var (host, port) = ParseAddress(address.Text);
             if (host == null)
             {
-                error.Text = "Geçerli bir IP adresi girin (ör. 192.168.1.10).";
+                error.Text = "Geçerli bir IP adresi yazın (ör. 192.168.1.10).";
                 return;
             }
             connect.Enabled = false;
+            error.ForeColor = Theme.Muted;
             error.Text = "Bağlanılıyor…";
             await ConfirmServerAsync(new ServerInfo { Host = host, Port = port });
-        }
+        };
+        retry.Click += (_, _) => _ = DiscoverAsync();
 
-        connect.Click += async (_, _) => await ConnectManualAsync();
-        manualRow.Controls.Add(address);
-        manualRow.Controls.Add(connect);
         AcceptButton = retry;
         address.Enter += (_, _) => AcceptButton = connect;
         address.Leave += (_, _) => AcceptButton = retry;
@@ -261,25 +259,22 @@ public sealed class MainForm : Form
 
     private void ShowServerList(List<ServerInfo> servers)
     {
-        var screen = NewScreen();
-        AddText(screen, "Birden fazla sınav sunucusu bulundu", 16F, bold: true, gap: 8);
-        AddText(screen, "Sınavına gireceğiniz sınıfı ve öğretmeni seçin. Emin değilseniz öğretmeninize sorun.",
-            gap: 12);
-        var list = new ListBox
+        NewScreen();
+        AddTitle("Birden fazla sınav bulundu");
+        AddText("Sınavına gireceğiniz sınıfı ve öğretmeni seçin. Emin değilseniz öğretmeninize sorun.", 14);
+        var list = Add(new ListBox
         {
-            Width = WrapWidth,
-            Height = Px(170),
-            Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+            Width = _contentWidth,
+            Height = Px(150),
+            Font = Theme.Regular(11F),
+            BorderStyle = BorderStyle.FixedSingle,
             IntegralHeight = false,
-            Margin = new Padding(0, 0, 0, Px(12)),
-        };
-        foreach (var server in servers) list.Items.Add($"{server.Display}   ({server.Host})");
+        }, 14);
+        foreach (var server in servers) list.Items.Add($"{server.SinifAdi} — {server.OgretmenAdi}");
         list.SelectedIndex = 0;
-        screen.Controls.Add(list);
 
-        var row = AddRow(screen);
-        var choose = NewButton("Seç", primary: true);
-        var retry = NewButton("Tekrar ara");
+        var choose = AddPrimary("Seç");
+        var retry = AddSecondary("Tekrar ara", 0);
         choose.Click += async (_, _) =>
         {
             if (list.SelectedIndex < 0) return;
@@ -288,8 +283,6 @@ public sealed class MainForm : Form
         };
         list.DoubleClick += (_, _) => choose.PerformClick();
         retry.Click += (_, _) => _ = DiscoverAsync();
-        row.Controls.Add(choose);
-        row.Controls.Add(retry);
         AcceptButton = choose;
     }
 
@@ -308,8 +301,8 @@ public sealed class MainForm : Form
         {
             LocalLog.Write($"sunucu doğrulanamadı ({server.Key}): {ex.Message}");
             if (IsDisposed) return;
-            ShowNotFound($"{server.Host} adresindeki sunucuya bağlanılamadı ({ex.Message}) " +
-                         "Doğru Wi-Fi ağına bağlı olduğunuzdan emin olun; sorun sürerse öğretmeninize haber verin.");
+            ShowNotFound($"{server.Host} adresindeki sunucuya bağlanılamadı. Doğru Wi-Fi ağına bağlı " +
+                         "olduğunuzdan emin olun; sorun sürerse öğretmeninize haber verin.");
             return;
         }
         if (IsDisposed) return;
@@ -318,23 +311,18 @@ public sealed class MainForm : Form
 
     private void ShowConfirm(ServerInfo server)
     {
-        var screen = NewScreen();
-        AddText(screen, "Sınav sunucusu bulundu:", color: Muted, gap: 8);
-        AddText(screen, $"Sınıf: {server.SinifAdi}", 24F, bold: true, gap: 2);
-        AddText(screen, $"Öğretmen: {server.OgretmenAdi}", 24F, bold: true, gap: 18);
-        AddText(screen, "Bu, sınavına gireceğiniz sınıf ve öğretmen mi?", 11F, gap: 12);
+        NewScreen();
+        AddNote("Sınav sunucusu bulundu", 12);
+        // Large on purpose: a student on the wrong Wi-Fi network must notice it here.
+        AddLabel($"Sınıf: {server.SinifAdi}", Theme.Semibold(19F), Theme.Text, 2);
+        AddLabel($"Öğretmen: {server.OgretmenAdi}", Theme.Semibold(19F), Theme.Text, 20);
+        AddText("Bu sizin sınıfınız ve öğretmeniniz mi?", 14);
 
-        var row = AddRow(screen, gap: 18);
-        var yes = NewButton("Doğru", primary: true);
-        var no = NewButton("Yanlış");
-        row.Controls.Add(yes);
-        row.Controls.Add(no);
-
-        var hint = AddText(screen, "", color: Bad, gap: 10);
-        AddText(screen,
-            "Giriş yaptığınız andan itibaren, sınavı teslim edene veya ajanı kapatana kadar ekranınızın tamamı " +
-            "öğretmen bilgisayarına aktarılır ve kaydedilir. " + server.RetentionNote,
-            9F, color: Muted);
+        var yes = AddPrimary("Doğru");
+        var no = AddSecondary("Yanlış", 12);
+        var hint = AddNote("", 12, Theme.Bad);
+        AddNote(("Giriş yaptığınız andan teslim edene ya da programı kapatana kadar ekranınız öğretmen " +
+                 "bilgisayarına aktarılır ve kaydedilir. " + server.RetentionNote).Trim(), 0);
 
         yes.Click += (_, _) =>
         {
@@ -364,19 +352,16 @@ public sealed class MainForm : Form
 
     private void ShowLogin()
     {
-        var screen = NewScreen();
-        AddText(screen, _server!.Display, 11F, bold: true, color: Muted, gap: 12);
-        AddText(screen, "Giriş", 16F, bold: true, gap: 12);
-        var numara = AddField(screen, "Öğrenci numarası", 20);
-        var ad = AddField(screen, "Ad", 60);
-        var soyad = AddField(screen, "Soyad", 60);
+        NewScreen();
+        AddNote(_server!.Display, 14);
+        AddTitle("Giriş", 18);
+        var numara = AddField("Öğrenci numarası", 20);
+        var ad = AddField("Ad", 60);
+        var soyad = AddField("Soyad", 60);
 
-        var row = AddRow(screen, gap: 8);
-        var login = NewButton("Giriş yap", primary: true);
-        var back = NewButton("Geri");
-        row.Controls.Add(login);
-        row.Controls.Add(back);
-        var error = AddText(screen, "", color: Bad);
+        var login = AddPrimary("Giriş yap");
+        var back = AddSecondary("Geri", 12);
+        var error = AddNote("", 0, Theme.Bad);
 
         back.Click += (_, _) => _ = DiscoverAsync();
         login.Click += async (_, _) =>
@@ -387,6 +372,7 @@ public sealed class MainForm : Form
                 Ad = ad.Text.Trim(),
                 Soyad = soyad.Text.Trim(),
             };
+            error.ForeColor = Theme.Bad;
             if (!NumaraPattern.IsMatch(request.Numara))
             {
                 error.Text = "Öğrenci numarası yalnızca harf ve rakamlardan oluşmalı.";
@@ -400,7 +386,7 @@ public sealed class MainForm : Form
             }
 
             login.Enabled = back.Enabled = false;
-            error.ForeColor = Muted;
+            error.ForeColor = Theme.Muted;
             error.Text = "Giriş yapılıyor…";
             try
             {
@@ -415,7 +401,7 @@ public sealed class MainForm : Form
             catch (ApiException ex)
             {
                 if (IsDisposed) return;
-                error.ForeColor = Bad;
+                error.ForeColor = Theme.Bad;
                 error.Text = ex.Message;
                 login.Enabled = back.Enabled = true;
             }
@@ -426,7 +412,6 @@ public sealed class MainForm : Form
 
     private void StartSession(LoginRequest request, LoginResponse session)
     {
-        _bottom.Visible = false; // cleaning is not possible during a session
         LocalLog.Write($"giriş yapıldı: {session.Student.Numara} @ {_server!.Key}");
         _controller = new ExamController(_api!, _config, request, session);
         _controller.Changed += RefreshUi;
@@ -456,7 +441,7 @@ public sealed class MainForm : Form
                     ShowCountdown();
                     break;
                 case Phase.Running:
-                    ShowSidePanel();
+                    ShowExamPanel();
                     break;
             }
         }
@@ -465,18 +450,15 @@ public sealed class MainForm : Form
 
     private void ShowWaiting()
     {
-        var screen = NewScreen();
-        AddText(screen, _server!.Display, 11F, bold: true, color: Muted, gap: 4);
-        AddText(screen, $"{_controller!.Numara} — {_controller.FullName}", 11F, gap: 18);
-        AddText(screen, "Sınavın başlamasını bekleyin", 22F, bold: true, gap: 18);
-        _connectionLabel = AddText(screen, "", 11F, gap: 4);
-        _streamLabel = AddText(screen, "", 11F, gap: 16);
-        _noteLabel = AddText(screen, "", color: Bad, gap: 12);
-        AddText(screen,
-            "Bu sırada Packet Tracer'ı açıp Cisco hesabınızla giriş yapın ve “Keep me logged in” seçeneğini " +
-            "işaretleyin. Sınav başladığında tarayıcılar ve izin verilmeyen diğer programlar kapatılır; " +
-            "kaydetmediğiniz işleri şimdi kaydedin. Bu pencereyi kapatmayın.",
-            color: Muted);
+        NewScreen();
+        AddTitle("Sınavın başlamasını bekleyin", 6);
+        AddNote($"{_controller!.Numara} — {_controller.FullName}", 20);
+        _statusLabel = AddStatus(20);
+        _noteLabel = AddNote("", 12, Theme.Bad);
+        AddNote("Bu sırada Packet Tracer'ı açıp Cisco hesabınızla giriş yapın ve “Keep me logged in” seçeneğini " +
+                "işaretleyin. Sınav başladığında tarayıcılar ve izin verilmeyen diğer programlar kapatılır; " +
+                "kaydetmediğiniz işleri şimdi kaydedin.", 12);
+        AddNote("Bu pencereyi kapatmayın.", 0);
     }
 
     private void ShowCountdown()
@@ -484,57 +466,51 @@ public sealed class MainForm : Form
         TopMost = true;
         if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
         Activate();
-        var screen = NewScreen();
-        AddText(screen, "Sınav başlıyor.", 24F, bold: true, color: Bad, gap: 8);
+        NewScreen();
+        AddTitle("Sınav başlıyor.", 8);
         var seconds = (int)Math.Ceiling((_controller!.CountdownEndsUtc - DateTime.UtcNow).TotalSeconds);
-        AddText(screen, $"İzin verilmeyen programlar {Math.Max(0, seconds)} saniye içinde kapatılacak.", 14F,
-            bold: true, gap: 8);
-        _countdownLabel = AddText(screen, "", 64F, bold: true, color: Bad, gap: 8);
-        _noteLabel = AddText(screen, "", 11F, color: Muted, gap: 8);
-        AddText(screen, "Açık işlerinizi hemen kaydedin. Sınav dosyası Packet Tracer ile kendiliğinden açılacak.",
-            11F);
+        AddText($"İzin verilmeyen programlar {Math.Max(0, seconds)} saniye içinde kapatılacak.", 14);
+        _countdownLabel = AddLabel("", Theme.Semibold(44F), Theme.Accent, 14);
+        _noteLabel = AddNote("", 10);
+        AddNote("Açık işlerinizi hemen kaydedin. Sınav dosyası Packet Tracer ile kendiliğinden açılacak.", 0);
     }
 
-    private void ShowSidePanel()
+    /// <summary>
+    /// During the exam the window becomes a small panel at the right edge of the screen. It stays
+    /// above Packet Tracer so that "Teslim et" is always at hand, and it can be moved or minimised.
+    /// </summary>
+    private void ShowExamPanel()
     {
-        // The window turns into a small always-on-top panel at the right edge of the screen.
-        FormBorderStyle = FormBorderStyle.FixedToolWindow;
+        FormBorderStyle = FormBorderStyle.FixedSingle;
+        MaximizeBox = false;
+        MinimizeBox = true;
         TopMost = true;
-        Text = "Sınav";
-        _host.Padding = new Padding(Px(12), Px(10), Px(12), Px(10));
-        ClientSize = new Size(Px(280), Px(330));
-        var area = Screen.FromControl(this).WorkingArea;
-        Location = new Point(area.Right - Width - Px(8), area.Top + Px(80));
+        Text = PanelTitle;
 
-        var screen = NewScreen();
-        AddText(screen, "Sınav sürüyor", 13F, bold: true, color: Good, gap: 2);
-        AddText(screen, $"{_controller!.Numara} — {_controller.FullName}", 9F, color: Muted, gap: 8);
-        _remainingLabel = AddText(screen, "", 13F, bold: true, gap: 6);
-        _connectionLabel = AddText(screen, "", 9.5F, gap: 2);
-        _streamLabel = AddText(screen, "", 9.5F, gap: 8);
+        NewScreen(PanelWidth, topPadding: 16);
+        AddLabel("Sınav sürüyor", Theme.Semibold(11F), Theme.Text, 2);
+        AddNote($"{_controller!.Numara} — {_controller.FullName}", 14);
+        _remainingCaption = AddNote("Kalan süre", 0);
+        _remainingLabel = AddLabel("", Theme.Semibold(20F), Theme.Text, 12);
+        _statusLabel = AddStatus(16);
 
-        _submitButton = new Button
-        {
-            Text = "Teslim et",
-            Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-            Width = WrapWidth,
-            Height = Px(46),
-            Margin = new Padding(0, 0, 0, Px(8)),
-        };
+        _submitButton = AddPrimary("Teslim et", 8, 42);
         _submitButton.Click += async (_, _) => await SubmitClickedAsync();
-        screen.Controls.Add(_submitButton);
-
-        var open = new Button
-        {
-            Text = "Sınav dosyasını aç",
-            Width = WrapWidth,
-            Height = Px(30),
-            Margin = new Padding(0, 0, 0, Px(8)),
-        };
+        var open = AddSecondary("Sınav dosyasını aç", 12, 34);
         open.Click += (_, _) => _controller?.OpenExamFile();
-        screen.Controls.Add(open);
+        _noteLabel = AddNote("", 0, Theme.Bad);
 
-        _noteLabel = AddText(screen, "", 9F, color: Bad, gap: 0);
+        _panelLayoutKey = "";
+        UpdateDynamic();
+        var area = Screen.FromControl(this).WorkingArea;
+        Location = new Point(area.Right - Width - Px(12), area.Top + Px(72));
+    }
+
+    /// <summary>Makes the exam panel exactly as tall as its content.</summary>
+    private void FitExamPanel()
+    {
+        var content = _screen.GetPreferredSize(new Size(_contentWidth, 0)).Height;
+        ClientSize = new Size(_contentWidth + Px(32), content + Px(16));
     }
 
     private void UpdateDynamic()
@@ -542,54 +518,76 @@ public sealed class MainForm : Form
         var controller = _controller;
         if (controller == null || IsDisposed || controller.Phase == Phase.Finished) return;
 
-        if (_connectionLabel != null)
+        if (_statusLabel != null)
         {
-            _connectionLabel.Text = controller.Online
-                ? "●  Sunucu bağlantısı: var"
-                : "●  Sunucu bağlantısı: YOK — yeniden deneniyor…";
-            _connectionLabel.ForeColor = controller.Online ? Good : Bad;
-        }
-        if (_streamLabel != null)
-        {
-            var alive = controller.StreamAlive;
-            _streamLabel.Text = alive ? "●  Ekran yayını: gönderiliyor" : "●  Ekran yayını: bağlanıyor…";
-            _streamLabel.ForeColor = alive ? Good : Bad;
-        }
-        if (_countdownLabel != null)
-        {
-            var seconds = (int)Math.Ceiling((controller.CountdownEndsUtc - DateTime.UtcNow).TotalSeconds);
-            _countdownLabel.Text = Math.Max(0, seconds).ToString();
-        }
-        if (_remainingLabel != null)
-        {
-            var remaining = controller.Remaining;
-            if (remaining == null)
+            string text;
+            Color color;
+            if (!controller.Online)
             {
-                _remainingLabel.Text = "";
+                (text, color) = ("Sunucuya ulaşılamıyor — yeniden deneniyor…", Theme.Bad);
             }
-            else if (remaining.Value <= TimeSpan.Zero)
+            else if (!controller.StreamAlive)
             {
-                _remainingLabel.Text = "Süre doldu";
-                _remainingLabel.ForeColor = Bad;
+                (text, color) = ("Ekran aktarımı başlatılıyor…", Theme.Waiting);
             }
             else
             {
-                var left = remaining.Value;
-                _remainingLabel.Text = left.TotalHours >= 1
-                    ? $"Kalan süre: {(int)left.TotalHours}:{left.Minutes:00}:{left.Seconds:00}"
-                    : $"Kalan süre: {left.Minutes:00}:{left.Seconds:00}";
-                _remainingLabel.ForeColor = left.TotalMinutes < 5 ? Bad : ForeColor;
+                text = controller.Phase == Phase.Waiting ? "Bağlı — ekranınız öğretmene aktarılıyor" : "Bağlı";
+                color = Theme.Good;
             }
+            if (_statusLabel.Text != text) _statusLabel.Text = text;
+            _statusLabel.DotColor = color;
         }
+
+        if (_countdownLabel != null)
+        {
+            var seconds = (int)Math.Ceiling((controller.CountdownEndsUtc - DateTime.UtcNow).TotalSeconds);
+            var text = Math.Max(0, seconds).ToString();
+            if (_countdownLabel.Text != text) _countdownLabel.Text = text;
+        }
+
+        var remainingText = "";
+        if (_remainingLabel != null && _remainingCaption != null)
+        {
+            var remaining = controller.Remaining;
+            if (remaining != null)
+            {
+                var left = remaining.Value;
+                remainingText = left <= TimeSpan.Zero
+                    ? "Süre doldu"
+                    : left.TotalHours >= 1
+                        ? $"{(int)left.TotalHours}:{left.Minutes:00}:{left.Seconds:00}"
+                        : $"{left.Minutes:00}:{left.Seconds:00}";
+                _remainingLabel.ForeColor = left.TotalMinutes < 5 ? Theme.Bad : Theme.Text;
+            }
+            if (_remainingLabel.Text != remainingText) _remainingLabel.Text = remainingText;
+            _remainingLabel.Visible = _remainingCaption.Visible = remainingText.Length > 0;
+
+            // The remaining time is also in the title, so it stays visible on the taskbar when minimised.
+            var title = remainingText.Length > 0 ? $"{PanelTitle} — {remainingText}" : PanelTitle;
+            if (Text != title) Text = title;
+        }
+
+        var note = "";
         if (_noteLabel != null)
         {
-            var note = controller.SessionProblem.Length > 0 ? controller.SessionProblem : controller.StatusNote;
+            note = controller.SessionProblem.Length > 0 ? controller.SessionProblem : controller.StatusNote;
             if (_noteLabel.Text != note) _noteLabel.Text = note;
         }
-        if (_submitButton != null && !controller.Submitting && !_submitButton.Enabled)
+
+        if (_submitButton != null)
         {
-            _submitButton.Enabled = true;
-            _submitButton.Text = "Teslim et";
+            if (!controller.Submitting && !_submitButton.Enabled)
+            {
+                _submitButton.Enabled = true;
+                _submitButton.Text = "Teslim et";
+            }
+            var layoutKey = $"{remainingText.Length > 0}|{note}";
+            if (layoutKey != _panelLayoutKey)
+            {
+                _panelLayoutKey = layoutKey;
+                FitExamPanel();
+            }
         }
     }
 
@@ -657,27 +655,6 @@ public sealed class MainForm : Form
         Close();
     }
 
-    private void CleanFiles()
-    {
-        if (!Directory.Exists(AgentPaths.Root))
-        {
-            MessageBox.Show(this, "Bu bilgisayarda silinecek sınav dosyası yok.", AppTitle, MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-            return;
-        }
-        var answer = MessageBox.Show(this,
-            "Bu bilgisayardaki tüm sınav dosyalarınız (indirilen ve üzerinde çalıştığınız .pka dosyaları) ve " +
-            "ajanın günlük kaydı silinecek:\n\n" + AgentPaths.Root +
-            "\n\nTeslim etmediğiniz çalışmalar da silinir. Devam edilsin mi?",
-            AppTitle, MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
-        if (answer != DialogResult.Yes) return;
-
-        var error = AgentPaths.DeleteAll();
-        MessageBox.Show(this,
-            error == null ? "Sınav dosyalarınız silindi." : $"Dosyalar silinemedi: {error}",
-            AppTitle, MessageBoxButtons.OK, error == null ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
-    }
-
     protected override async void OnFormClosing(FormClosingEventArgs e)
     {
         base.OnFormClosing(e);
@@ -686,8 +663,8 @@ public sealed class MainForm : Form
         if (e.CloseReason is CloseReason.WindowsShutDown or CloseReason.TaskManagerClosing) return;
 
         var text = controller.Phase == Phase.Waiting
-            ? "Ajanı kapatırsanız sınava katılamazsınız ve bu durum öğretmeninize bildirilir.\n\nKapatılsın mı?"
-            : "Sınav devam ediyor.\n\nAjanı kapatırsanız bu durum öğretmeninize bildirilir ve dosyanız TESLİM " +
+            ? "Programı kapatırsanız sınava katılamazsınız ve bu durum öğretmeninize bildirilir.\n\nKapatılsın mı?"
+            : "Sınav devam ediyor.\n\nProgramı kapatırsanız bu durum öğretmeninize bildirilir ve dosyanız TESLİM " +
               "EDİLMEZ. Teslim etmek için “Hayır” deyip “Teslim et” düğmesini kullanın.\n\nYine de kapatılsın mı?";
         e.Cancel = true; // decided below; closing continues asynchronously
         var answer = MessageBox.Show(this, text, AppTitle, MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
@@ -705,7 +682,7 @@ public sealed class MainForm : Form
     {
         _uiTimer.Dispose();
         ToastForm.CloseCurrent();
-        _controller?.Dispose(); // stops ffmpeg; the Job Object guarantees it even on a crash
+        _controller?.Dispose(); // stops the screen stream; the Job Object guarantees it even on a crash
         _api?.Dispose();
         base.OnFormClosed(e);
     }

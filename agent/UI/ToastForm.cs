@@ -19,26 +19,24 @@ public sealed class ToastForm : Form
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
         ShowInTaskbar = false;
-        BackColor = Color.FromArgb(32, 36, 44);
-        ForeColor = Color.White;
+        BackColor = Color.FromArgb(38, 48, 60);
         AutoScaleMode = AutoScaleMode.Dpi;
-        Padding = new Padding(14);
 
-        var label = new Label
+        var pad = LogicalToDeviceUnits(16);
+        var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
+        var label = new PlainLabel
         {
             Text = text,
-            AutoSize = true,
-            Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+            Font = Theme.Regular(10.5F),
             ForeColor = Color.White,
-            BackColor = Color.Transparent,
-            Location = new Point(14, 14),
+            Location = new Point(pad, pad),
+            MaximumSize = new Size(Math.Min(LogicalToDeviceUnits(420), area.Width / 2), 0),
         };
         Controls.Add(label);
 
-        var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 720);
-        label.MaximumSize = new Size(Math.Min(520, area.Width / 2), 0);
-        ClientSize = new Size(label.PreferredWidth + 28, label.PreferredHeight + 28);
-        Location = new Point(area.Right - Width - 16, area.Bottom - Height - 16);
+        var size = label.GetPreferredSize(Size.Empty);
+        ClientSize = new Size(size.Width + 2 * pad, size.Height + 2 * pad);
+        Location = new Point(area.Right - Width - pad, area.Bottom - Height - pad);
 
         _timer.Interval = Math.Max(1, seconds) * 1000;
         _timer.Tick += (_, _) => Close();
