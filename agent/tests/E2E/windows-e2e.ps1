@@ -558,16 +558,30 @@ klasorler:
     $pick = Start-FolderPick
     $folderWindow = Wait-FolderWindow
     if ($folderWindow) {
+        # Go to the folder through the address bar (Alt+D), then press the dialog's own
+        # "Select Folder" button (dialog item 1 = OK, whatever the language of Windows).
         Focus-Window $folderWindow ([int][Native]::PidOf($folderWindow))
+        [System.Windows.Forms.SendKeys]::SendWait('%d')
+        Start-Sleep -Milliseconds 500
         [System.Windows.Forms.SendKeys]::SendWait($typedFolder)
         Start-Sleep -Milliseconds 600
         [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
         Start-Sleep -Seconds 2
-        if ([Native]::FindWindowByTitle('Sınav klasörünü seçin|Browse For Folder|Klasöre Gözat') -ne [IntPtr]::Zero) {
-            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-        }
+        Shot 'klasor-penceresi-secim'
+        try {
+            $dialogElement = $AE::FromHandle($folderWindow)
+            $isButton = New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, $Types::Button)
+            $isOk = New-Object System.Windows.Automation.PropertyCondition($AE::AutomationIdProperty, '1')
+            $select = $dialogElement.FindFirst($Scope::Descendants, (New-Object System.Windows.Automation.AndCondition($isButton, $isOk)))
+            if ($select) {
+                Write-Host "  klasör penceresindeki onay düğmesi: $($select.Current.Name)"
+                $select.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+            } else {
+                [Native]::PostMessage($folderWindow, 0x0111, [IntPtr]1, [IntPtr]::Zero) | Out-Null
+            }
+        } catch { Write-Host "  (klasör penceresi düğmesine basılamadı: $($_.Exception.Message))" }
     }
-    $picked = Finish-Job $pick 15
+    $picked = Finish-Job $pick 20
     Note ($picked -match 'pencereden-secilen' -and (Test-Path (Join-Path $typedFolder 'Teslimler'))) "pencereden seçilen klasör kullanıldı ($picked)"
     $leftover = [Native]::FindWindowByTitle('Sınav klasörünü seçin|Browse For Folder|Klasöre Gözat')
     if ($leftover -ne [IntPtr]::Zero) { [Native]::PostMessage($leftover, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null; Start-Sleep -Seconds 1 }
