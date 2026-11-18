@@ -112,35 +112,43 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
 ## 4. Sınav günü
 
 1. Öğretmen bilgisayarını sınıf modemine bağlayın. `scripts\start-teacher.bat`'ı çalıştırın.
-   Panel açılır; üstte sınıf/öğretmen adı ve **BEKLİYOR** yazar.
-2. Panelde:
-   - **Sınav dosyası yükle (.pka)** — öğrencilere dağıtılacak dosya.
-   - **Öğrenci listesi yükle (Excel)** — isteğe bağlı (bkz. bölüm 6).
+   Panel açılır; üstte sınıf ve öğretmen adı ile **Sınav başlamadı** yazar.
+2. Üstteki hazırlık satırında:
+   - **1 Sınav dosyası → Dosya seç** — öğrencilere dağıtılacak `.pka` dosyası.
+   - **2 Öğrenci listesi → Dosya seç** — isteğe bağlı Excel listesi (bkz. bölüm 6).
+   - **3 Süre** — isteğe bağlı, dakika.
 3. Öğrenciler modeme bağlanır, ajanı **yönetici olarak** çalıştırır, sınıf/öğretmen adını
-   onaylar ve giriş yapar. Her öğrenci panelde canlı görüntüsüyle bir kutu olarak belirir.
-   Kutuda numara, ad soyad, **IP · bilgisayar adı · MAC** ve öndeki program yazar.
+   onaylar ve giriş yapar. Her öğrenci solda canlı ekranıyla bir kutu, sağda **Öğrenciler**
+   listesinde bir satır olarak belirir. Kutuda yalnızca ekran, numara ve ad vardır; satırı
+   okundan açınca o öğrencinin uyarıları ile **IP · bilgisayar adı · MAC** bilgisi görünür.
    - Bu aşamada izin listesi **uygulanmaz**. Öğrenciler Packet Tracer'ı açıp Cisco
      hesabıyla giriş yapsın (giriş tarayıcı açar; sınav başlayınca tarayıcı kapatılır).
    - “Listede olup giriş yapmayanlar” bölümü kimin eksik olduğunu gösterir.
-4. Herkes hazır olunca isterseniz **Süre (dk)** yazıp **Sınavı başlat**'a basın. Öğrencide:
+4. Herkes hazır olunca **Sınavı başlat**'a basın. Öğrencide:
    - “Sınav başlıyor. İzin verilmeyen programlar 10 saniye içinde kapatılacak.” uyarısı
      ve geri sayım görünür,
    - sınav dosyası indirilir ve Packet Tracer ile açılır,
-   - geri sayım bitince uygulama denetimi başlar; ajan küçük bir yan panele dönüşür.
+   - geri sayım bitince uygulama denetimi başlar; ajan küçük bir panele dönüşür.
 5. Sınav boyunca paneli izleyin:
-   - **Yeşil** = normal, **sarı** = görülmemiş uyarı var, **kırmızı** = bağlantı yok
-     (10 sn sinyal yok ya da ekran yayını yok), **gri** = teslim etti.
-   - Sağdaki **Son uyarılar** akışında en yeni uyarı üsttedir; tıklayınca o öğrenci
-     büyür. **Sesli bildirim** kutusunu işaretleyebilirsiniz.
-   - Kutuya tıklayınca büyük görüntü, öğrencinin bilgileri ve **olay geçmişi** açılır.
-     “Uyarıları görüldü işaretle” kutuyu yeniden yeşile çevirir.
+   - Renkli nokta ve kutu çerçevesi durumu gösterir: **yeşil** = bağlı, **sarı** =
+     görülmemiş uyarı var, **kırmızı** = bağlantı yok (10 sn sinyal yok ya da ekran
+     gelmiyor), **gri** = teslim etti.
+   - Bir olay olduğunda öğrencinin **satırında** uyarı ve kısa açıklaması çıkar, kutusunun
+     köşesinde uyarı sayısı görünür. Satırı okundan açınca o öğrencinin uyarıları listelenir;
+     **Görüldü** uyarıyı kapatır, **Ekranı büyüt** büyük görüntüyü açar.
+   - Listenin üstündeki **Uyarılar** süzgeci yalnızca dikkat gerektiren öğrencileri, en yeni
+     uyarı üstte olacak şekilde gösterir.
+   - Kutuya tıklayınca öğrencinin ekranı büyür; yanında tüm **olay geçmişi** ve “Bilgisayar
+     ve teslim bilgileri” bulunur.
+   - Sesli uyarı isterseniz sağ üstteki **Diğer** menüsünden **Uyarılarda ses çal**'ı açın.
    - Süre vermişseniz üstte kalan süre görünür. Süre dolunca sınav **kendiliğinden
      bitmez**; bitirmek için düğmeye basmanız gerekir.
 6. Öğrenci **Teslim et**'e basınca dosyası yüklenir, kutusu griye döner, ajanı kapanır.
 7. Süre bitince **Sınavı bitir**'e basın (onay ister). Teslim etmemiş öğrencilerin son
    kaydettiği dosya **otomatik** toplanır (olay kaydında “Otomatik teslim” yazar) ve
    ajanlar kapanır. Teslim dosyası gelmeyenler kırmızı “Teslim yok” olarak kalır.
-8. **Olayları CSV olarak dışa aktar** ile olay kaydını indirin (Excel'de açılır).
+8. Sınav bitince üstte beliren **Olay kaydını indir** ile (ya da her zaman **Diğer →
+   Olay kaydını indir (CSV)** ile) olay kaydını indirin; Excel'de açılır.
 
 ### Uyarılar ne anlama gelir?
 
@@ -173,7 +181,8 @@ olarak değil **olay kaydına** yazılır (büyük pencerede ve CSV'de görünü
 | Olay kaydı | Panelden CSV; ham hali `data\events.jsonl` |
 | MediaMTX günlüğü | `data\mediamtx.log` |
 
-- **Yeni sınav:** Paneldeki **Yeni sınav** düğmesi (sınav sürerken kullanılamaz) mevcut
+- **Yeni sınav:** Sınav bitince üstte beliren **Yeni sınav** düğmesi (ya da **Diğer → Yeni
+  sınav hazırla**; sınav sürerken kullanılamaz) mevcut
   teslimleri, olay kaydını ve sınav dosyasını **silmez**; `data\arsiv\<tarih-saat>\`
   klasörüne taşır ve paneli boşaltır. Öğrenci listesi korunur. Ekran kayıtları
   `recordings\` altında kalır.
@@ -301,13 +310,13 @@ Bilmeniz gerekenler:
 4. Güvenlik duvarı kuralları var mı? `start-teacher.bat` açılışta “Güvenlik duvarı
    kuralları hazır” yazmalı. Üçüncü taraf güvenlik yazılımı (antivirüsün kendi güvenlik
    duvarı) varsa onda da UDP 47000, TCP 8000, TCP 8554 için gelen bağlantıya izin verin.
-5. Yedek yol: öğrenci ajanda **elle IP** girer. IP, sunucu penceresinde ve panelin
-   üstündeki sarı şeritte yazar. Elle IP çalışıp keşif çalışmıyorsa sorun UDP yayınındadır
-   (modem ayarı ya da güvenlik duvarı).
+5. Yedek yol: öğrenci ajanda **elle IP** girer. IP, sunucu penceresinde ve paneldeki
+   **Diğer** menüsünün altında yazar. Elle IP çalışıp keşif çalışmıyorsa sorun UDP
+   yayınındadır (modem ayarı ya da güvenlik duvarı).
 
 **Öğrenci giriş yaptı ama görüntü yok / kutu “ekran yayını yok” ile kırmızı**
 
-- MediaMTX penceresi açık mı? Panelin üstünde “MediaMTX çalışmıyor” yazıyorsa
+- MediaMTX penceresi açık mı? Panelin üstünde “Ekran görüntüleri alınamıyor” yazıyorsa
   `start-teacher.bat`'ı kapatıp yeniden açın.
 - TCP 8554 kuralı var mı?
 - Öğrencide `ffmpeg.exe`, `SinavAjan.exe` ile aynı klasörde mi? Antivirüs ffmpeg'i
@@ -334,8 +343,9 @@ Bilinçli: panel yalnızca öğretmen bilgisayarından (`localhost`) açılır.
 
 **35 kutu aynı anda oynarken tarayıcı zorlanıyor**
 
-Paneldeki **Görünmeyen kutuları duraklat** kutusunu işaretleyin ve **Kutu boyutu** ile
-kutuları küçültün. Yetmezse `config.yaml` → `yayin` altından fps/genişlik/bit hızını düşürün.
+**Diğer** menüsünde **Görünmeyen kutuları duraklat**'ı açın; **Kutuları ekrana sığdır**
+açıkken kutular zaten en küçük uygun boyuttadır. Yetmezse `config.yaml` → `yayin` altından
+fps/genişlik/bit hızını düşürün.
 
 **Wi-Fi zorlanıyor (görüntüler takılıyor, kopmalar oluyor)**
 
@@ -347,7 +357,8 @@ kutuları küçültün. Yetmezse `config.yaml` → `yayin` altından fps/genişl
 - Ajan öğrenci bilgisayarında **kalıcı iz bırakmaz**: servis kurmaz, başlangıca
   eklenmez, kayıt defterine yazmaz, zamanlanmış görev oluşturmaz. Yalnızca
   `%LOCALAPPDATA%\SinavAjan\` altına sınav dosyasını ve günlük kaydını yazar; öğrenci
-  “Sınav dosyalarımı temizle” ile bunları siler. Ajan kapanınca ffmpeg dahil hiçbir şey
+  teslimden sonraki son pencerede “Sınav dosyalarını bu bilgisayardan sil ve kapat” ile
+  bunları siler. Ajan kapanınca ffmpeg dahil hiçbir şey
   çalışmaya devam etmez (ffmpeg bir Windows *Job Object* içinde çalışır; ajan Görev
   Yöneticisi'nden sonlandırılsa bile Windows ffmpeg'i kapatır).
 - Giriş anından teslime/kapanışa kadar öğretmene şunlar gider: ekranın tamamı (tüm

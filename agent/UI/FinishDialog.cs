@@ -7,7 +7,7 @@ namespace SinavAjan.UI;
 public sealed class FinishDialog : Form
 {
     private const int AutoCloseSeconds = 180;
-    private const int ContentWidth = 420; // logical pixels
+    private const int ContentWidth = 480; // logical pixels; a SHA-256 value fits on one line
 
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 1000 };
     private readonly Button _close;
@@ -32,7 +32,7 @@ public sealed class FinishDialog : Form
 
         var width = LogicalToDeviceUnits(ContentWidth);
         var pad = LogicalToDeviceUnits(28);
-        ClientSize = new Size(width + 2 * pad, LogicalToDeviceUnits(info.Success ? 380 : 340));
+        ClientSize = new Size(width + 2 * pad, LogicalToDeviceUnits(info.Success ? 360 : 330));
 
         var layout = new TableLayoutPanel
         {

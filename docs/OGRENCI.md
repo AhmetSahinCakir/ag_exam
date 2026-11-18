@@ -45,8 +45,10 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
      geri sayım görünür.
    - Sınav dosyası (`sinav.pka`) Packet Tracer'da **kendiliğinden açılır**. (Daha önce
      açtığınız boş Packet Tracer penceresini kapatabilirsiniz.)
-   - Ajan, ekranın sağında küçük bir panele dönüşür: kalan süre (öğretmen süre verdiyse),
-     bağlantı durumu, **Teslim et** ve **Sınav dosyasını aç** düğmeleri.
+   - Program, ekranın sağında küçük bir panele dönüşür: kalan süre (öğretmen süre verdiyse),
+     bağlantı durumu, **Teslim et** ve **Sınav dosyasını aç** düğmeleri. Paneli başlığından
+     tutup taşıyabilir ya da simge durumuna küçültebilirsiniz; görev çubuğundaki simgesine
+     tıklayınca geri gelir (kalan süre simgenin üzerine gelince de görünür).
 
 ## Sınav sırasında
 
@@ -59,8 +61,8 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
 - **İkinci ekran takmayın;** takılı ekran ve ekran takıp çıkarma öğretmene bildirilir.
 - **Sık sık Ctrl+S ile kaydedin.** Teslim edilen şey, *kaydettiğiniz* dosyadır. Dosyayı
   “Farklı Kaydet” ile başka yere kaydetmeyin; açılan dosyanın üzerine kaydedin.
-- Wi-Fi koparsa panelde “Sunucu bağlantısı: YOK” yazar; ajan kendiliğinden yeniden bağlanır,
-  siz çalışmaya devam edin. Uzun sürerse öğretmeninize haber verin.
+- Wi-Fi koparsa panelde “Sunucuya ulaşılamıyor — yeniden deneniyor…” yazar; program
+  kendiliğinden yeniden bağlanır, siz çalışmaya devam edin. Uzun sürerse öğretmeninize haber verin.
 - Packet Tracer'ı yanlışlıkla kapatırsanız paneldeki **Sınav dosyasını aç** düğmesine basın;
   son kaydettiğiniz hâliyle açılır.
 - Ajan çökerse veya bilgisayar yeniden başlarsa ajanı yeniden çalıştırıp **aynı numarayla**
@@ -83,10 +85,10 @@ olarak** teslim edilir ve “Sınav sona erdi” penceresi çıkar.
 
 ## Sınavdan sonra
 
-- Son pencerede **Sınav dosyalarımı temizle ve kapat** derseniz ajanın bilgisayarınıza
-  yazdığı her şey silinir. Daha sonra silmek için ajanı yeniden açın ve ilk ekranın
-  altındaki **Sınav dosyalarımı temizle** bağlantısına basın, ya da
-  `%LOCALAPPDATA%\SinavAjan` klasörünü elle silin.
+- Son pencerede **Sınav dosyalarını bu bilgisayardan sil ve kapat** derseniz programın
+  bilgisayarınıza yazdığı her şey (sınav dosyası ve günlük) silinir. Daha sonra silmek
+  isterseniz `%LOCALAPPDATA%\SinavAjan` klasörünü elle silin (adres çubuğuna aynen
+  yapıştırabilirsiniz).
 - `SinavAjan` klasörünü de silebilirsiniz. Program kurulum yapmaz; kaldırılacak başka bir
   şey yoktur.
 
@@ -99,7 +101,7 @@ Programı kapatıp sağ tık → **Yönetici olarak çalıştır** ile açın.
 Öğretmeninizin verdiği Wi-Fi ağına bağlı olduğunuzdan emin olup **Tekrar dene**'ye basın.
 Olmazsa öğretmeninizin söyleyeceği IP adresini alttaki kutuya yazıp **Bağlan**'a basın.
 
-**“Ekran yayını: bağlanıyor…” yazısı gitmiyor / antivirüs programı engelliyor**
+**“Ekran aktarımı başlatılıyor…” yazısı gitmiyor / antivirüs programı engelliyor**
 Antivirüsünüz `SinavAjan.exe` veya `ffmpeg.exe` dosyasını engellemiş olabilir.
 **Antivirüsü kapatmayın;** yalnızca ajan klasörünü istisna olarak ekleyin. Windows Güvenliği
 (Defender) için:

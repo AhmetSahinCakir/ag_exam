@@ -30,16 +30,32 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
   I/İ sorunu dahil), 5 saniye toleransı ve kapatma kuralları, ffmpeg komut satırı →
   `agent/tests/CoreSmoke`.
 
-**Windows gerektirdiği için yalnızca derlenip gerçek ortamda çalıştırılamayanlar** — bu
-provada asıl bakılacak yerler:
+**Gerçek Windows üzerinde otomatik sınananlar** (GitHub Actions, Windows Server 2025;
+`agent/tests/E2E/windows-e2e.ps1` her derlemede `SinavAjan.exe`'yi çalıştırıp arayüzünü bir
+öğrenci gibi kullanır):
 
-- Ajanın arayüzü ve akışı (keşif ekranı → onay → giriş → bekleme → geri sayım → yan panel).
-- `gdigrab` ile ekran yakalama (çoklu monitör, yüksek DPI ölçekleme).
-- Pencere/süreç denetimi: izinsiz programın kapatılması, öndeki pencere tespiti, Microsoft
-  Store uygulamaları, yükseltilmiş (yönetici) süreçler.
-- Job Object ile ffmpeg'in ajanla birlikte kapanması.
-- Packet Tracer'ın bulunup sınav dosyasıyla açılması.
-- `start-teacher.bat` ve güvenlik duvarı kuralları.
+- Yönetici olarak açılma, keşif, sınıf/öğretmen onayı, giriş; IP, bilgisayar adı ve MAC kaydı.
+- `ffmpeg gdigrab` ile ekranın yakalanıp MediaMTX'e yayınlanması ve kaydedilmesi; ffmpeg'in
+  görünür bir pencere açmaması.
+- Bekleme aşamasında hiçbir programın kapatılmaması; sınav başlayınca geri sayım, sınav
+  dosyasının indirilmesi, sınav paneli (küçültülebilir), kalan süre.
+- Not Defteri ve Chrome'un kapatılması, öğrenciye bildirim, panelde uyarı.
+- Öndeki pencere toleransı: 2,5 sn'lik geçişte uyarı yok, 5 sn'den sonra uyarı var;
+  `C:\Windows` altındaki programın kapatılmaması.
+- Kaydetmeden teslimde uyarı, onay, teslim, SHA-256, Türkçe karakterli dosya adı, ajanın
+  kapanması, ffmpeg'in kapanması, servis/başlangıç kaydı/zamanlanmış görev kalmaması.
+- Ajan zorla sonlandırılınca ffmpeg'in de kapanması (Job Object) ve kutunun kırmızıya dönmesi.
+- `start-teacher.bat` güvenlik duvarı kurallarının eklenmesi; sunucu testleri (Windows, Python 3.11).
+
+**Otomatik sınanamayanlar** — bu provada asıl bakılacak yerler:
+
+- **Packet Tracer'ın kendisi:** bulunup sınav dosyasıyla açılması, CLI pencereleri, giriş.
+  (Test ortamında Packet Tracer kurulu değildir.)
+- Gerçek Wi-Fi ve modem: keşif yayını, AP izolasyonu, 35 öğrencilik yük.
+- Windows 10 ve Windows 11 dizüstüleri: yüksek DPI ölçekleme, çoklu monitör, Microsoft
+  Store uygulamaları, üretici yardımcı programları, antivirüsler.
+- `start-teacher.bat`'ın ilk kurulum adımları (Python ortamı, MediaMTX indirme).
+- Öğretmen bilgisayarındaki tarayıcının 35 görüntüyü kaldırması.
 
 ## 2. Öğrenci bilgisayarı olmadan hızlı deneme
 
@@ -92,7 +108,9 @@ Her maddeyi deneyip işaretleyin.
       listelemeli.
 - [ ] **5. 10 saniyede canlı görüntü.** 3 ayrı bilgisayardan giriş yapılınca 10 saniye
       içinde panelde üçünün de canlı görüntüsü geliyor.
-- [ ] **6. IP / bilgisayar adı / MAC.** Her kutuda üçü de görünüyor. Aynı bilgisayarda
+- [ ] **6. IP / bilgisayar adı / MAC.** Sağdaki listede öğrencinin satırını okundan açınca
+      üçü de görünüyor (kutuya tıklayınca açılan büyük görünümde “Bilgisayar ve teslim
+      bilgileri” altında da yazar). Aynı bilgisayarda
       ajanı kapatıp **başka bir numarayla** giriş yapınca kırmızı uyarı çıkıyor: “Bu
       bilgisayardan daha önce … giriş yapmıştı”.
 - [ ] **7. Chrome kapanıyor.** Sınav başladıktan sonra Chrome açılınca 1–2 saniyede
@@ -123,8 +141,8 @@ Her maddeyi deneyip işaretleyin.
       `127.0.0.1:8889` adreslerine istek olmalı.
 - [ ] **16. İz kalmıyor.** Ajan kapandıktan sonra öğrenci bilgisayarında: Görev
       Yöneticisi'nde `SinavAjan.exe` / `ffmpeg.exe` yok; *Başlangıç uygulamaları*,
-      *Hizmetler* ve *Görev Zamanlayıcı*'da ajana ait kayıt yok. “Sınav dosyalarımı
-      temizle”den sonra `%LOCALAPPDATA%\SinavAjan` klasörü yok.
+      *Hizmetler* ve *Görev Zamanlayıcı*'da ajana ait kayıt yok. Son pencerede “Sınav
+      dosyalarını bu bilgisayardan sil ve kapat”tan sonra `%LOCALAPPDATA%\SinavAjan` klasörü yok.
 
 Ek denemeler (önerilir):
 
@@ -167,9 +185,8 @@ başlayınca ajanın açtığı pencereyi kapatıp kendi açık pencerelerinde *
 Geliştirme ortamında 35 yayın tek tarayıcıda oynatıldı (toplam ~175 kare/sn çözüldü),
 ancak bu ölçüm sizin bilgisayarınızı temsil etmez. Öğretmen bilgisayarında
 `sim_agent.py --count 35 --stream` ile (ya da gerçek sınıfla) deneyin; Görev Yöneticisi'nde
-tarayıcının işlemci kullanımına ve görüntülerin akıcılığına bakın. Zorlanıyorsa:
-**Görünmeyen kutuları duraklat** kutusunu işaretleyin, **Kutu boyutu**'nu küçültün,
-gerekirse `yayin.genislik: 960` yapın.
+tarayıcının işlemci kullanımına ve görüntülerin akıcılığına bakın. Zorlanıyorsa **Diğer**
+menüsünden **Görünmeyen kutuları duraklat**'ı açın, gerekirse `yayin.genislik: 960` yapın.
 
 ### Risk 4 — Ağ kapasitesi
 

@@ -50,7 +50,7 @@ public sealed class MainForm : Form
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(Px(460), Px(560));
+        ClientSize = new Size(Px(460), Px(500));
 
         _frame = new TableLayoutPanel
         {
@@ -143,16 +143,15 @@ public sealed class MainForm : Form
 
     private TextBox AddInput(string accessibleName, int maxLength, int gap)
     {
-        var box = new TextBox
+        var input = new InputBox(Theme.Regular(11F), Px(9), Px(7))
         {
-            Font = Theme.Regular(11F),
-            BorderStyle = BorderStyle.FixedSingle,
-            MaxLength = maxLength,
-            AccessibleName = accessibleName,
             Width = _contentWidth,
             Anchor = AnchorStyles.Left | AnchorStyles.Right,
         };
-        return Add(box, gap);
+        input.TextBox.MaxLength = maxLength;
+        input.TextBox.AccessibleName = accessibleName;
+        Add(input, gap);
+        return input.TextBox;
     }
 
     private TextBox AddField(string caption, int maxLength)

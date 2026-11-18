@@ -60,6 +60,44 @@ internal static class Theme
 }
 
 /// <summary>
+/// A text field with a thin, calm border that turns to the accent colour while it has the focus.
+/// </summary>
+internal sealed class InputBox : Panel
+{
+    public TextBox TextBox { get; }
+
+    public InputBox(Font font, int horizontalPadding, int verticalPadding)
+    {
+        BackColor = Theme.Line; // shows through as the 1px border
+        Padding = new Padding(1);
+        Margin = Padding.Empty;
+
+        var inner = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Theme.Background,
+            Padding = new Padding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding),
+            Cursor = Cursors.IBeam,
+        };
+        TextBox = new TextBox
+        {
+            BorderStyle = BorderStyle.None,
+            Font = font,
+            Dock = DockStyle.Top,
+            BackColor = Theme.Background,
+            ForeColor = Theme.Text,
+        };
+        inner.Controls.Add(TextBox);
+        Controls.Add(inner);
+        Height = TextBox.PreferredHeight + 2 * verticalPadding + 2;
+
+        inner.Click += (_, _) => TextBox.Focus();
+        TextBox.Enter += (_, _) => BackColor = Theme.Accent;
+        TextBox.Leave += (_, _) => BackColor = Theme.Line;
+    }
+}
+
+/// <summary>
 /// A label whose text starts exactly at its left edge. The standard Label insets its text
 /// by an amount that grows with the font size, so headings, captions and text boxes would
 /// not share one left edge.
