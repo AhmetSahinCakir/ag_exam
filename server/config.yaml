@@ -102,7 +102,7 @@ esikler:
   # Bu süre boyunca sinyal (heartbeat) gelmezse veya ekran yayını yoksa
   # öğrenci kutusu kırmızıya döner.
   kopma_suresi_sn: 10
-  # "Sınav dosyasını paylaş"tan sonra izinsiz programların kapatılmasına kadar geçen süre.
+  # Sınav başladıktan sonra izinsiz programların kapatılmasına kadar geçen süre.
   kapatma_geri_sayim_sn: 10
 
 # -----------------------------------------------------------------------------
@@ -124,5 +124,6 @@ klasorler:
 # öğrenciye giriş ekranında gösterilir. Kurumunuzun kuralına göre düzenleyin ve
 # süre dolunca kayıtları elle silin.
 kayit_saklama_notu: >-
-  Ekran kayıtları yalnızca sınav güvenliği için tutulur, sınav itiraz süresi
-  bitene kadar öğretmen bilgisayarında saklanır ve ardından silinir.
+  Ekranınız sınav boyunca öğretmene aktarılır ve kaydedilebilir. Kayıtlar
+  yalnızca sınav güvenliği için tutulur, sınav itiraz süresi bitene kadar
+  öğretmen bilgisayarında saklanır ve ardından silinir.

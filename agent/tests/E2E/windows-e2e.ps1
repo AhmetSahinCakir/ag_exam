@@ -580,9 +580,8 @@ klasorler:
     $recordingsDir = Join-Path $examFolder 'Kayıtlar'
     $submissionsDir = Join-Path $examFolder 'Teslimler'
     Check ((Test-Path $recordingsDir) -and (Test-Path $submissionsDir)) 'klasörün içinde "Kayıtlar" ve "Teslimler" klasörleri açıldı'
-    $recording = Wait-Until { $s = Get-Snapshot; if ($s -and $s.health.recording) { $s } } 10
-    Check ([bool]$recording) 'MediaMTX ekran kaydı sınav klasörüne yönlendirildi'
-    if ($recording) { Check ($recording.exam.folder -eq $examFolder) "panel sınav klasörünü gösteriyor ($($recording.exam.folder))" }
+    $chosenState = Get-Snapshot
+    Check ($chosenState -and $chosenState.exam.folder -eq $examFolder) "panel sınav klasörünü gösteriyor ($($chosenState.exam.folder))"
 
     # ------------------------------------------------------------- waiting phase
     Step 'Ajan: keşif, onay, giriş'
@@ -621,21 +620,39 @@ klasorler:
     Get-Process -Name notepad -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
     # --------------------------------------------------------------- exam start
-    Step 'Sınav dosyasını paylaş (sınav başlar)'
+    Step 'Sınavı başlat (başlangıç saati, süre, ekran kaydı)'
+    Start-Sleep -Seconds 3
+    $before = Get-Snapshot
+    Check ($before -and -not $before.health.recording -and -not (Get-ChildItem $recordingsDir -Recurse -File)) 'sınav başlamadan önce ekranlar kaydedilmiyor'
+    $noFile = Panel-Post '/panel/api/start' '{"duration_min": 30}'
+    Check ($noFile -match 'HATA') 'sınav dosyası yüklenmeden sınav başlatılamıyor'
     $exam = Join-Path $OutDir 'sinav.pka'
     [IO.File]::WriteAllBytes($exam, [Text.Encoding]::ASCII.GetBytes(('PKA-E2E-SINAV-DOSYASI ' * 400)))
     $upload = Curl-Text @('-m', '10', '-H', 'X-Panel: 1', '-F', "file=@$exam", "$base/panel/api/exam-file")
     Check ($upload -match 'sha256') 'sınav dosyası yüklendi'
-    $start = Panel-Post '/panel/api/start'
-    Check ($start -match 'RUNNING') "sınav dosyası paylaşıldı, sınav başladı ($start)"
+
+    # A start planned for later: the student sees the time; cancelling removes it.
+    $later = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900
+    $planned = Panel-Post '/panel/api/start' (@{ start_at = $later; duration_min = 30; record = $true } | ConvertTo-Json -Compress)
+    Check ($planned -match 'WAITING' -and $planned -match 'scheduled') "sınav ileri bir saat için planlanabiliyor ($planned)"
+    Check ([bool](Wait-AgentText '^Sınav saat \d\d:\d\d için planlandı\.$' 8)) 'ajan bekleme ekranında planlanan başlangıç saatini gösteriyor'
+    Shot 'bekleme-planlandi'
+    $cancelled = Panel-Post '/panel/api/cancel-start'
+    Check ($cancelled -match 'WAITING') 'planlanan başlangıç iptal edilebiliyor'
+    Check ([bool](Wait-Until { -not (Agent-Texts | Where-Object { $_ -match 'için planlandı' }) } 8)) 'iptal edilince ajandaki saat yazısı kalkıyor'
+
+    $start = Panel-Post '/panel/api/start' (@{ duration_min = 30; record = $true } | ConvertTo-Json -Compress)
+    Check ($start -match 'RUNNING') "sınav başladı: 30 dakika, ekran kaydı açık ($start)"
     if ($start -notmatch 'RUNNING') { throw 'Sınav başlatılamadı; kalan adımlar anlamsız.' }
+    $recordingOn = Wait-Until { $s = Get-Snapshot; if ($s -and $s.health.recording) { $s } } 10
+    Check ([bool]$recordingOn) 'sınav başlayınca MediaMTX ekran kaydı sınav klasörüne açıldı'
 
     $countdown = Wait-AgentText 'Sınav başlıyor' 8
     Check ([bool]$countdown) 'ajan: "Sınav başlıyor." uyarısı ve geri sayım'
     Shot 'geri-sayim'
     $running = Wait-AgentText '^Sınav sürüyor$' 20
     Check ([bool]$running) 'geri sayımdan sonra sınav paneli: "Sınav sürüyor"'
-    Check (-not (Agent-Texts | Where-Object { $_ -match '^\d\d:\d\d(:\d\d)?$' })) 'öğrenci panelinde süre gösterilmiyor'
+    Check ([bool](Wait-AgentText '^Kalan süre: (29|30) dk$' 6)) 'süre verildiği için öğrenci panelinde kalan süre yazıyor ("Kalan süre: 30 dk")'
     Check ([bool](Wait-Until { (Count-Events $numara 'enforcement_started') -ge 1 } 10)) 'olay: uygulama denetimi başladı'
     Check (-not (Find-Agent '^Teslim et$' $Types::Button)) 'dosya indirilmeden "Teslim et" görünmüyor'
     Shot 'panel-indirmeden-once'

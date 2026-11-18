@@ -56,6 +56,12 @@ public class ExamStatus
     [JsonPropertyName("server_time")] public double ServerTime { get; set; }
     [JsonPropertyName("started_at")] public double StartedAt { get; set; }
 
+    /// <summary>Unix time at which the exam ends by itself; 0 when the teacher set no time limit.</summary>
+    [JsonPropertyName("ends_at")] public double EndsAt { get; set; }
+
+    /// <summary>Unix time of a start the teacher planned for later; 0 when nothing is planned.</summary>
+    [JsonPropertyName("scheduled_at")] public double ScheduledAt { get; set; }
+
     /// <summary>
     /// True (heartbeat only) once the teacher's computer has this student's file in its
     /// submissions folder — also when the file got there without this program.

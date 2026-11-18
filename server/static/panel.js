@@ -33,6 +33,7 @@ let fitTiles = true;             // ekranları kaydırmadan sığdır
 let sideCollapsed = false;       // sağdaki öğrenci listesi daraltıldı
 let folderBusy = false;          // klasör seçme penceresi açık
 let byNumara = new Map();        // numara -> öğrenci (son durum)
+let receivedAt = 0;              // son durumun geldiği an (Date.now())
 let modalNumara = null;
 let modalEvCount = -1;
 const tiles = new Map();         // numara -> kutu
@@ -55,6 +56,15 @@ function setText(node, text) {
 
 function fmtClock(ts) {
   return new Date(ts * 1000).toLocaleTimeString('tr-TR', { hour12: false, hour: '2-digit', minute: '2-digit' });
+}
+
+/* Kalan süre: 1:05:09 ya da 34:12. */
+function fmtRemaining(seconds) {
+  const total = Math.max(0, Math.ceil(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = String(total % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
 }
 
 function fmtClockSeconds(ts) {
@@ -373,14 +383,16 @@ function renderTiles() {
   const grid = $('grid');
   const seen = new Set();
   let previous = null;
-  for (const st of S.students) {
+  // Teslim edenlerin ekranı sona gider; kalanlar numara sırasıyla üstte durur.
+  const ordered = S.students.slice().sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done'));
+  for (const st of ordered) {
     seen.add(st.numara);
     let tile = tiles.get(st.numara);
     if (!tile) {
       tile = createTile(st.numara);
       tiles.set(st.numara, tile);
     }
-    // Sıra sunucudan numaraya göre gelir; DOM sırasını ona uydur.
+    // DOM sırasını yukarıdaki sıraya uydur.
     const expectedNext = previous ? previous.root.nextSibling : grid.firstChild;
     if (expectedNext !== tile.root) grid.insertBefore(tile.root, expectedNext);
     previous = tile;
@@ -473,7 +485,8 @@ function renderHeader() {
   document.title = `Sınav İzleme — ${S.class.sinif_adi}`;
 
   const state = S.exam.state;
-  setText($('examState'), STATE_TEXT[state] || state);
+  const plan = state === 'WAITING' ? S.exam.scheduled : null;
+  setText($('examState'), plan ? 'Sınav planlandı' : (STATE_TEXT[state] || state));
   const exam = document.querySelector('.exam');
   exam.classList.toggle('running', state === 'RUNNING');
   exam.classList.toggle('ended', state === 'ENDED');
@@ -506,10 +519,20 @@ function renderHeader() {
   $('btnRoster').parentElement.classList.toggle('done', S.roster.count > 0);
   setText($('btnRoster'), S.roster.count ? 'Değiştir' : 'Dosya seç');
   $('btnStart').disabled = !file || !folder;
-  let startHint = 'Dosyayı paylaşmak sınavı başlatır';
+  let startHint = 'Başlangıç saatini, süreyi ve ekran kaydını seçersiniz';
   if (!folder) startHint = 'Önce sınav klasörünü seçin';
-  else if (!file) startHint = 'Önce sınav dosyasını seçin';
+  else if (!file) startHint = 'Önce sınav dosyasını seçin: sınav başlayınca öğrencilerle paylaşılır';
   $('btnStart').title = startHint;
+  // Planlanmış başlangıç: düğmenin yerinde saat ve "İptal et" görünür.
+  $('btnStart').hidden = Boolean(plan);
+  $('scheduledBox').hidden = !plan;
+  if (plan) {
+    const details = [plan.duration_min ? `${plan.duration_min} dakika` : 'süre yok',
+      plan.record ? 'ekranlar kaydedilecek' : 'ekranlar kaydedilmeyecek'];
+    setText($('scheduledText'), `Sınav saat ${fmtClock(plan.at)} için planlandı`);
+    $('scheduledBox').title = details.join(', ');
+  }
+  $('btnExtend').hidden = !(state === 'RUNNING' && S.exam.ends_at);
 
   renderMenuInfo();
   renderBanners();
@@ -560,15 +583,27 @@ function renderBanners() {
 function renderTimer() {
   if (!S) return;
   const exam = S.exam;
-  // Süre tutulmaz; yalnızca başlangıç (ve bitiş) saati gösterilir.
-  let text = '';
-  if (exam.state === 'RUNNING' && exam.started_at) {
-    text = `başlangıç ${fmtClock(exam.started_at)}`;
+  const parts = [];
+  let ending = false;
+  if (exam.state === 'WAITING' && exam.scheduled) {
+    parts.push(`başlangıç ${fmtClock(exam.scheduled.at)}`);
+  } else if (exam.state === 'RUNNING' && exam.started_at) {
+    parts.push(`başlangıç ${fmtClock(exam.started_at)}`);
+    if (exam.ends_at) {
+      // Sunucunun saatine göre hesaplanır; tarayıcı saati yanlış olsa da doğru kalır.
+      const serverNow = S.server_time + (Date.now() - receivedAt) / 1000;
+      const remaining = exam.ends_at - serverNow;
+      parts.push(`kalan ${fmtRemaining(remaining)}`);
+      ending = remaining <= 300;
+    }
+    parts.push(exam.record ? 'kayıt açık' : 'kayıt kapalı');
   } else if (exam.state === 'ENDED' && exam.started_at) {
-    text = `${fmtClock(exam.started_at)} – ${fmtClock(exam.ended_at)}`;
+    parts.push(`${fmtClock(exam.started_at)} – ${fmtClock(exam.ended_at)}`);
   }
-  setText($('timer'), text);
+  setText($('timer'), parts.join(' · '));
+  $('timer').classList.toggle('ending', ending);
 }
+setInterval(renderTimer, 500);
 
 /* ----------------------------------------------------------------- öğrenci listesi (sağ) */
 
@@ -954,6 +989,7 @@ function connectStream() {
   const source = new EventSource('/panel/api/stream');
   source.onmessage = (message) => {
     S = JSON.parse(message.data);
+    receivedAt = Date.now();
     const down = $('banners').querySelector('.server-down');
     if (down) { down.remove(); $('banners').dataset.signature = ''; }
     render();
@@ -1041,6 +1077,60 @@ function openDialog(id, focusId, value) {
 function closeDialogs() {
   $('identityDialog').hidden = true;
   $('folderDialog').hidden = true;
+  $('startDialog').hidden = true;
+}
+
+/* "Sınavı başlat" penceresi: başlangıç (hemen / saat), isteğe bağlı süre, ekran kaydı. */
+function openStartDialog() {
+  if (!S || !S.exam.file) return;
+  closeMenu();
+  setText($('startFileNote'),
+    `Sınav dosyası (${S.exam.file.name}) sınav başladığı anda öğrencilerle paylaşılır; `
+    + 'izin verilmeyen programlar kısa bir geri sayımdan sonra kapatılır.');
+  // Öneri: beş dakikanın katı olan, en az beş dakika sonraki ilk saat.
+  const suggestion = new Date(Math.ceil((Date.now() + 5 * 60000) / 300000) * 300000);
+  $('startTime').value = `${String(suggestion.getHours()).padStart(2, '0')}:${String(suggestion.getMinutes()).padStart(2, '0')}`;
+  $('startNow').checked = true;
+  $('startDuration').value = '';
+  $('startRecord').checked = pref('record', '1') === '1';
+  syncStartDialog();
+  $('startDialog').hidden = false;
+  $('startDuration').focus();
+}
+
+function syncStartDialog() {
+  const later = $('startLater').checked;
+  $('startTime').disabled = !later;
+  setText($('startSubmit'), later ? 'Planla' : 'Sınavı başlat');
+}
+
+async function submitStart(event) {
+  event.preventDefault();
+  const body = { record: $('startRecord').checked };
+  const duration = $('startDuration').value.trim();
+  if (duration !== '') body.duration_min = Number(duration);
+  if ($('startLater').checked) {
+    const [hours, minutes] = $('startTime').value.split(':').map(Number);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+      toast('Başlangıç saatini seçin ya da “Hemen”i işaretleyin.', true);
+      return;
+    }
+    const at = new Date();
+    at.setHours(hours, minutes, 0, 0);
+    if (at.getTime() <= Date.now()) {
+      toast('Seçtiğiniz saat geçmiş. İleri bir saat seçin ya da “Hemen”i işaretleyin.', true);
+      return;
+    }
+    body.start_at = at.getTime() / 1000;
+  }
+  try {
+    const data = await api('/panel/api/start', { json: body });
+    setPref('record', body.record ? '1' : '0');
+    closeDialogs();
+    toast(data.scheduled ? `Sınav saat ${fmtClock(data.scheduled.at)} için planlandı.` : 'Sınav başladı.');
+  } catch (error) {
+    toast(error.message, true);
+  }
 }
 
 function bindDialogs() {
@@ -1073,7 +1163,30 @@ function bindDialogs() {
       toast(error.message, true);
     }
   });
-  for (const id of ['identityDialog', 'folderDialog']) {
+  $('btnStart').addEventListener('click', openStartDialog);
+  $('startCancel').addEventListener('click', closeDialogs);
+  $('startNow').addEventListener('change', syncStartDialog);
+  $('startLater').addEventListener('change', () => { syncStartDialog(); $('startTime').focus(); });
+  $('startForm').addEventListener('submit', submitStart);
+  $('btnCancelStart').addEventListener('click', async () => {
+    try {
+      await api('/panel/api/cancel-start');
+      toast('Planlanan başlangıç iptal edildi.');
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
+  $('btnExtend').addEventListener('click', async () => {
+    closeMenu();
+    try {
+      const data = await api('/panel/api/extend', { json: { minutes: 5 } });
+      toast(`5 dakika eklendi. Yeni bitiş: ${fmtClock(data.ends_at)}`);
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
+
+  for (const id of ['identityDialog', 'folderDialog', 'startDialog']) {
     $(id).addEventListener('mousedown', (event) => { if (event.target === $(id)) closeDialogs(); });
   }
 }
@@ -1095,18 +1208,6 @@ function bindControls() {
   $('btnRosterMenu').addEventListener('click', chooseRoster);
   $('fileRoster').addEventListener('change', () => uploadFile(
     $('fileRoster'), '/panel/api/roster', (file, data) => `Öğrenci listesi yüklendi: ${data.count} öğrenci`));
-
-  $('btnStart').addEventListener('click', async () => {
-    const question = 'Sınav dosyası paylaşılsın mı?\n\n'
-      + 'Paylaştığınız anda sınav başlar: öğrencilerde izin verilmeyen programlar kısa bir geri sayımdan '
-      + 'sonra kapatılır ve öğrenciler dosyayı indirebilir.';
-    if (!confirm(question)) return;
-    try {
-      await api('/panel/api/start');
-    } catch (error) {
-      toast(error.message, true);
-    }
-  });
 
   $('btnEnd').addEventListener('click', async () => {
     const question = 'Sınavı bitirmek istediğinize emin misiniz?\n\n'
@@ -1145,7 +1246,7 @@ function bindControls() {
   $('modal').addEventListener('click', (event) => { if (event.target === $('modal')) closeModal(); });
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
-    if (!$('identityDialog').hidden || !$('folderDialog').hidden) closeDialogs();
+    if (!$('identityDialog').hidden || !$('folderDialog').hidden || !$('startDialog').hidden) closeDialogs();
     else if (modalNumara) closeModal();
     else closeMenu();
   });

@@ -215,6 +215,14 @@ class Store:
         self.exam_id = ""
         self.started_at = 0.0
         self.ended_at = 0.0
+        # Optional time limit: when set, the exam ends by itself at ends_at.
+        self.duration_min = 0
+        self.ends_at = 0.0
+        # Chosen in the "Sınavı başlat" window. Students cannot tell: their screens are
+        # streamed to the teacher either way; this only decides whether they are kept on disk.
+        self.record_enabled = True
+        # A start planned for a later time of day: {"at": unix time, "duration_min", "record"}.
+        self.scheduled: dict[str, Any] | None = None
         self.exam_file: dict[str, Any] | None = None
         # Chosen by the teacher in the panel before the exam. Two folders are created in it:
         # "Kayıtlar" (screen recordings) and "Teslimler" (submitted files).
@@ -273,8 +281,12 @@ class Store:
 
     @property
     def record_path(self) -> str:
-        """MediaMTX recordPath for the chosen exam folder ("" = do not record)."""
-        if self.dir_recordings is None:
+        """MediaMTX recordPath for the chosen exam folder ("" = do not record).
+
+        Nothing is recorded before the exam starts (students are still logging in to
+        Packet Tracer then), nor when the teacher started the exam without recording.
+        """
+        if self.dir_recordings is None or self.state == WAITING or not self.record_enabled:
             return ""
         return str(self.dir_recordings / "%path" / "%Y-%m-%d_%H-%M-%S_%z")
 
@@ -306,6 +318,10 @@ class Store:
             "exam_id": self.exam_id,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
+            "duration_min": self.duration_min,
+            "ends_at": self.ends_at,
+            "record_enabled": self.record_enabled,
+            "scheduled": self.scheduled,
             "exam_file": self.exam_file,
             "exam_dir": str(self.exam_dir) if self.exam_dir else "",
             "ignored_files": sorted(self.ignored_files),
@@ -337,6 +353,10 @@ class Store:
             self.exam_id = data.get("exam_id", "")
             self.started_at = float(data.get("started_at") or 0)
             self.ended_at = float(data.get("ended_at") or 0)
+            self.duration_min = int(data.get("duration_min") or 0)
+            self.ends_at = float(data.get("ends_at") or 0)
+            self.record_enabled = bool(data.get("record_enabled", True))
+            self.scheduled = data.get("scheduled") or None
             self.exam_file = data.get("exam_file")
             self.exam_dir = Path(data["exam_dir"]) if data.get("exam_dir") else None
             self.ignored_files = set(data.get("ignored_files") or [])
@@ -548,16 +568,55 @@ class Store:
         self.changed()
         return len(entries)
 
-    def start_exam(self) -> None:
-        """Share the exam file with the students. Sharing the file IS the start of the exam."""
+    def start_exam(self, duration_min: Any = None, record: Any = True, start_at: Any = None) -> None:
+        """“Sınavı başlat”: the exam file becomes downloadable and the allowlist is enforced.
+
+        duration_min: optional time limit; the exam then ends by itself. None/0 = the teacher ends it.
+        record:       keep the screen streams on disk ("Kayıtlar").
+        start_at:     unix time for a start later today; None = now.
+        """
         if self.state == RUNNING:
-            raise ApiError(409, "Sınav dosyası zaten paylaşıldı; sınav sürüyor.")
+            raise ApiError(409, "Sınav zaten başladı.")
         if self.state == ENDED:
             raise ApiError(409, "Sınav sona erdi. Yeni bir sınav için önce “Yeni sınav”a basın.")
         if self.exam_dir is None:
             raise ApiError(409, "Önce sınav klasörünü seçin.")
         if not self.exam_file:
+            # Starting the exam shares the file with the students: without a file there is no exam.
             raise ApiError(409, "Önce sınav dosyasını (.pka) yükleyin.")
+
+        duration = 0
+        if duration_min not in (None, "", 0):
+            try:
+                duration = int(duration_min)
+            except (TypeError, ValueError) as exc:
+                raise ApiError(422, "Sınav süresi dakika olarak bir sayı olmalı.") from exc
+            if not 1 <= duration <= 600:
+                raise ApiError(422, "Sınav süresi 1 ile 600 dakika arasında olmalı.")
+        record = bool(record)
+
+        now = time.time()
+        if start_at not in (None, "", 0):
+            try:
+                at = float(start_at)
+            except (TypeError, ValueError) as exc:
+                raise ApiError(422, "Başlangıç saati anlaşılamadı.") from exc
+            if at > now + 24 * 3600:
+                raise ApiError(422, "Başlangıç saati en fazla 24 saat sonrası olabilir.")
+            if at > now + 5:
+                self.scheduled = {"at": at, "duration_min": duration, "record": record}
+                self.add_event("", "exam_scheduled", INFO,
+                               f"Sınavın {datetime.fromtimestamp(at).strftime('%H:%M')} saatinde başlaması planlandı")
+                return
+        self._begin_exam(duration, record)
+
+    def cancel_schedule(self) -> None:
+        if self.state != WAITING or not self.scheduled:
+            raise ApiError(409, "Planlanmış bir başlangıç yok.")
+        self.scheduled = None
+        self.add_event("", "exam_schedule_cancelled", INFO, "Planlanan başlangıç iptal edildi")
+
+    def _begin_exam(self, duration: int, record: bool) -> None:
         try:
             # Whatever is in "Teslimler" before the exam starts is not a submission of this exam.
             self.dir_submissions.mkdir(parents=True, exist_ok=True)
@@ -565,19 +624,56 @@ class Store:
             self.ignored_files |= {item.name for item in self.dir_submissions.iterdir() if item.is_file()}
         except OSError as exc:
             raise ApiError(400, f"Sınav klasörüne ulaşılamıyor: {exc}") from exc
+        self.scheduled = None
         self.state = RUNNING
         self.exam_id = secrets.token_hex(8)
         self.started_at = time.time()
         self.ended_at = 0.0
-        self.add_event("", "exam_started", INFO, "Sınav dosyası paylaşıldı; sınav başladı")
+        self.duration_min = duration
+        self.ends_at = self.started_at + duration * 60 if duration else 0.0
+        self.record_enabled = record
+        parts = ["Sınav başladı; sınav dosyası öğrencilerle paylaşıldı"]
+        parts.append(f"süre {duration} dakika" if duration else "süre sınırı yok")
+        parts.append("ekranlar kaydediliyor" if record else "ekranlar kaydedilmiyor")
+        self.add_event("", "exam_started", INFO, " — ".join(parts),
+                       {"duration_min": duration, "record": record})
 
-    def end_exam(self) -> None:
+    def extend_exam(self, minutes: Any) -> float:
+        """Give extra time to a running exam that has a time limit."""
+        if self.state != RUNNING or not self.ends_at:
+            raise ApiError(409, "Süre sınırı olan, devam eden bir sınav yok.")
+        try:
+            extra = int(minutes)
+        except (TypeError, ValueError) as exc:
+            raise ApiError(422, "Ek süre dakika olarak bir sayı olmalı.") from exc
+        if not 1 <= extra <= 120:
+            raise ApiError(422, "Ek süre 1 ile 120 dakika arasında olmalı.")
+        self.ends_at += extra * 60
+        self.duration_min += extra
+        self.add_event("", "exam_extended", INFO,
+                       f"{extra} dakika ek süre verildi; yeni bitiş {datetime.fromtimestamp(self.ends_at).strftime('%H:%M')}")
+        return self.ends_at
+
+    def end_exam(self, timed_out: bool = False) -> None:
         if self.state != RUNNING:
             raise ApiError(409, "Devam eden bir sınav yok.")
         self.state = ENDED
         self.ended_at = time.time()
-        self.add_event("", "exam_ended", INFO, "Sınav bitirildi")
+        self.add_event("", "exam_ended", INFO, "Süre doldu; sınav bitirildi" if timed_out else "Sınav bitirildi")
         self.write_events_csv()
+
+    def check_clock(self) -> None:
+        """Planned start and time limit; called once per second."""
+        now = time.time()
+        if self.state == WAITING and self.scheduled and now >= float(self.scheduled["at"]):
+            plan = self.scheduled
+            try:
+                self._begin_exam(int(plan.get("duration_min") or 0), bool(plan.get("record", True)))
+            except ApiError as exc:
+                self.scheduled = None
+                self.add_event("", "exam_start_failed", CRITICAL, f"Planlanan sınav başlatılamadı: {exc.message}")
+        elif self.state == RUNNING and self.ends_at and now >= self.ends_at:
+            self.end_exam(timed_out=True)
 
     def write_events_csv(self) -> None:
         """Keep a copy of the event log next to the recordings and submissions."""
@@ -777,6 +873,9 @@ class Store:
             "allowlist_version": self.cfg.policy.version,
             "server_time": time.time(),
             "started_at": self.started_at,
+            # 0 = no time limit / no planned start.
+            "ends_at": self.ends_at if self.state == RUNNING else 0,
+            "scheduled_at": float(self.scheduled["at"]) if self.scheduled and self.state == WAITING else 0,
         }
 
     def auth(self, token: str) -> Student:
@@ -1025,7 +1124,8 @@ class Store:
     # ------------------------------------------------------- background checks
 
     def tick(self) -> None:
-        """Connectivity check; called once per second."""
+        """Clock (planned start, time limit) and connectivity check; called once per second."""
+        self.check_clock()
         if self.state == ENDED:
             return
         now_mono = time.monotonic()
@@ -1177,6 +1277,10 @@ class Store:
                 "exam_id": self.exam_id,
                 "started_at": self.started_at,
                 "ended_at": self.ended_at,
+                "duration_min": self.duration_min,
+                "ends_at": self.ends_at,
+                "record": self.record_enabled,
+                "scheduled": self.scheduled,
                 "file": self.exam_file,
                 "folder": str(self.exam_dir) if self.exam_dir else "",
             },

@@ -41,7 +41,9 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
      **açık bırakın**.
    - Başka programlarda kaydetmediğiniz işleriniz varsa **kaydedin ve kapatın**.
    - Program penceresini kapatmayın.
-6. Öğretmen sınav dosyasını paylaştığında sınav başlar:
+   - Öğretmeniniz sınavı ileri bir saate planladıysa ekranda “Sınav saat … için planlandı.”
+     yazar.
+6. Öğretmen sınavı başlattığında:
    - “Sınav başlıyor. İzin verilmeyen programlar 10 saniye içinde kapatılacak.” uyarısı ve
      geri sayım görünür.
    - Program ekranın sağında küçük bir panele dönüşür. Paneli başlığından tutup taşıyabilir
@@ -65,7 +67,9 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
   Teslimde bu dosyayı seçeceksiniz. Öğretmen sınavı siz teslim etmeden bitirirse de
   **bu dosyanın** son kaydettiğiniz hâli otomatik gönderilir; “Farklı Kaydet” ile başka bir
   yere ya da başka bir adla kaydettiğiniz kopya otomatik gönderilmez.
-- Süreyi öğretmeniniz tutar; panelde süre görünmez.
+- Öğretmeniniz süre verdiyse panelde **“Kalan süre: … dk”** yazar ve süre dolunca sınav
+  kendiliğinden biter (son kaydettiğiniz dosya otomatik teslim edilir). Süre yazmıyorsa
+  süreyi öğretmeniniz tutar.
 - Wi-Fi koparsa panelde “Sunucuya ulaşılamıyor — yeniden deneniyor…” yazar; program
   kendiliğinden yeniden bağlanır, siz çalışmaya devam edin. Uzun sürerse öğretmeninize haber verin.
 - Program çökerse veya bilgisayar yeniden başlarsa programı yeniden çalıştırıp **aynı
@@ -139,7 +143,7 @@ Numaranızı yanlış yazmış olabilirsiniz. Doğruysa öğretmeninize haber ve
 
 - **Yaptıkları (yalnızca giriş yaptığınız andan teslime/kapanışa kadar):**
   - Ekranınızın tamamını (birden çok monitör varsa hepsini) öğretmen bilgisayarına aktarır;
-    görüntü orada kaydedilir. Kaydın ne kadar saklanacağı giriş ekranında yazar.
+    görüntü orada kaydedilebilir. Kayıtların ne kadar saklanacağı giriş ekranında yazar.
   - Öndeki pencerenin program adını ve başlığını, bilgisayar adınızı, ağ (IP/MAC) adresinizi
     ve monitör sayınızı öğretmene bildirir.
   - Sınav **başladıktan sonra** izin verilmeyen programları kapatır.

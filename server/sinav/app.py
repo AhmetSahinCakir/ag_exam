@@ -363,10 +363,24 @@ def create_app(cfg: Config) -> FastAPI:
         return {"count": store.set_roster(entries, filename)}
 
     @app.post("/panel/api/start", dependencies=[Depends(local_only)])
-    async def panel_start() -> dict[str, Any]:
-        """“Sınav dosyasını paylaş”: makes the file downloadable and starts the exam."""
-        store.start_exam()
+    async def panel_start(request: Request) -> dict[str, Any]:
+        """“Sınavı başlat”: now or at a planned time, with an optional time limit and recording choice.
+
+        Starting the exam is what shares the exam file with the students.
+        """
+        body = await json_body(request)
+        store.start_exam(body.get("duration_min"), body.get("record", True), body.get("start_at"))
+        return {"state": store.state, "scheduled": store.scheduled}
+
+    @app.post("/panel/api/cancel-start", dependencies=[Depends(local_only)])
+    async def panel_cancel_start() -> dict[str, Any]:
+        store.cancel_schedule()
         return {"state": store.state}
+
+    @app.post("/panel/api/extend", dependencies=[Depends(local_only)])
+    async def panel_extend(request: Request) -> dict[str, Any]:
+        body = await json_body(request)
+        return {"ends_at": store.extend_exam(body.get("minutes"))}
 
     @app.post("/panel/api/end", dependencies=[Depends(local_only)])
     async def panel_end() -> dict[str, Any]:

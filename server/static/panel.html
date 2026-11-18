@@ -37,6 +37,7 @@
       <div class="menu-wrap">
         <button id="btnMenu" type="button" aria-haspopup="true" aria-expanded="false">Diğer</button>
         <div id="menu" class="menu" hidden>
+          <button id="btnExtend" type="button" class="menu-item" hidden>Süreye 5 dakika ekle</button>
           <button id="btnOpenFolder" type="button" class="menu-item">Sınav klasörünü aç</button>
           <button id="btnRosterMenu" type="button" class="menu-item">Öğrenci listesi yükle (Excel)</button>
           <a id="btnExport" class="menu-item" href="/panel/api/export.csv">Olay kaydını indir (CSV)</a>
@@ -79,7 +80,11 @@
       </div>
       <button id="btnRoster" type="button">Dosya seç</button>
     </div>
-    <button id="btnStart" type="button" class="primary big">Sınav dosyasını paylaş</button>
+    <button id="btnStart" type="button" class="primary big">Sınavı başlat</button>
+    <div id="scheduledBox" class="scheduled" hidden>
+      <span id="scheduledText"></span>
+      <button id="btnCancelStart" type="button">İptal et</button>
+    </div>
     <input id="fileExam" type="file" accept=".pka" hidden>
     <input id="fileRoster" type="file" accept=".xlsx,.xlsm,.csv" hidden>
   </section>
@@ -152,6 +157,38 @@
         </details>
       </div>
     </div>
+  </div>
+
+  <!-- Sınavı başlat: başlangıç, isteğe bağlı süre, ekran kaydı -->
+  <div id="startDialog" class="modal" hidden>
+    <form id="startForm" class="dialog" role="dialog" aria-modal="true" aria-labelledby="startTitle">
+      <h2 id="startTitle">Sınavı başlat</h2>
+      <p id="startFileNote" class="dialog-note"></p>
+
+      <div class="field-label">Başlangıç</div>
+      <div class="choice-row">
+        <label class="choice"><input id="startNow" type="radio" name="startWhen" value="now" checked> Hemen</label>
+        <label class="choice"><input id="startLater" type="radio" name="startWhen" value="later"> Şu saatte</label>
+        <input id="startTime" type="time" aria-label="Başlangıç saati" disabled>
+      </div>
+
+      <label class="field-label" for="startDuration">Sınav süresi <span class="optional">isteğe bağlı</span></label>
+      <div class="inline-field">
+        <input id="startDuration" type="number" min="1" max="600" step="1" inputmode="numeric" placeholder="süre yok" autocomplete="off">
+        <span>dakika</span>
+      </div>
+      <p class="field-hint">Boş bırakırsanız süre tutulmaz; sınavı “Sınavı bitir” ile siz bitirirsiniz.
+        Süre yazarsanız öğrenciler kalan süreyi görür ve süre dolunca sınav kendiliğinden biter.</p>
+
+      <label class="choice record"><input id="startRecord" type="checkbox" checked> Ekranları kaydet</label>
+      <p class="field-hint">İşaretliyse öğrenci ekranları sınav klasöründeki “Kayıtlar”a kaydedilir.
+        İşaretli değilse ekranlar yalnızca canlı izlenir. Öğrenci bu seçimi göremez.</p>
+
+      <div class="dialog-actions">
+        <button id="startCancel" type="button">Vazgeç</button>
+        <button id="startSubmit" type="submit" class="primary">Sınavı başlat</button>
+      </div>
+    </form>
   </div>
 
   <!-- Sınıf (salon) ve öğretmen adı -->

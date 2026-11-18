@@ -121,8 +121,7 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
      - **`Kayıtlar`** — öğrencilerin ekran kayıtları,
      - **`Teslimler`** — öğrencilerin teslim ettiği dosyalar.
 
-     Klasör seçilmeden ekranlar kaydedilmez ve sınav dosyası paylaşılamaz. Her sınav için
-     ayrı bir klasör seçin. (Klasör penceresi açılamazsa panel, klasörün yolunu elle
+     Klasör seçilmeden sınav başlatılamaz. Her sınav için ayrı bir klasör seçin. (Klasör penceresi açılamazsa panel, klasörün yolunu elle
      yazmanız için bir kutu gösterir.)
    - **2 Sınav dosyası → Dosya seç** — öğrencilere dağıtılacak `.pka` dosyası.
    - **3 Öğrenci listesi → Dosya seç** — isteğe bağlı Excel listesi (bkz. bölüm 6).
@@ -139,8 +138,24 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
      ince bir şeride daraltır; ekranlar boşalan yeri kullanır. Şeritte bağlı / uyarılı / kopuk /
      teslim etti sayıları ve görülmemiş uyarı sayısı görünmeye devam eder. Şeride tıklayınca
      liste yeniden açılır.
-4. Herkes hazır olunca **Sınav dosyasını paylaş**'a basın. **Dosyayı paylaşmak sınavı
-   başlatır.** Öğrencide:
+4. Herkes hazır olunca **Sınavı başlat**'a basın. (Klasör ve sınav dosyası seçilmeden bu
+   düğme basılamaz.) Açılan pencerede:
+   - **Başlangıç:** **Hemen** ya da **Şu saatte** (ör. 10:30). Saat seçerseniz sınav o
+     saatte kendiliğinden başlar; o zamana kadar üstte “Sınav saat 10:30 için planlandı”
+     yazar, öğrenciler de bu saati görür, **İptal et** ile vazgeçebilirsiniz.
+   - **Sınav süresi (isteğe bağlı):** Dakika yazarsanız öğrenciler kalan süreyi görür,
+     panelde geri sayım yazar ve **süre dolunca sınav kendiliğinden biter** (teslim
+     etmeyenlerin dosyası otomatik toplanır). Boş bırakırsanız süre tutulmaz; sınavı siz
+     bitirirsiniz. Süreli bir sınavda **Diğer → Süreye 5 dakika ekle** ile ek süre
+     verebilirsiniz.
+   - **Ekranları kaydet:** İşaretliyse öğrenci ekranları sınav klasöründeki `Kayıtlar`a
+     kaydedilir. İşaretli değilse ekranlar yalnızca panelde **canlı izlenir**, diske
+     yazılmaz. Öğrenci bu seçimi göremez; her iki durumda da ekranı size aktarılır. Sınav
+     başlamadan önce (bekleme aşamasında) hiçbir zaman kayıt yapılmaz. Panelin üstünde
+     “kayıt açık / kayıt kapalı” yazar.
+
+   **Sınavın başlaması, sınav dosyasının paylaşılmasıdır:** ayrı bir “paylaş” adımı yoktur;
+   sınav başladığı anda dosya öğrencilere açılır. Öğrencide:
    - “Sınav başlıyor. İzin verilmeyen programlar 10 saniye içinde kapatılacak.” uyarısı
      ve geri sayım görünür,
    - geri sayım bitince uygulama denetimi başlar; program küçük bir panele dönüşür,
@@ -162,14 +177,17 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
    - Kutuya tıklayınca öğrencinin ekranı büyür; yanında tüm **olay geçmişi** ve “Bilgisayar
      ve teslim bilgileri” bulunur.
    - Sesli uyarı isterseniz sağ üstteki **Diğer** menüsünden **Uyarılarda ses çal**'ı açın.
-   - **Süreyi siz tutarsınız.** Sistem süre saymaz ve öğrenciye süre göstermez; panelde
-     yalnızca sınavın başladığı saat yazar.
+   - **Teslim edenlerin ekranı kendiliğinden en alta gider;** üstte hâlâ sınavda olanlar
+     kalır. (Sağdaki liste numara sırasında kalır.)
+   - Süre vermediyseniz **süreyi siz tutarsınız**: panelde yalnızca sınavın başladığı saat
+     yazar, öğrenci süre görmez.
 6. Öğrenci **Teslim et**'e basınca açılan pencereden **teslim edeceği dosyayı kendisi
    seçer.** Dosya öğretmen bilgisayarındaki **`Teslimler`** klasörüne gelir; sistem dosyanın
    klasöre gerçekten ulaştığını denetler, öğrencinin **ekran yayınını durdurur**, kutusu
    griye döner (“Teslim etti”) ve programı kapanır. Ayrıntı için aşağıdaki “Teslim nasıl
    denetlenir?” bölümüne bakın.
-7. Süre bitince **Sınavı bitir**'e basın (onay ister). Teslim etmemiş öğrencilerin
+7. Sınavı bitirmek için **Sınavı bitir**'e basın (onay ister); süre verdiyseniz süre
+   dolunca sınav kendiliğinden de biter. Teslim etmemiş öğrencilerin
    indirdiği dosyanın **son kaydedilmiş hâli otomatik** toplanır (olay kaydında “Otomatik
    teslim” yazar) ve programlar kapanır. Dosyayı hiç indirmemiş ya da dosyası alınamamış
    öğrenciler kırmızı “Teslim yok” olarak kalır.
@@ -259,7 +277,8 @@ Sunucunun kendi çalışma dosyaları (`data\` klasörü: sınav durumu, ham ola
   klasöre sürer.
 - Sınav klasörü çıkarılabilir bir diskteyse ve disk sınav sırasında çıkarılırsa panelin
   üstünde “Sınav klasörüne ulaşılamıyor” uyarısı çıkar; disk takılana kadar teslim alınamaz.
-- **Kayıt saklama:** Ekran kayıtları **otomatik silinmez**. Kurumunuzun kuralına göre
+- **Kayıt saklama:** Ekran kayıtları (sınavı “Ekranları kaydet” işaretliyken başlattıysanız
+  oluşur) **otomatik silinmez**. Kurumunuzun kuralına göre
   `config.yaml` içindeki `kayit_saklama_notu` metnini düzenleyin (öğrenciye giriş
   ekranında gösterilir) ve süre dolunca sınav klasöründeki `Kayıtlar` klasörünü elle silin.
 

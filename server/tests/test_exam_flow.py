@@ -189,8 +189,10 @@ def test_exam_state_machine_and_exam_file_access(env: Env):
     hb = client.post("/api/heartbeat", json={"fg_process": "PacketTracer.exe", "monitors": 1,
                                              "ffmpeg_alive": True, "exam_state_seen": "WAITING"}).json()
     assert hb["exam_state"] == RUNNING and hb["exam_id"] and hb["started_at"] > 0
-    # There is no duration or deadline: the teacher keeps the time.
-    assert "ends_at" not in hb and "duration_min" not in env.store.snapshot()["exam"]
+    # Started without a time limit: no deadline, the teacher ends the exam.
+    assert hb["ends_at"] == 0 and hb["scheduled_at"] == 0
+    exam = env.store.snapshot()["exam"]
+    assert exam["duration_min"] == 0 and exam["ends_at"] == 0 and exam["record"] is True
     # Once shared, the file can be downloaded.
     assert client.get("/api/exam-file").content == EXAM_BYTES
 
@@ -426,7 +428,7 @@ def test_new_exam_keeps_every_file_of_the_finished_one(env: Env):
 
 
 def test_exam_folder_gets_two_subfolders_and_sets_the_recording_path(env: Env):
-    assert env.store.record_path == ""  # nothing is recorded until a folder is chosen
+    assert env.store.record_path == ""  # no folder yet
     assert env.choose_folder("goreli/yol").status_code == 422
     assert env.choose_folder("").status_code == 422
 
@@ -437,8 +439,7 @@ def test_exam_folder_gets_two_subfolders_and_sets_the_recording_path(env: Env):
     assert snapshot["exam"]["folder"] == str(env.exam_dir.resolve())
     assert snapshot["paths"]["recordings"].endswith("Kayıtlar")
     assert snapshot["paths"]["submissions"].endswith("Teslimler")
-    # MediaMTX is told to record every stream into Kayıtlar/<numara>/<time>.
-    assert env.store.record_path == str(env.exam_dir.resolve() / "Kayıtlar" / "%path" / "%Y-%m-%d_%H-%M-%S_%z")
+    assert env.store.record_path == ""  # nothing is recorded before the exam starts
 
     # It can be changed before the exam, but not once the file is shared.
     other = env.tmp_path / "Başka Klasör"
@@ -447,6 +448,8 @@ def test_exam_folder_gets_two_subfolders_and_sets_the_recording_path(env: Env):
     env.upload_exam()
     env.panel.post("/panel/api/start", headers=PANEL)
     assert env.choose_folder(other).status_code == 409
+    # Once the exam runs, MediaMTX is told to record every stream into Kayıtlar/<numara>/<time>.
+    assert env.store.record_path == str(env.exam_dir.resolve() / "Kayıtlar" / "%path" / "%Y-%m-%d_%H-%M-%S_%z")
 
 
 def test_folder_window_of_the_operating_system(env: Env, monkeypatch):
@@ -615,3 +618,126 @@ def test_class_and_teacher_name_are_changed_in_the_panel(env: Env):
     env.start()
     assert env.panel.post("/panel/api/identity", headers=PANEL,
                           json={"sinif_adi": "A", "ogretmen_adi": "B"}).status_code == 409
+
+
+# ------------------------------------------- "Sınavı başlat": time limit, recording, planned start
+
+
+def prepare(env: Env):
+    assert env.choose_folder().status_code == 200
+    assert env.upload_exam().status_code == 200
+
+
+def start_with(env: Env, **body):
+    return env.panel.post("/panel/api/start", headers=PANEL, json=body)
+
+
+def test_exam_cannot_start_without_the_exam_file(env: Env):
+    # Starting the exam is what shares the file with the students.
+    env.choose_folder()
+    response = start_with(env, duration_min=30)
+    assert response.status_code == 409 and ".pka" in response.json()["error"]
+    assert env.store.state == WAITING
+
+
+def test_time_limit_is_optional_and_ends_the_exam(env: Env):
+    client, _ = env.login()
+    prepare(env)
+    for bad in ("abc", 0.5, -5, 601):
+        assert start_with(env, duration_min=bad).status_code == 422, bad
+    assert env.store.state == WAITING
+
+    assert start_with(env, duration_min=40).status_code == 200
+    exam = env.store.snapshot()["exam"]
+    assert exam["duration_min"] == 40 and round(exam["ends_at"] - exam["started_at"]) == 40 * 60
+    hb = client.post("/api/heartbeat", json={}).json()
+    assert hb["exam_state"] == RUNNING and hb["ends_at"] == exam["ends_at"]
+
+    # Extra time moves the deadline.
+    assert env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 0}).status_code == 422
+    extended = env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 5}).json()
+    assert round(extended["ends_at"] - exam["ends_at"]) == 300
+    assert env.store.snapshot()["exam"]["duration_min"] == 45
+
+    env.store.tick()
+    assert env.store.state == RUNNING  # not yet
+    env.store.ends_at = time.time() - 1
+    env.store.tick()
+    assert env.store.state == ENDED
+    assert any(e.message == "Süre doldu; sınav bitirildi" for e in env.store.events)
+    hb = client.post("/api/heartbeat", json={}).json()
+    assert hb["exam_state"] == ENDED and hb["ends_at"] == 0
+    assert (env.exam_dir / "olay-kaydi.csv").exists()
+
+
+def test_extra_time_needs_a_time_limit(env: Env):
+    prepare(env)
+    assert env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 5}).status_code == 409
+    start_with(env)
+    assert env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 5}).status_code == 409
+    env.store.tick()
+    assert env.store.state == RUNNING  # no limit: only the teacher ends it
+
+
+def test_recording_is_a_choice_made_when_the_exam_starts(env: Env):
+    prepare(env)
+    assert env.store.record_path == ""
+    assert start_with(env, record=False).status_code == 200
+    # The screens are still streamed to the panel; they are just not kept on disk.
+    assert env.store.record_path == "" and env.store.snapshot()["exam"]["record"] is False
+    assert "ekranlar kaydedilmiyor" in env.store.events[-1].message
+
+    # Agents are told nothing about it.
+    client, body = env.login()
+    assert "record" not in body and "record" not in client.post("/api/heartbeat", json={}).json()
+
+    env.panel.post("/panel/api/end", headers=PANEL)
+    env.panel.post("/panel/api/reset", headers=PANEL)
+    prepare(env)
+    assert start_with(env, record=True).status_code == 200
+    assert env.store.record_path.endswith("%Y-%m-%d_%H-%M-%S_%z")
+    assert "ekranlar kaydediliyor" in env.store.events[-1].message
+
+
+def test_planned_start(env: Env):
+    client, _ = env.login()
+    prepare(env)
+    assert start_with(env, start_at="yarın").status_code == 422
+    assert start_with(env, start_at=time.time() + 3 * 24 * 3600).status_code == 422
+    assert env.panel.post("/panel/api/cancel-start", headers=PANEL).status_code == 409
+
+    at = time.time() + 600
+    response = start_with(env, start_at=at, duration_min=30, record=False)
+    assert response.status_code == 200 and response.json()["state"] == WAITING
+    assert env.store.snapshot()["exam"]["scheduled"] == {"at": at, "duration_min": 30, "record": False}
+    hb = client.post("/api/heartbeat", json={}).json()
+    assert hb["exam_state"] == WAITING and hb["scheduled_at"] == at
+    assert client.get("/api/exam-file").status_code == 409  # not shared before the start
+    env.store.tick()
+    assert env.store.state == WAITING
+
+    # The plan survives a restart of the server.
+    env.store.save()
+    restored = Store(env.cfg)
+    restored.load()
+    assert restored.scheduled == {"at": at, "duration_min": 30, "record": False}
+
+    # It can be cancelled ...
+    assert env.panel.post("/panel/api/cancel-start", headers=PANEL).status_code == 200
+    assert env.store.snapshot()["exam"]["scheduled"] is None
+    assert client.post("/api/heartbeat", json={}).json()["scheduled_at"] == 0
+
+    # ... and when the time comes the exam starts by itself, with the chosen options.
+    start_with(env, start_at=time.time() + 600, duration_min=30, record=False)
+    env.store.scheduled["at"] = time.time() - 1
+    env.store.tick()
+    exam = env.store.snapshot()["exam"]
+    assert exam["state"] == RUNNING and exam["scheduled"] is None
+    assert exam["duration_min"] == 30 and exam["record"] is False
+    assert client.get("/api/exam-file").content == EXAM_BYTES
+
+    # A time that has already passed means "now".
+    env.panel.post("/panel/api/end", headers=PANEL)
+    env.panel.post("/panel/api/reset", headers=PANEL)
+    prepare(env)
+    assert start_with(env, start_at=time.time() - 30).json()["state"] == RUNNING

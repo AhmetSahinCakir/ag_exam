@@ -76,7 +76,8 @@ button.icon { width: 34px; padding: 0; justify-content: center; border-color: tr
 .teacher-name { color: var(--muted); font-size: 13px; }
 .exam { display: flex; align-items: center; gap: 8px; }
 .state { font-weight: 600; }
-.timer { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 6px; }
+.timer { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 6px; white-space: nowrap; }
+.timer.ending { color: var(--warn); }
 .exam.running .dot { background: var(--ok); }
 .exam.ended .dot { background: var(--lost); }
 .top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
@@ -132,6 +133,7 @@ button.icon { width: 34px; padding: 0; justify-content: center; border-color: tr
 /* Uzun klasör yolunun SONU görünsün: taşan kısım soldan kesilir. */
 .step-sub.path { direction: rtl; text-align: left; }
 #btnStart { margin-left: auto; }
+.scheduled { margin-left: auto; display: flex; align-items: center; gap: 12px; font-weight: 600; white-space: nowrap; }
 
 /* ---------- problem banners ---------- */
 #banners:empty { display: none; }
@@ -314,12 +316,22 @@ main { flex: 1; min-height: 0; display: flex; }
 }
 .dialog h2 { font-size: 16px; }
 .dialog-note { color: var(--muted); font-size: 13px; margin: 6px 0 4px; }
-.dialog label { margin-top: 12px; font-size: 13px; color: var(--muted); }
-.dialog input {
+.dialog label, .dialog .field-label { margin-top: 14px; font-size: 13px; color: var(--muted); }
+.dialog input:not([type="radio"]):not([type="checkbox"]) {
   margin-top: 5px; height: 36px; padding: 0 10px; font: inherit; color: var(--text);
   background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px;
 }
 .dialog input::placeholder { color: #555; }
+.dialog input:disabled { color: #5c5c5c; border-color: var(--line); }
+.dialog input[type="radio"], .dialog input[type="checkbox"] { accent-color: #e6e6e6; width: 16px; height: 16px; margin: 0; }
+.dialog .choice { display: inline-flex; align-items: center; gap: 8px; margin-top: 0; font-size: 14px; color: var(--text); cursor: pointer; }
+.dialog .choice.record { margin-top: 18px; font-weight: 600; }
+.choice-row { display: flex; align-items: center; gap: 18px; margin-top: 6px; min-height: 36px; }
+.choice-row input[type="time"] { margin-top: 0 !important; width: 120px; }
+.inline-field { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.inline-field input { width: 120px; }
+.field-hint { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+#startDialog .dialog { width: min(480px, 92vw); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 
 /* ---------- messages ---------- */

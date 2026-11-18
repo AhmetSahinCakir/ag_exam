@@ -261,6 +261,15 @@ internal static class Program
         var status = JsonSerializer.Deserialize<ExamStatus>("{\"exam_state\":\"RUNNING\",\"submitted\":true}")!;
         Check(status.Submitted && status.ExamState == "RUNNING", "heartbeat 'submitted' alanı okunuyor");
         Check(!JsonSerializer.Deserialize<ExamStatus>("{\"exam_state\":\"RUNNING\"}")!.Submitted, "'submitted' yoksa false");
+
+        // Optional time limit and planned start.
+        var timed = JsonSerializer.Deserialize<ExamStatus>("{\"exam_state\":\"RUNNING\",\"ends_at\":1800000000.5,\"scheduled_at\":0}")!;
+        Check(timed.EndsAt == 1800000000.5 && timed.ScheduledAt == 0, "heartbeat 'ends_at' / 'scheduled_at' alanları okunuyor");
+        Check(status.EndsAt == 0 && status.ScheduledAt == 0, "süre ve planlama yoksa 0");
+        Equal("Kalan süre: 34 dk", ExamClock.Remaining(33 * 60 + 1), "kalan süre dakikaya yukarı yuvarlanır");
+        Equal("Kalan süre: 1 dk", ExamClock.Remaining(60), "son dakika");
+        Equal("Kalan süre: 1 dakikadan az", ExamClock.Remaining(59), "bir dakikadan az");
+        Equal("Kalan süre: 1 sa 5 dk", ExamClock.Remaining(65 * 60), "bir saatten uzun süre");
     }
 
     private static void DiscoveryParseTests()

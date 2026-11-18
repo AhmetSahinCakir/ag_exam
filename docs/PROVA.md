@@ -23,7 +23,7 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
   SHA-256, boş teslim, şüpheli boyut ve eski dosya uyarıları, MAC/ikinci oturum uyarıları,
   kopma tespiti, başka masaüstü uyarısı, sınıf/öğretmen adının panelden değiştirilmesi,
   yeniden başlatmada durumun geri yüklenmesi, panelin yalnızca `localhost`'tan
-  erişilebilmesi → `server/tests` (50 test).
+  erişilebilmesi; başlangıç planlama, isteğe bağlı süre ve kayıt seçeneği → `server/tests` (55 test).
 - `mediamtx.yml`: yayın yetkisi (yanlış şifre ve numara dışı yollar reddediliyor), kaydın
   sınav klasörü seçilince çalışırken açılması ve `Kayıtlar\<numara>\` altına yazılması
   (Türkçe harfli ve boşluklu klasör adıyla), teslim edenin yayınının durdurulması, denetim
@@ -45,9 +45,10 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
 - Yönetici olarak açılma, keşif, sınıf/öğretmen onayı, giriş; IP, bilgisayar adı ve MAC kaydı.
 - `ffmpeg gdigrab` ile ekranın yakalanıp MediaMTX'e yayınlanması ve sınav klasörüne
   kaydedilmesi; ffmpeg'in görünür bir pencere açmaması.
-- Bekleme aşamasında hiçbir programın kapatılmaması; dosya paylaşılınca geri sayım, sınav
-  paneli (küçültülebilir, süre göstermez), “Sınav dosyasını indir” ile dosyanın öğrencinin
-  seçtiği yere kaydedilmesi.
+- Bekleme aşamasında hiçbir programın kapatılmaması ve ekranın kaydedilmemesi; planlanan
+  başlangıç saatinin ajanda görünmesi; sınav başlayınca geri sayım, sınav paneli
+  (küçültülebilir; süre verildiyse “Kalan süre” yazar), “Sınav dosyasını indir” ile dosyanın
+  öğrencinin seçtiği yere kaydedilmesi.
 - Not Defteri ve Chrome'un kapatılması, öğrenciye bildirim, panelde uyarı.
 - Öndeki pencere toleransı: 2,5 sn'lik geçişte uyarı yok, 5 sn'den sonra uyarı var;
   `C:\Windows` altındaki programın kapatılmaması.
@@ -168,7 +169,15 @@ Ek denemeler (önerilir):
       kendiliğinden açılmıyor. Öğrenci panelinde süre **görünmüyor**.
 - [ ] **Klasör seçme.** Panelde **Sınav klasörü → Klasör seç** Windows'un klasör penceresini
       açıyor (pencere tarayıcının önünde mi?); seçilen klasörde `Kayıtlar` ve `Teslimler`
-      oluşuyor. Klasör seçilmeden “Sınav dosyasını paylaş” basılamıyor.
+      oluşuyor. Klasör ve sınav dosyası seçilmeden “Sınavı başlat” basılamıyor.
+- [ ] **Sınavı başlat penceresi.** Süre yazıp başlatınca panelde geri sayım, öğrencide
+      “Kalan süre” görünüyor; süre dolunca sınav kendiliğinden bitiyor ve dosyalar
+      toplanıyor. Süresiz başlatınca öğrencide süre görünmüyor. “Şu saatte” ile planlanan
+      sınav o saatte başlıyor; öğrenci bekleme ekranında saati görüyor.
+- [ ] **Ekran kaydı seçeneği.** “Ekranları kaydet” işaretliyken `Kayıtlar\<numara>\` altında
+      dosya oluşuyor; işaretli değilken klasör boş kalıyor ama panelde ekranlar canlı
+      görünüyor. Öğrenci tarafında iki durumda da hiçbir fark yok.
+- [ ] **Teslim edenler alta gidiyor.** Teslim eden öğrencinin ekran kutusu en alta iniyor.
 - [ ] **Teslimde dosya seçme.** “Teslim et” dosya seçme penceresini açıyor; pencere
       indirilen dosyanın klasöründe açılıyor. **Packet Tracer'da gerçekten kaydedilmiş**
       dosya seçilince ad ve son kayıt saatiyle onay soruluyor; “Evet, teslim et” → “Teslim

@@ -38,7 +38,8 @@ sırasında Packet Tracer dışındaki programları kapatır ve sınav dosyasın
    paketlerini ve MediaMTX'i indirir, güvenlik duvarı kurallarını ekler).
 3. Açılan panelde sol üstteki **Düzenle** ile sınıf (salon) ve öğretmen adını yazın;
    sınavdan önce **Sınav klasörü → Klasör seç** ile kayıtların ve teslimlerin duracağı
-   klasörü seçin.
+   klasörü, ardından sınav dosyasını seçin. **Sınavı başlat** penceresinde başlangıç saati,
+   isteğe bağlı sınav süresi ve ekranların kaydedilip kaydedilmeyeceği seçilir.
 4. GitHub → Actions → **build-agent** → **SinavAjan-win-x64** artifact'ini indirip
    öğrencilere dağıtın (ya da `dist\SinavAjan.zip` olarak koyun; öğrenciler sınıf ağından
    `http://<öğretmen-ip>:8000/` adresinden indirir).

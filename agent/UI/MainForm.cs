@@ -36,6 +36,8 @@ public sealed class MainForm : Form
     // Controls that are refreshed while a screen is shown.
     private StatusLabel? _statusLabel;
     private PlainLabel? _noteLabel;
+    private PlainLabel? _infoLabel;   // planned start (waiting) / time left (exam), when there is one
+    private int _infoGap;
     private PlainLabel? _countdownLabel;
     private Button? _submitButton;
     private Button? _downloadButton;
@@ -88,7 +90,7 @@ public sealed class MainForm : Form
     private void NewScreen(int logicalWidth = ContentWidth, int topPadding = 36)
     {
         _statusLabel = null;
-        _noteLabel = _countdownLabel = null;
+        _noteLabel = _infoLabel = _countdownLabel = null;
         _submitButton = _downloadButton = null;
         AcceptButton = null;
 
@@ -458,6 +460,8 @@ public sealed class MainForm : Form
         NewScreen();
         AddTitle("Sınavın başlamasını bekleyin", 6);
         AddNote($"{_controller!.Numara} — {_controller.FullName}", 20);
+        _infoLabel = AddLabel("", Theme.Semibold(10.5F), Theme.Text, 0);
+        _infoGap = 14;
         _statusLabel = AddStatus(20);
         _noteLabel = AddNote("", 12, Theme.Bad);
         AddNote("Bu sırada Packet Tracer'ı açıp Cisco hesabınızla giriş yapın ve “Keep me logged in” seçeneğini " +
@@ -512,6 +516,8 @@ public sealed class MainForm : Form
         NewScreen(PanelWidth, topPadding: 16);
         AddLabel("Sınav sürüyor", Theme.Semibold(11F), Theme.Text, 2);
         AddNote($"{controller.Numara} — {controller.FullName}", 12);
+        _infoLabel = AddLabel("", Theme.Semibold(10F), Theme.Text, 0);
+        _infoGap = 10;
         _statusLabel = AddStatus(16);
 
         if (!controller.ExamFileReady)
@@ -603,9 +609,26 @@ public sealed class MainForm : Form
             _submitButton.Text = "Teslim et";
         }
 
-        if (panelShown && note != _panelLayoutKey)
+        // Shown only when the teacher planned a start time / set a time limit.
+        var info = "";
+        if (controller.Phase == Phase.Waiting && controller.PlannedStart is { } planned)
         {
-            _panelLayoutKey = note;
+            info = $"Sınav saat {planned:HH:mm} için planlandı.";
+        }
+        else if (controller.Phase == Phase.Running && controller.RemainingSeconds is { } left)
+        {
+            info = ExamClock.Remaining(left);
+        }
+        if (_infoLabel != null && _infoLabel.Text != info)
+        {
+            _infoLabel.Text = info;
+            _infoLabel.Margin = new Padding(0, 0, 0, info.Length > 0 ? Px(_infoGap) : 0);
+        }
+
+        var layoutKey = note + (info.Length > 0 ? "\u0001" : "");
+        if (panelShown && layoutKey != _panelLayoutKey)
+        {
+            _panelLayoutKey = layoutKey;
             FitExamPanel();
         }
     }

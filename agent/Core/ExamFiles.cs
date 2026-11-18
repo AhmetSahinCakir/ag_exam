@@ -39,6 +39,20 @@ public enum SubmitProblem
     SavedBeforeDownload,
 }
 
+/// <summary>Texts about time that are shown to the student.</summary>
+public static class ExamClock
+{
+    /// <summary>"Kalan süre: 34 dk", "Kalan süre: 1 sa 5 dk", "Kalan süre: 1 dakikadan az".</summary>
+    public static string Remaining(double seconds)
+    {
+        if (seconds < 60) return "Kalan süre: 1 dakikadan az";
+        var minutes = (int)Math.Ceiling(seconds / 60);
+        return minutes >= 60
+            ? $"Kalan süre: {minutes / 60} sa {minutes % 60} dk"
+            : $"Kalan süre: {minutes} dk";
+    }
+}
+
 /// <summary>Checks made on the student's computer before a file is uploaded.</summary>
 public static class SubmissionRules
 {

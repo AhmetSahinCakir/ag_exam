@@ -58,6 +58,9 @@ public sealed class ExamController : IDisposable
     private string _examSha = "";
     private string _submittedSha = "";
     private DateTime? _otherDesktopSinceUtc;
+    private double _endsAt;            // server clock; 0 = no time limit
+    private double _scheduledAt;       // server clock; 0 = no planned start
+    private double _serverClockAhead;  // seconds the server's clock is ahead of this computer's
     private int _otherDesktopReadings;
     private bool _ending;
     private bool _submitting;
@@ -88,6 +91,16 @@ public sealed class ExamController : IDisposable
     public string ExamFilePath => _examFilePath;
 
     public bool ExamFileReady => _examFilePath.Length > 0;
+
+    /// <summary>Seconds left when the teacher set a time limit; null when there is none.</summary>
+    public double? RemainingSeconds => _endsAt > 0 && Phase is Phase.Countdown or Phase.Running
+        ? Math.Max(0, _endsAt - (NetInfo.UnixNow() + _serverClockAhead))
+        : null;
+
+    /// <summary>The time of day the teacher planned the exam to start; null when nothing is planned.</summary>
+    public DateTime? PlannedStart => _scheduledAt > 0 && Phase == Phase.Waiting
+        ? DateTimeOffset.FromUnixTimeMilliseconds((long)(_scheduledAt * 1000)).LocalDateTime
+        : null;
 
     public event Action? Changed;
     /// <summary>A short notice for the student: (headline, text).</summary>
@@ -243,6 +256,13 @@ public sealed class ExamController : IDisposable
     {
         if (Phase == Phase.Finished) return;
         _examStateSeen = status.ExamState;
+        if (status.ServerTime > 0) _serverClockAhead = status.ServerTime - NetInfo.UnixNow();
+        if (status.EndsAt != _endsAt || status.ScheduledAt != _scheduledAt)
+        {
+            _endsAt = status.EndsAt;
+            _scheduledAt = status.ScheduledAt;
+            Changed?.Invoke();
+        }
         if (!string.IsNullOrEmpty(status.AllowlistVersion) && status.AllowlistVersion != _policy.Version
                                                           && !_policyRefreshing)
         {
