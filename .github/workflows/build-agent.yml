@@ -1,0 +1,76 @@
+name: build-agent
+
+# Öğrenci ajanını (Windows, .NET 8, tek dosya) derler ve ffmpeg ile birlikte
+# "SinavAjan-win-x64" adlı artifact olarak yükler. İndirilen artifact bir zip
+# dosyasıdır; içinde SinavAjan\ klasörü bulunur.
+#
+# v ile başlayan bir etiket (ör. v1.0.0) gönderilirse aynı zip kalıcı bir
+# GitHub Release olarak da yayınlanır (artifact'ler 90 gün sonra silinir).
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Çekirdek testleri (izin listesi, denetim mantığı, ffmpeg komutu)
+        run: dotnet run --project agent/tests/CoreSmoke -c Release
+
+      - name: Ajanı yayınla (self-contained, single-file, win-x64)
+        run: dotnet publish agent/SinavAjan.csproj -c Release -o publish/SinavAjan
+
+      - name: ffmpeg.exe indir
+        shell: pwsh
+        run: ./scripts/fetch-ffmpeg.ps1 -OutDir publish/SinavAjan
+
+      - name: Öğrenci yönergesini ekle
+        shell: pwsh
+        run: Copy-Item docs/OGRENCI.md publish/SinavAjan/OKUBENI.md
+
+      - name: Paket içeriği
+        shell: pwsh
+        run: Get-ChildItem publish/SinavAjan | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SinavAjan-win-x64
+          path: publish/
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: SinavAjan-win-x64
+          path: paket
+
+      - name: Zip ve Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd paket
+          zip -r -q ../SinavAjan.zip SinavAjan
+          cd ..
+          gh release create "$TAG" SinavAjan.zip --repo "$GITHUB_REPOSITORY" \
+            --title "Sınav Ajanı $TAG" \
+            --notes "SinavAjan.zip dosyasını öğretmen bilgisayarında depo içindeki dist/ klasörüne koyun veya öğrencilere doğrudan dağıtın. Kurulum: docs/KURULUM.md"

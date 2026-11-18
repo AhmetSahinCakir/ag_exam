@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <AssemblyName>SinavAjan</AssemblyName>
+    <RootNamespace>SinavAjan</RootNamespace>
+    <Version>1.0.0</Version>
+    <Product>Sınav Ajanı</Product>
+    <Description>Sınav İzleme Sistemi öğrenci ajanı</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>tr</SatelliteResourceLanguages>
+
+    <!-- Tek dosya, .NET kurulumu gerektirmez (öğrenci hiçbir şey kurmaz). -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Yerel kitaplıkları %TEMP% altına çıkarma: ajan iz bırakmamalı. -->
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>embedded</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!-- Linux/macOS üzerinde derleyebilmek için (çalıştırma yalnızca Windows). -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- tests/ ayrı bir projedir; ana projeye derlenmez. -->
+    <Compile Remove="tests/**" />
+    <None Remove="tests/**" />
+    <None Update="agent.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

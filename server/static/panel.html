@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sınav İzleme Paneli</title>
+  <link rel="stylesheet" href="/panel/static/panel.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">
+      <div id="className" class="class-name">—</div>
+      <div id="teacherName" class="teacher-name"></div>
+    </div>
+    <div class="exam">
+      <span id="examState" class="state state-waiting">Bağlanıyor…</span>
+      <span id="timer" class="timer"></span>
+    </div>
+    <div class="summary" aria-label="Özet">
+      <span class="chip chip-ok">Bağlı <b id="sumConnected">0</b></span>
+      <span class="chip chip-warn">Uyarılı <b id="sumWarned">0</b></span>
+      <span class="chip chip-lost">Kopuk <b id="sumLost">0</b></span>
+      <span class="chip chip-done">Teslim eden <b id="sumSubmitted">0</b></span>
+    </div>
+  </header>
+
+  <section id="controls">
+    <div class="group">
+      <button id="btnExamFile" type="button">Sınav dosyası yükle (.pka)</button>
+      <span id="examFileInfo" class="hint">Dosya yüklenmedi</span>
+    </div>
+    <div class="group">
+      <button id="btnRoster" type="button">Öğrenci listesi yükle (Excel)</button>
+      <span id="rosterInfo" class="hint">Liste yüklenmedi</span>
+    </div>
+    <div class="group">
+      <label class="inline" for="duration">Süre (dk, isteğe bağlı)</label>
+      <input id="duration" type="number" min="0" max="1440" step="5" placeholder="—">
+      <button id="btnStart" type="button" class="primary">Sınavı başlat</button>
+      <button id="btnEnd" type="button" class="danger">Sınavı bitir</button>
+      <button id="btnReset" type="button">Yeni sınav</button>
+    </div>
+    <div class="group right">
+      <a id="btnExport" class="button" href="/panel/api/export.csv">Olayları CSV olarak dışa aktar</a>
+      <label class="inline" title="Ekranda görünmeyen kutuların videosu durdurulur (performans için)">
+        <input id="pauseHidden" type="checkbox"> Görünmeyen kutuları duraklat
+      </label>
+      <label class="inline" for="tileSize">Kutu boyutu</label>
+      <input id="tileSize" type="range" min="150" max="520" step="10" value="230">
+    </div>
+    <input id="fileExam" type="file" accept=".pka" hidden>
+    <input id="fileRoster" type="file" accept=".xlsx,.xlsm,.csv" hidden>
+  </section>
+
+  <div id="banners"></div>
+
+  <main>
+    <section id="gridWrap">
+      <div id="grid"></div>
+      <div id="empty" class="empty">
+        Henüz giriş yapan öğrenci yok. Öğrenciler ajanı açıp giriş yaptığında burada görünür.
+      </div>
+      <details id="missing" hidden>
+        <summary>Listede olup giriş yapmayanlar (<span id="missingCount">0</span>)</summary>
+        <div id="missingList"></div>
+      </details>
+    </section>
+
+    <aside id="alerts">
+      <div class="alerts-head">
+        <h2>Son uyarılar</h2>
+        <label class="inline"><input id="sound" type="checkbox"> Sesli bildirim</label>
+      </div>
+      <div class="alerts-actions">
+        <button id="ackAll" type="button" class="small">Tüm uyarıları görüldü işaretle</button>
+      </div>
+      <ol id="alertList"></ol>
+      <div id="alertEmpty" class="empty small">Uyarı yok.</div>
+    </aside>
+  </main>
+
+  <footer id="footer"></footer>
+
+  <div id="modal" class="modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-head">
+        <h2 id="modalTitle"></h2>
+        <span id="modalBadge" class="badge"></span>
+        <span class="spacer"></span>
+        <button id="modalAck" type="button">Uyarıları görüldü işaretle</button>
+        <button id="modalClose" type="button">Kapat (Esc)</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-video">
+          <video id="bigVideo" muted autoplay playsinline></video>
+          <div id="bigNoVideo" class="novideo">Görüntü yok</div>
+        </div>
+        <div class="modal-side">
+          <dl id="modalInfo"></dl>
+          <h3>Olay geçmişi</h3>
+          <ol id="modalEvents"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+  <script src="/panel/static/panel.js"></script>
+</body>
+</html>

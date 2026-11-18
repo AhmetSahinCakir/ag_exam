@@ -1,0 +1,126 @@
+# =============================================================================
+# Sınav İzleme Sistemi — öğretmen sunucusu ayarları
+#
+# Bu dosyayı her sınıfın öğretmen bilgisayarında ayrı ayrı düzenleyin.
+# Değişiklikten sonra start-teacher.bat'ı yeniden başlatın. (İzin listesi
+# bölümleri sunucu çalışırken de yeniden okunur ve ajanlara iletilir.)
+# =============================================================================
+
+# Öğrencinin ajanında büyük harflerle gösterilir:
+#   "Sınıf: B-102 — Öğretmen: Ad Soyad"
+# Öğrenci doğru modeme bağlandığını buradan anlar; her sınıfta FARKLI olmalı.
+sinif_adi: "B-102"
+ogretmen_adi: "Öğretmen Adı Soyadı"
+
+sunucu:
+  # Panel ve öğrenci API'si (TCP). Değiştirirseniz mediamtx/mediamtx.yml
+  # içindeki webrtcAllowOrigins satırını ve güvenlik duvarı kuralını da değiştirin.
+  port: 8000
+  # Ajanların sunucuyu bulmak için yayın (broadcast) yaptığı UDP portu.
+  # Değiştirirseniz agent.json içindeki discovery_port ile aynı olmalı.
+  kesif_portu: 47000
+
+# -----------------------------------------------------------------------------
+# Ekran yayını (ffmpeg -> MediaMTX)
+# -----------------------------------------------------------------------------
+yayin:
+  rtsp_portu: 8554
+  # Tüm ajanların ortak kullandığı yayın kullanıcısı. mediamtx/mediamtx.yml
+  # (authInternalUsers) ile AYNI olmalı. Sunucu bu değerleri girişte ajana
+  # gönderir; agent.json içindekiler yalnızca yedektir.
+  kullanici: "sinavajan"
+  sifre: "sinav-yayin-2026"
+  # Aşağıdakiler boş bırakılırsa ajan kendi agent.json dosyasındaki değerleri
+  # kullanır (5 fps, 1280 px, 500 kbps). Wi-Fi yükü fazlaysa buradan düşürün;
+  # ajanları yeniden dağıtmak gerekmez, öğrencinin yeniden giriş yapması yeterli.
+  fps:            # ör. 3
+  genislik:       # ör. 960
+  bitrate_kbps:   # ör. 300
+
+mediamtx:
+  # Yalnızca bu bilgisayardan erişilen adresler (mediamtx.yml ile uyumlu).
+  api: "http://127.0.0.1:9997"
+  webrtc: "http://127.0.0.1:8889"
+
+# -----------------------------------------------------------------------------
+# Uygulama denetimi (sınav RUNNING durumundayken uygulanır)
+# -----------------------------------------------------------------------------
+# Desen kuralları (büyük/küçük harf duyarsız):
+#   *   klasör ayırıcı (\) dışındaki her şey
+#   **  her şey (alt klasörler dahil)
+#   ?   tek karakter
+#   Sonu \ ile biten desen "bu klasör ve altındaki her şey" demektir.
+#   %ProgramFiles% gibi ortam değişkenleri öğrenci bilgisayarında açılır.
+#
+# Ajanın kendisi, ffmpeg.exe ve Windows klasörü (C:\Windows\) ayrıca yazılmaz;
+# bunlar her zaman izinlidir.
+izin_listesi:
+  - 'C:\Program Files\Cisco Packet Tracer*\'
+  - 'C:\Program Files (x86)\Cisco Packet Tracer*\'
+  # Ek izinli program örneği (ör. ekran okuyucu):
+  # - 'C:\Program Files (x86)\NVDA\'
+
+# C:\Windows\ altındaki programlar normalde ASLA kapatılmaz; yalnızca 5 saniyeden
+# uzun süre öndeyse panelde uyarı çıkar. Aşağıdaki dosya adları bu kuralın
+# istisnasıdır: C:\Windows\ altında olsalar bile pencere açtıklarında kapatılır.
+# (Windows 10'da Not Defteri C:\Windows\System32\notepad.exe olduğu için gerekir.)
+windows_altinda_kapatilacaklar:
+  - notepad.exe
+  - mspaint.exe
+  - write.exe
+  - wordpad.exe
+  - SnippingTool.exe
+  - mstsc.exe
+  - msra.exe
+  - quickassist.exe
+
+# Kapatılmaması gereken programlar (desen). Bunlar izinli sayılmaz: öne geçip
+# 5 saniyeden uzun kalırlarsa yine uyarı çıkar, ama süreç sonlandırılmaz.
+# Provada sürekli yeniden açılıp "kapatıldı" uyarısı üreten bir sürücü/yardımcı
+# program görürseniz buraya ekleyin.
+kapatma_disi: []
+  # - 'C:\Program Files\NVIDIA Corporation\**'
+
+# true  : Yalnızca gerçek uygulama pencereleri (görev çubuğunda / Alt+Tab'da
+#         görünen, başlığı olan pencereler) ve öne geçen pencereler kapatılır.
+#         Sürücülerin görünmez yardımcı pencereleri yanlış alarm üretmez.
+# false : Görünür üst düzey penceresi olan her süreç kapatılır (daha katı).
+sadece_uygulama_pencereleri: true
+
+# -----------------------------------------------------------------------------
+# Uyarı eşikleri (saniye)
+# -----------------------------------------------------------------------------
+esikler:
+  # İzinli olmayan bir pencere bu süreden uzun önde kalırsa uyarı çıkar.
+  # Başlat menüsü, Alt+Tab, bildirimler gibi kısa geçişler uyarı üretmez.
+  on_pencere_toleransi_sn: 5
+  # Bu süre boyunca sinyal (heartbeat) gelmezse veya ekran yayını yoksa
+  # öğrenci kutusu kırmızıya döner.
+  kopma_suresi_sn: 10
+  # "Sınavı başlat"tan sonra izinsiz programların kapatılmasına kadar geçen süre.
+  kapatma_geri_sayim_sn: 10
+
+# -----------------------------------------------------------------------------
+# Klasörler (bu dosyanın bulunduğu klasöre göre)
+# -----------------------------------------------------------------------------
+klasorler:
+  # Teslim edilen .pka dosyaları ve index.csv
+  teslimler: ../submissions
+  # MediaMTX ekran kayıtları. Yalnızca panelde gösterilir; kayıt yolunu
+  # değiştirmek için mediamtx/mediamtx.yml içindeki recordPath'i düzenleyin.
+  kayitlar: ../recordings
+  # Sınav durumu, olay kaydı, yüklenen sınav dosyası, arşiv
+  veri: ../data
+  # Buraya SinavAjan.zip koyarsanız öğrenciler tarayıcıdan
+  # http://<öğretmen-ip>:8000/ adresinden indirebilir.
+  dagitim: ../dist
+
+# -----------------------------------------------------------------------------
+# Kayıt saklama notu
+# -----------------------------------------------------------------------------
+# Ekran kayıtları otomatik SİLİNMEZ (recordings/ klasörü). Bu metin öğrenciye
+# giriş ekranında, öğretmene panelin altında gösterilir. Kurumunuzun kuralına
+# göre düzenleyin ve süre dolunca recordings/ klasörünü elle silin.
+kayit_saklama_notu: >-
+  Ekran kayıtları yalnızca sınav güvenliği için tutulur, sınav itiraz süresi
+  bitene kadar öğretmen bilgisayarında saklanır ve ardından silinir.

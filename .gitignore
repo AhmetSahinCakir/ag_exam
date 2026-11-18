@@ -1,0 +1,26 @@
+# Sınav verileri (asla commit edilmez)
+/submissions/
+/recordings/
+/data/
+/dist/
+
+# İndirilen araçlar
+/mediamtx/mediamtx.exe
+/mediamtx/mediamtx
+/mediamtx/LICENSE
+/agent/ffmpeg.exe
+/tools/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# .NET
+/agent/bin/
+/agent/obj/
+/agent/tests/**/bin/
+/agent/tests/**/obj/
+/publish/
+*.user

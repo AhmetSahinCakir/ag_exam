@@ -1,0 +1,109 @@
+###############################################################################
+# Sınav İzleme Sistemi — MediaMTX yapılandırması
+#
+# Bu dosya MediaMTX v1.21.4 için yazılmıştır (scripts/fetch-mediamtx.ps1 tam
+# olarak bu sürümü indirir). Anahtar adları sürümden sürüme değişebildiği için
+# sürümü yükseltirseniz yeni sürümle gelen örnek mediamtx.yml ile karşılaştırın.
+#
+# MediaMTX, start-teacher.bat tarafından depo kök klasöründen başlatılır;
+# aşağıdaki göreli yollar (./recordings, ./data) o klasöre göredir.
+#
+# Dışarıya (sınıf ağına) açık tek port: TCP 8554 (RTSP, öğrenci yayınları).
+# Diğer her şey yalnızca 127.0.0.1'i dinler; böylece Windows Güvenlik Duvarı
+# MediaMTX için ek bir izin sormaz.
+###############################################################################
+
+logLevel: info
+logDestinations: [stdout, file]
+logFile: ./data/mediamtx.log
+
+###############################################################################
+# Kimlik doğrulama
+#
+# Yayın (publish): tüm ajanların ortak kullandığı tek kullanıcı/şifre.
+#   Aynı değerler server/config.yaml (yayin.kullanici / yayin.sifre) ve
+#   agent/agent.json içinde de bulunur. Değiştirirseniz ÜÇÜNÜ birlikte değiştirin.
+# İzleme (read) ve API: yalnızca bu bilgisayardan (127.0.0.1).
+authMethod: internal
+authInternalUsers:
+  - user: sinavajan
+    pass: sinav-yayin-2026
+    ips: []
+    permissions:
+      - action: publish
+        path: "~^s/[A-Za-z0-9]{1,20}$"
+
+  - user: any
+    pass:
+    ips: ["127.0.0.1", "::1"]
+    permissions:
+      - action: read
+      - action: api
+
+###############################################################################
+# Denetim API'si — Python sunucusu yayın durumunu buradan okur (yalnızca yerel).
+api: true
+apiAddress: 127.0.0.1:9997
+
+metrics: false
+pprof: false
+playback: false
+
+###############################################################################
+# RTSP — öğrenci ajanları ekranı buraya yayınlar. Yalnızca TCP.
+rtsp: true
+rtspTransports: [tcp]
+rtspEncryption: "no"
+rtspAddress: :8554
+rtspAuthMethods: [basic]
+
+###############################################################################
+# Kullanılmayan protokoller kapalı.
+rtmp: false
+hls: false
+srt: false
+moq: false
+
+###############################################################################
+# WebRTC — öğretmen paneli görüntüyü buradan alır (yalnızca bu bilgisayardan).
+webrtc: true
+webrtcAddress: 127.0.0.1:8889
+webrtcEncryption: false
+# Panelin adresi. server/config.yaml içindeki portu değiştirirseniz burayı da değiştirin.
+webrtcAllowOrigins: ["http://localhost:8000", "http://127.0.0.1:8000"]
+# ICE (görüntü) bağlantısı yalnızca yerel döngü (loopback) üzerinden kurulur.
+webrtcLocalUDPAddress: 127.0.0.1:8189
+webrtcLocalTCPAddress: 127.0.0.1:8189
+# Tarayıcıya bildirilecek adres: yerel IP "additional host" olarak verilir.
+webrtcIPsFromInterfaces: false
+webrtcAdditionalHosts: ["127.0.0.1"]
+# İnternet yok: STUN/TURN sunucusu KULLANILMAZ, liste boş kalmalı.
+webrtcICEServers2: []
+
+###############################################################################
+# Yollar
+pathDefaults:
+  source: publisher
+  # Bağlantısı kopan ajan yeniden bağlandığında eski (asılı kalmış) yayının
+  # yerini hemen alabilsin.
+  overridePublisher: true
+  record: false
+
+paths:
+  # Öğrenci yayınları: rtsp://<öğretmen>:8554/s/<numara>
+  # Bu desene uymayan hiçbir yol kabul edilmez.
+  "~^s/[A-Za-z0-9]{1,20}$":
+    # Kayıt: recordings/s/<numara>/<tarih-saat>.mp4
+    # (MediaMTX kayıt yolunda %path değişkenini zorunlu tutar; %path = "s/<numara>"
+    #  olduğu için klasör recordings/s/<numara>/ olur.)
+    record: true
+    recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S_%z
+    recordFormat: fmp4
+    # Çökme anında en fazla bu kadar görüntü kaybolur.
+    recordPartDuration: 1s
+    # Her dosya en fazla 10 dakikalık bölüm içerir. Bağlantı kopup yeniden
+    # kurulduğunda yeni bir dosya başlaması normaldir.
+    recordSegmentDuration: 10m
+    # Kayıtlar otomatik silinmez; saklama süresi için server/config.yaml
+    # içindeki "kayit_saklama_notu" açıklamasına bakın.
+    recordDeleteAfter: 0s

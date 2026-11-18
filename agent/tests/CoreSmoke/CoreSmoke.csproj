@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Ajanın platformdan bağımsız çekirdeğini (agent/Core) Windows olmadan sınar:
+       izin listesi kuralları, denetim mantığı, ffmpeg komutu, keşif ve sunucu API'si.
+       Çalıştırma: "dotnet run" ile; sunucuya karşı denemek için program argümanı olarak
+       "discover" ya da "server http://IP:8000" verin (bkz. docs/PROVA.md). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>SinavAjan.Tests</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="..\..\Core\**\*.cs" LinkBase="Core" />
+  </ItemGroup>
+
+</Project>

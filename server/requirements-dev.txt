@@ -1,0 +1,8 @@
+# Yalnızca testleri çalıştırmak için (öğretmen bilgisayarında gerekmez):
+#   pip install -r server/requirements-dev.txt
+#   python -m pytest server/tests
+-r requirements.txt
+pytest>=8
+# FastAPI/Starlette test istemcisi: yeni sürümler httpx2, eskiler httpx kullanır.
+httpx>=0.27
+httpx2

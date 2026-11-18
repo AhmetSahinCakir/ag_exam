@@ -1,0 +1,10 @@
+{
+  "discovery_port": 47000,
+  "stream": {
+    "user": "sinavajan",
+    "pass": "sinav-yayin-2026",
+    "fps": 5,
+    "width": 1280,
+    "bitrate_kbps": 500
+  }
+}

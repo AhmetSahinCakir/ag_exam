@@ -1,0 +1,659 @@
+using SinavAjan.Core;
+using SinavAjan.Win;
+
+namespace SinavAjan;
+
+public enum Phase
+{
+    /// <summary>Logged in, streaming, waiting for the teacher. The allowlist is NOT applied.</summary>
+    Waiting,
+
+    /// <summary>The exam has started: warning + countdown before programs are closed.</summary>
+    Countdown,
+
+    /// <summary>Exam in progress: the allowlist is enforced.</summary>
+    Running,
+
+    /// <summary>Submitted or exam ended: nothing runs any more.</summary>
+    Finished,
+}
+
+public enum SubmitCheck
+{
+    Ok,
+    NoFile,
+    NotSaved,
+}
+
+public sealed record FinishInfo(string Title, string Message, bool Success);
+
+/// <summary>
+/// The exam session after login. Owns the heartbeat, the screen stream and the
+/// application control, and follows the server's exam state (WAITING → RUNNING → ENDED).
+/// All members must be used from the UI thread; events are raised on the UI thread.
+/// </summary>
+public sealed class ExamController : IDisposable
+{
+    private const long MaxUploadBytes = 50L * 1024 * 1024;
+
+    private readonly ApiClient _api;
+    private readonly AgentConfig _config;
+    private readonly LoginRequest _login;
+    private readonly string _ffmpegPath;
+    private readonly string _windowsDir;
+    private readonly CancellationTokenSource _cts = new();
+    private readonly EventQueue _events;
+    private readonly Enforcer _enforcer = new();
+    private readonly StreamManager _stream;
+    private readonly Dictionary<string, DateTime> _noticeTimes = new(StringComparer.OrdinalIgnoreCase);
+
+    private SynchronizationContext _ui = new();
+    private LoginResponse _session;
+    private Policy _policy;
+    private SettingsDto _settings;
+    private ForegroundSnapshot? _foreground;
+    private int _monitors = 1;
+    private string _examStateSeen = "";
+    private DateTime _offlineSinceUtc;
+    private double _clockOffset;
+    private long _baselineTicks;
+    private string _submittedSha = "";
+    private bool _ending;
+    private bool _submitting;
+    private bool _policyRefreshing;
+    private bool _sessionProblemNotified;
+    private int _restartCount;
+    private DateTime _restartReportedUtc = DateTime.MinValue;
+
+    public Phase Phase { get; private set; } = Phase.Waiting;
+    public bool Online { get; private set; } = true;
+    public string ExamId { get; private set; } = "";
+    public DateTime CountdownEndsUtc { get; private set; }
+    public bool ExamFileReady { get; private set; }
+
+    /// <summary>Short progress/problem text for the student ("Sınav dosyası indiriliyor…").</summary>
+    public string StatusNote { get; private set; } = "";
+
+    /// <summary>Non-empty when the server refuses this session (e.g. same number elsewhere).</summary>
+    public string SessionProblem { get; private set; } = "";
+
+    public string Numara => _session.Student.Numara;
+    public string FullName => $"{_session.Student.Ad} {_session.Student.Soyad}".Trim();
+    public string ExamFilePath => AgentPaths.ExamFile(Numara);
+    public bool StreamAlive => _stream.IsAlive;
+    public bool Submitting => _submitting;
+
+    /// <summary>Time left when the teacher set a duration; otherwise null.</summary>
+    public TimeSpan? Remaining
+    {
+        get
+        {
+            if (EndsAt <= 0) return null;
+            return TimeSpan.FromSeconds(EndsAt - (NetInfo.UnixNow() + _clockOffset));
+        }
+    }
+
+    private double EndsAt { get; set; }
+
+    public event Action? Changed;
+    public event Action<string>? Notice;
+    public event Action<FinishInfo>? Finished;
+
+    public ExamController(ApiClient api, AgentConfig config, LoginRequest login, LoginResponse session)
+    {
+        _api = api;
+        _config = config;
+        _login = login;
+        _session = session;
+        _settings = session.Settings;
+        _ffmpegPath = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe");
+        _windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        _policy = BuildPolicy(session.Allowlist);
+        _submittedSha = session.Student.LastSha256 ?? "";
+        _events = new EventQueue(api);
+        _stream = new StreamManager(_ffmpegPath);
+    }
+
+    private Policy BuildPolicy(PolicyDto dto) =>
+        new(dto, _windowsDir, new[] { Environment.ProcessPath, _ffmpegPath });
+
+    /// <summary>Starts streaming, heartbeat and monitoring. Call on the UI thread.</summary>
+    public void Start()
+    {
+        _ui = SynchronizationContext.Current ?? throw new InvalidOperationException("UI thread required");
+
+        _stream.Restarted += reason => _ui.Post(_ => OnStreamRestarted(reason), null);
+        _stream.Missing += reason => _ui.Post(_ => OnStreamMissing(reason), null);
+        // The screen stream starts right after login, already in the waiting phase.
+        _stream.Start(StreamSettings.From(_config.Stream, _session.Stream));
+
+        _ = Task.Run(() => _events.RunAsync(_cts.Token));
+        _ = HeartbeatLoopAsync();
+        _ = EnforceLoopAsync();
+        ApplyStatus(_session);
+    }
+
+    // ------------------------------------------------------------------ heartbeat
+
+    private async Task HeartbeatLoopAsync()
+    {
+        var token = _cts.Token;
+        while (!token.IsCancellationRequested && Phase != Phase.Finished)
+        {
+            try
+            {
+                var foreground = _foreground;
+                var status = await _api.HeartbeatAsync(new HeartbeatRequest
+                {
+                    FgProcess = foreground?.Name ?? "",
+                    FgPath = foreground?.Path ?? "",
+                    FgTitle = foreground?.Title ?? "",
+                    Monitors = _monitors,
+                    FfmpegAlive = _stream.IsAlive,
+                    ExamStateSeen = _examStateSeen,
+                }, token);
+                MarkOnline();
+                ApplyStatus(status);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (ApiException ex) when (ex.Status == 401)
+            {
+                // The server no longer knows this session (restarted or replaced): log in again.
+                await ReloginAsync(token);
+            }
+            catch (ApiException ex) when (ex.IsNetwork)
+            {
+                MarkOffline();
+            }
+            catch (ApiException ex)
+            {
+                LocalLog.Write($"heartbeat hatası: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                LocalLog.Write($"heartbeat beklenmeyen hata: {ex}");
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(_settings.HeartbeatIntervalS, 1, 10)), token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private async Task ReloginAsync(CancellationToken token)
+    {
+        try
+        {
+            var session = await _api.LoginAsync(_login, token);
+            _api.Token = session.Token;
+            _session = session;
+            _settings = session.Settings;
+            _policy = BuildPolicy(session.Allowlist);
+            if (SessionProblem.Length > 0)
+            {
+                SessionProblem = "";
+                _sessionProblemNotified = false;
+                Changed?.Invoke();
+            }
+            LocalLog.Write("oturum yenilendi");
+            MarkOnline();
+            ApplyStatus(session);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ApiException ex) when (ex.IsNetwork)
+        {
+            MarkOffline();
+        }
+        catch (ApiException ex)
+        {
+            SessionProblem = ex.Message;
+            Changed?.Invoke();
+            if (!_sessionProblemNotified)
+            {
+                _sessionProblemNotified = true;
+                Notice?.Invoke($"Oturum yenilenemedi: {ex.Message}");
+            }
+        }
+    }
+
+    private void MarkOffline()
+    {
+        if (!Online) return;
+        Online = false;
+        _offlineSinceUtc = DateTime.UtcNow;
+        LocalLog.Write("sunucuya ulaşılamıyor");
+        Changed?.Invoke();
+    }
+
+    private void MarkOnline()
+    {
+        if (Online) return;
+        Online = true;
+        var seconds = Math.Round((DateTime.UtcNow - _offlineSinceUtc).TotalSeconds);
+        _events.Enqueue("reconnect", new Dictionary<string, object?> { ["seconds"] = seconds });
+        Changed?.Invoke();
+    }
+
+    private void ApplyStatus(ExamStatus status)
+    {
+        if (Phase == Phase.Finished) return;
+        _clockOffset = status.ServerTime - NetInfo.UnixNow();
+        _examStateSeen = status.ExamState;
+        if (Math.Abs(EndsAt - status.EndsAt) > 0.5)
+        {
+            EndsAt = status.EndsAt;
+            Changed?.Invoke();
+        }
+        if (!string.IsNullOrEmpty(status.AllowlistVersion) && status.AllowlistVersion != _policy.Version
+                                                          && !_policyRefreshing)
+        {
+            _ = RefreshPolicyAsync();
+        }
+
+        if (status.ExamState == "RUNNING" && Phase == Phase.Waiting && !_ending)
+        {
+            _ = BeginExamAsync(status.ExamId);
+        }
+        else if (status.ExamState == "ENDED" && !_ending)
+        {
+            _ = EndExamAsync(status.ExamId);
+        }
+    }
+
+    private async Task RefreshPolicyAsync()
+    {
+        _policyRefreshing = true;
+        try
+        {
+            var config = await _api.GetConfigAsync(_cts.Token);
+            _policy = BuildPolicy(config.Allowlist);
+            _settings = config.Settings;
+            LocalLog.Write($"izin listesi güncellendi (sürüm {_policy.Version})");
+        }
+        catch (Exception ex) when (ex is ApiException or OperationCanceledException)
+        {
+            // Will be retried on the next heartbeat.
+        }
+        finally
+        {
+            _policyRefreshing = false;
+        }
+    }
+
+    // --------------------------------------------------------------- exam start
+
+    private async Task BeginExamAsync(string examId)
+    {
+        ExamId = examId;
+        Phase = Phase.Countdown;
+        var seconds = Math.Clamp(_settings.KillCountdownS, 0, 120);
+        CountdownEndsUtc = DateTime.UtcNow.AddSeconds(seconds);
+        StatusNote = "Sınav dosyası hazırlanıyor…";
+        LocalLog.Write($"sınav başladı (kimlik {examId})");
+        Changed?.Invoke();
+
+        // Download the exam file and open Packet Tracer while the countdown runs.
+        var prepare = PrepareExamFileAsync(examId);
+
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(seconds), _cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        if (Phase != Phase.Countdown || _ending) return;
+
+        Phase = Phase.Running; // the enforcement loop picks this up within a second
+        _events.Enqueue("enforcement_started");
+        Changed?.Invoke();
+        await prepare;
+    }
+
+    private async Task PrepareExamFileAsync(string examId)
+    {
+        var token = _cts.Token;
+        var path = ExamFilePath;
+        try
+        {
+            var meta = ExamFiles.ReadMeta(Numara);
+            var resumed = meta != null && meta.ExamId == examId && File.Exists(path);
+            if (resumed)
+            {
+                // The agent was restarted during this exam: keep the student's work.
+                _baselineTicks = meta!.BaselineWriteTicks;
+                if (_submittedSha.Length == 0) _submittedSha = meta.SubmittedSha256;
+                _events.Enqueue("exam_file_kept");
+            }
+            else
+            {
+                while (true)
+                {
+                    if (_ending || Phase == Phase.Finished) return;
+                    try
+                    {
+                        var bytes = await _api.DownloadExamFileAsync(token);
+                        Directory.CreateDirectory(AgentPaths.StudentDir(Numara));
+                        SetAsidePreviousFile(path);
+                        await File.WriteAllBytesAsync(path, bytes, token);
+                        _baselineTicks = File.GetLastWriteTimeUtc(path).Ticks;
+                        ExamFiles.WriteMeta(Numara, new ExamFileMeta { ExamId = examId, BaselineWriteTicks = _baselineTicks });
+                        _events.Enqueue("exam_file_ready", new Dictionary<string, object?> { ["size"] = bytes.Length });
+                        break;
+                    }
+                    catch (ApiException ex)
+                    {
+                        StatusNote = $"Sınav dosyası indirilemedi, yeniden deneniyor… ({ex.Message})";
+                        Changed?.Invoke();
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        StatusNote = $"Sınav dosyası diske yazılamadı, yeniden deneniyor… ({ex.Message})";
+                        Changed?.Invoke();
+                    }
+                    await Task.Delay(2000, token);
+                }
+            }
+
+            ExamFileReady = true;
+            StatusNote = "";
+            Changed?.Invoke();
+
+            if (resumed && PacketTracerLauncher.IsRunning(_policy))
+            {
+                LocalLog.Write("Packet Tracer zaten açık; yeniden başlatılmadı");
+            }
+            else
+            {
+                OpenExamFile();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    /// <summary>A leftover sinav.pka from an earlier exam is renamed, never overwritten.</summary>
+    private static void SetAsidePreviousFile(string path)
+    {
+        if (!File.Exists(path)) return;
+        var backup = Path.Combine(Path.GetDirectoryName(path)!, $"onceki_{DateTime.Now:yyyyMMdd_HHmmss}.pka");
+        File.Move(path, backup);
+    }
+
+    /// <summary>Opens the exam file in Packet Tracer (also used by the "Sınav dosyasını aç" button).</summary>
+    public void OpenExamFile()
+    {
+        if (!ExamFileReady || !File.Exists(ExamFilePath))
+        {
+            Notice?.Invoke("Sınav dosyası henüz hazır değil.");
+            return;
+        }
+        try
+        {
+            PacketTracerLauncher.Open(ExamFilePath, _policy);
+            _events.Enqueue("pt_started");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _events.Enqueue("pt_launch_failed", new Dictionary<string, object?> { ["error"] = ex.Message });
+            Notice?.Invoke($"{ex.Message} Packet Tracer'ı kendiniz açın ve Dosya → Aç ile şu dosyayı açın: {ExamFilePath}");
+        }
+    }
+
+    // ---------------------------------------------------------- application control
+
+    private async Task EnforceLoopAsync()
+    {
+        var token = _cts.Token;
+        var wasEnforcing = false;
+        while (!token.IsCancellationRequested && Phase != Phase.Finished)
+        {
+            var policy = _policy;
+            var enforce = Phase == Phase.Running;
+            var tolerance = Math.Clamp(_settings.ForegroundToleranceS, 1, 120);
+            var reset = enforce && !wasEnforcing;
+            wasEnforcing = enforce;
+            try
+            {
+                var tick = await Task.Run(() =>
+                {
+                    if (reset) _enforcer.Reset();
+                    return _enforcer.Tick(policy, enforce, tolerance);
+                }, token);
+
+                _foreground = tick.Foreground;
+                _monitors = tick.Monitors;
+                foreach (var item in tick.Events) _events.Enqueue(item.Type, item.Details);
+                foreach (var program in tick.ClosedPrograms) NotifyClosed(program);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                LocalLog.Write($"denetim döngüsünde hata: {ex}");
+            }
+
+            try
+            {
+                await Task.Delay(1000, token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private void NotifyClosed(string program)
+    {
+        // The same program reopening repeatedly should not flood the student with popups.
+        if (_noticeTimes.TryGetValue(program, out var last) && DateTime.UtcNow - last < TimeSpan.FromSeconds(10)) return;
+        _noticeTimes[program] = DateTime.UtcNow;
+        Notice?.Invoke($"{program} sınav sırasında kullanılamaz.");
+    }
+
+    private void OnStreamRestarted(string reason)
+    {
+        if (Phase == Phase.Finished) return;
+        _restartCount++;
+        if (DateTime.UtcNow - _restartReportedUtc < TimeSpan.FromSeconds(30)) return;
+        _events.Enqueue("ffmpeg_restart", new Dictionary<string, object?>
+        {
+            ["reason"] = reason,
+            ["count"] = _restartCount,
+        });
+        _restartCount = 0;
+        _restartReportedUtc = DateTime.UtcNow;
+    }
+
+    private void OnStreamMissing(string reason)
+    {
+        if (Phase == Phase.Finished) return;
+        _events.Enqueue("ffmpeg_missing", new Dictionary<string, object?> { ["reason"] = reason });
+        Notice?.Invoke("Ekran yayını başlatılamadı (ffmpeg.exe). ffmpeg.exe dosyası SinavAjan.exe ile aynı " +
+                       "klasörde olmalı. Öğretmeninize haber verin.");
+    }
+
+    // ------------------------------------------------------------------- submit
+
+    /// <summary>Checks that there is a file and that it was saved after the exam started.</summary>
+    public SubmitCheck CheckBeforeSubmit()
+    {
+        if (!ExamFileReady || !File.Exists(ExamFilePath)) return SubmitCheck.NoFile;
+        return File.GetLastWriteTimeUtc(ExamFilePath).Ticks > _baselineTicks ? SubmitCheck.Ok : SubmitCheck.NotSaved;
+    }
+
+    /// <summary>Uploads the exam file (student pressed "Teslim et"). Returns null on success, else an error text.</summary>
+    public async Task<string?> SubmitAsync()
+    {
+        if (_submitting || _ending || Phase == Phase.Finished) return "Teslim zaten sürüyor.";
+        _submitting = true;
+        Changed?.Invoke();
+        try
+        {
+            var bytes = await Task.Run(() => ExamFiles.ReadShared(ExamFilePath));
+            if (bytes.LongLength > MaxUploadBytes) return "Dosya çok büyük (en fazla 50 MB).";
+            var response = await _api.SubmitAsync(bytes, auto: false, _cts.Token);
+            RememberSubmitted(response.Sha256);
+
+            var message = "Dosyanız teslim alındı.\r\n\r\n" +
+                          $"Dosya: {response.Filename}\r\n" +
+                          $"SHA-256: {response.Sha256}";
+            if (!string.Equals(NetInfo.Sha256Hex(bytes), response.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                message += "\r\n\r\nUYARI: Sunucunun bildirdiği özet bu bilgisayardaki dosyayla eşleşmiyor. " +
+                           "Öğretmeninize haber verin.";
+            }
+            await FinishAsync(new FinishInfo("Teslim alındı", message, true));
+            return null;
+        }
+        catch (ApiException ex)
+        {
+            _events.Enqueue("submit_failed", new Dictionary<string, object?> { ["error"] = ex.Message });
+            return ex.Message;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return $"Dosya okunamadı: {ex.Message}";
+        }
+        catch (OperationCanceledException)
+        {
+            return "İşlem iptal edildi.";
+        }
+        finally
+        {
+            _submitting = false;
+            if (Phase != Phase.Finished) Changed?.Invoke();
+        }
+    }
+
+    private void RememberSubmitted(string sha)
+    {
+        _submittedSha = sha;
+        var meta = ExamFiles.ReadMeta(Numara);
+        if (meta == null) return;
+        meta.SubmittedSha256 = sha;
+        ExamFiles.WriteMeta(Numara, meta);
+    }
+
+    // ----------------------------------------------------------------- exam end
+
+    /// <summary>The teacher ended the exam: upload the last saved file automatically, then stop.</summary>
+    private async Task EndExamAsync(string examId)
+    {
+        _ending = true;
+        StatusNote = "Sınav sona erdi; dosyanız teslim ediliyor…";
+        LocalLog.Write("sınav sona erdi");
+        Changed?.Invoke();
+
+        // Do not collide with a manual upload that is in flight.
+        for (var i = 0; i < 100 && _submitting; i++) await Task.Delay(100);
+        if (Phase == Phase.Finished) return;
+
+        var success = true;
+        string outcome;
+        try
+        {
+            var path = ExamFilePath;
+            var meta = ExamFiles.ReadMeta(Numara);
+            var belongsToExam = meta != null && File.Exists(path)
+                                             && (meta.ExamId == examId || (ExamId.Length > 0 && meta.ExamId == ExamId));
+            if (!belongsToExam)
+            {
+                outcome = "Bu sınava ait kaydedilmiş bir dosya bulunamadığı için teslim yapılmadı.";
+            }
+            else
+            {
+                var bytes = await Task.Run(() => ExamFiles.ReadShared(path));
+                var sha = NetInfo.Sha256Hex(bytes);
+                if (sha == _submittedSha || sha == meta!.SubmittedSha256)
+                {
+                    outcome = "Dosyanız daha önce teslim edilmişti.";
+                }
+                else
+                {
+                    outcome = await AutoSubmitAsync(bytes, path);
+                    success = _submittedSha == sha;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            success = false;
+            outcome = $"Dosya okunamadığı için otomatik teslim yapılamadı ({ex.Message}).\r\n" +
+                      $"Dosyanız: {ExamFilePath}\r\nÖğretmeninize hemen haber verin.";
+        }
+
+        await FinishAsync(new FinishInfo("Sınav sona erdi", "Sınav sona erdi.\r\n\r\n" + outcome, success));
+    }
+
+    private async Task<string> AutoSubmitAsync(byte[] bytes, string path)
+    {
+        var lastError = "";
+        for (var attempt = 1; attempt <= 5; attempt++)
+        {
+            try
+            {
+                // Deliberately not tied to _cts: the upload must finish even while shutting down.
+                var response = await _api.SubmitAsync(bytes, auto: true);
+                RememberSubmitted(response.Sha256);
+                return "Son kaydettiğiniz dosya otomatik olarak teslim edildi.\r\n\r\n" +
+                       $"Dosya: {response.Filename}\r\nSHA-256: {response.Sha256}";
+            }
+            catch (ApiException ex)
+            {
+                lastError = ex.Message;
+                LocalLog.Write($"otomatik teslim denemesi {attempt} başarısız: {ex.Message}");
+                await Task.Delay(2000);
+            }
+        }
+        return $"Otomatik teslim BAŞARISIZ oldu ({lastError}).\r\n" +
+               $"Dosyanız bu bilgisayarda duruyor:\r\n{path}\r\nÖğretmeninize hemen haber verin.";
+    }
+
+    // ------------------------------------------------------------------ shutdown
+
+    private async Task FinishAsync(FinishInfo info)
+    {
+        if (Phase == Phase.Finished) return;
+        Phase = Phase.Finished; // application control and heartbeat stop here
+        await _events.DrainAsync(TimeSpan.FromSeconds(2));
+        _cts.Cancel();
+        _stream.Stop(); // ffmpeg is closed
+        LocalLog.Write($"bitti: {info.Title}");
+        Changed?.Invoke();
+        Finished?.Invoke(info);
+    }
+
+    /// <summary>The student chose to close the agent: tell the server (best effort).</summary>
+    public async Task ExitByUserAsync()
+    {
+        if (Phase == Phase.Finished) return;
+        var phase = Phase.ToString();
+        Phase = Phase.Finished;
+        await _events.SendNowAsync("agent_exit", new Dictionary<string, object?> { ["phase"] = phase },
+            TimeSpan.FromSeconds(1.5));
+        _cts.Cancel();
+        _stream.Stop();
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _stream.Dispose();
+    }
+}
