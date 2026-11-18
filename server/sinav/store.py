@@ -37,7 +37,15 @@ MAX_ALERTS_IN_SNAPSHOT = 300
 # Created inside the exam folder the teacher chooses in the panel.
 RECORDINGS_DIRNAME = "Kayıtlar"
 SUBMISSIONS_DIRNAME = "Teslimler"
+ALERTS_DIRNAME = "Uyarılar"          # one file per student with that student's warnings
 EVENTS_CSV_NAME = "olay-kaydi.csv"
+
+# What agents are told while the teacher closes the exam for everybody ("Yeni sınav",
+# "Sistemi kapat"): hand in the last saved file and exit.
+CLOSED = "CLOSED"
+# A file that arrives this long after "Sınavı bitir" still counts as on time (an upload that
+# was already on its way).
+LATE_GRACE_S = 10
 
 # A submitted file whose size is outside exam-file-size x [MIN, MAX] is reported as suspicious.
 SIZE_RATIO_MIN = 0.3
@@ -65,6 +73,7 @@ class Submission:
     size: int
     auto: bool
     ts: float
+    late: bool = False  # handed in by the student after the exam had ended
 
 
 @dataclass
@@ -104,9 +113,10 @@ class Student:
     lost_reason: str = ""
     lost_since_ts: float = 0.0
     file_present: bool = True  # the latest submission file is really in the submissions folder
+    closed_seen: bool = False  # the agent has been told that the exam is being closed
 
     _RUNTIME = ("last_hb_mono", "stream_ready", "stream_changed_mono", "connected",
-                "lost_reason", "lost_since_ts", "file_present")
+                "lost_reason", "lost_since_ts", "file_present", "closed_seen")
 
     @property
     def full_name(self) -> str:
@@ -232,6 +242,7 @@ class Store:
         self.ignored_files: set[str] = set()
         self.recording_applied: str | None = None  # record path last sent to MediaMTX
         self.folder_error = ""
+        self.closing = False  # agents are being told to hand in and exit
         self.roster: dict[str, RosterEntry] = {}
         self.roster_name = ""
         self.students: dict[str, Student] = {}
@@ -278,6 +289,10 @@ class Store:
     @property
     def dir_recordings(self) -> Path | None:
         return self.exam_dir / RECORDINGS_DIRNAME if self.exam_dir else None
+
+    @property
+    def dir_alerts(self) -> Path | None:
+        return self.exam_dir / ALERTS_DIRNAME if self.exam_dir else None
 
     @property
     def record_path(self) -> str:
@@ -449,8 +464,42 @@ class Store:
                 handle.write(json.dumps(event.to_json(), ensure_ascii=False) + "\n")
         except OSError as exc:
             log.error("Olay kaydı yazılamadı: %s", exc)
+        if st is not None and alert and severity != INFO:
+            self.write_student_alerts(numara)
         self.changed()
         return event
+
+    # ----------------------------------------------- warnings, one file per student
+
+    def write_student_alerts(self, numara: str) -> None:
+        """(Re)write "Uyarılar/<numara>_<AdSoyad>.csv" with every warning of that student."""
+        folder = self.dir_alerts
+        st = self.students.get(numara)
+        if folder is None or st is None:
+            return
+        rows = [e for e in self.events if e.numara == numara and e.alert and e.severity != INFO]
+        name = f"{submission_basename(st.numara, st.ad, st.soyad)}.csv"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            for old in folder.glob(f"{numara}_*.csv"):
+                if old.name != name:
+                    old.unlink()  # the student's name changed (list uploaded later)
+            if not rows:
+                return
+            buffer = io.StringIO()
+            writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
+            writer.writerow(["zaman", "numara", "ad_soyad", "onem", "uyari"])
+            for e in rows:
+                writer.writerow([_fmt_time(e.ts), st.numara, st.full_name,
+                                 "kritik" if e.severity == CRITICAL else "uyarı", e.message])
+            # BOM so that Excel opens Turkish characters correctly.
+            (folder / name).write_bytes(("\ufeff" + buffer.getvalue()).encode("utf-8"))
+        except OSError as exc:
+            log.error("Uyarı dosyası yazılamadı (%s): %s", name, exc)
+
+    def write_all_student_alerts(self) -> None:
+        for numara in list(self.students):
+            self.write_student_alerts(numara)
 
     def events_for(self, numara: str) -> list[dict[str, Any]]:
         return [e.to_json() for e in self.events if e.numara == numara]
@@ -530,6 +579,7 @@ class Store:
             path.mkdir(parents=True, exist_ok=True)
             (path / RECORDINGS_DIRNAME).mkdir(exist_ok=True)
             (path / SUBMISSIONS_DIRNAME).mkdir(exist_ok=True)
+            (path / ALERTS_DIRNAME).mkdir(exist_ok=True)
             probe = path / SUBMISSIONS_DIRNAME / ".yazma-denemesi"
             probe.write_bytes(b"")
             probe.unlink()
@@ -539,6 +589,7 @@ class Store:
         # Whatever is already in "Teslimler" is not a submission of this exam.
         self.ignored_files = {item.name for item in self.dir_submissions.iterdir() if item.is_file()}
         self.add_event("", "exam_dir_selected", INFO, f"Sınav klasörü seçildi: {self.exam_dir}")
+        self.write_all_student_alerts()  # warnings from before the folder was chosen
         return self.exam_dir
 
     def set_exam_file(self, filename: str, data: bytes) -> dict[str, Any]:
@@ -565,6 +616,7 @@ class Store:
         # Re-check everyone who is already logged in.
         for st in self.students.values():
             self._apply_roster(st, st.typed_ad or st.ad, st.typed_soyad or st.soyad)
+        self.write_all_student_alerts()  # the file names follow the names in the list
         self.changed()
         return len(entries)
 
@@ -639,19 +691,24 @@ class Store:
                        {"duration_min": duration, "record": record})
 
     def extend_exam(self, minutes: Any) -> float:
-        """Give extra time to a running exam that has a time limit."""
-        if self.state != RUNNING or not self.ends_at:
-            raise ApiError(409, "Süre sınırı olan, devam eden bir sınav yok.")
+        """Give extra time to a running exam.
+
+        With a time limit the deadline moves; without one the exam now ends by itself after
+        the given number of minutes.
+        """
+        if self.state != RUNNING:
+            raise ApiError(409, "Devam eden bir sınav yok.")
         try:
             extra = int(minutes)
         except (TypeError, ValueError) as exc:
             raise ApiError(422, "Ek süre dakika olarak bir sayı olmalı.") from exc
         if not 1 <= extra <= 120:
             raise ApiError(422, "Ek süre 1 ile 120 dakika arasında olmalı.")
-        self.ends_at += extra * 60
-        self.duration_min += extra
+        self.ends_at = (self.ends_at or time.time()) + extra * 60
+        self.duration_min = max(1, round((self.ends_at - self.started_at) / 60))
         self.add_event("", "exam_extended", INFO,
-                       f"{extra} dakika ek süre verildi; yeni bitiş {datetime.fromtimestamp(self.ends_at).strftime('%H:%M')}")
+                       f"{extra} dakika ek süre verildi; sınav {datetime.fromtimestamp(self.ends_at).strftime('%H:%M')} "
+                       "saatinde bitecek")
         return self.ends_at
 
     def end_exam(self, timed_out: bool = False) -> None:
@@ -868,7 +925,7 @@ class Store:
 
     def exam_status(self) -> dict[str, Any]:
         return {
-            "exam_state": self.state,
+            "exam_state": CLOSED if self.closing else self.state,
             "exam_id": self.exam_id,
             "allowlist_version": self.cfg.policy.version,
             "server_time": time.time(),
@@ -901,7 +958,16 @@ class Store:
         self.changed(persist=False)
         status = self.exam_status()
         status["submitted"] = st.submitted and st.file_present
+        if self.closing:
+            st.closed_seen = True
         return status
+
+    def open_agents(self) -> list[Student]:
+        """Students whose program is still running and has nothing handed in."""
+        now_mono = time.monotonic()
+        return [st for st in self.students.values()
+                if st.token and not st.submitted and not st.exited
+                and now_mono - st.last_hb_mono < self.cfg.disconnect_s]
 
     def agent_event(self, st: Student, kind: str, details: Any, agent_ts: Any) -> None:
         kind = _clean(kind, 40)
@@ -969,15 +1035,21 @@ class Store:
         if not stored_ok:
             raise ApiError(500, "Dosya öğretmen bilgisayarına doğru kaydedilemedi. Yeniden deneyin.")
 
-        self._register_submission(st, name, data, sha, version, auto, from_folder=False,
-                                  original=_clean(Path((original_name or filename).replace("\\", "/")).name, 120),
-                                  stale=stale)
-        return {"sha256": sha, "filename": name, "version": version, "size": len(data), "verified": True}
+        submission = self._register_submission(
+            st, name, data, sha, version, auto, from_folder=False,
+            original=_clean(Path((original_name or filename).replace("\\", "/")).name, 120), stale=stale)
+        return {"sha256": sha, "filename": name, "version": version, "size": len(data), "verified": True,
+                "late": submission.late}
 
     def _register_submission(self, st: Student, name: str, data: bytes, sha: str, version: int,
-                             auto: bool, from_folder: bool, original: str = "", stale: bool = False) -> None:
+                             auto: bool, from_folder: bool, original: str = "",
+                             stale: bool = False) -> Submission:
+        now = time.time()
+        # Handed in by the student after the exam had ended. Files collected automatically
+        # when the teacher closes the exam are not "late": the student did nothing wrong.
+        late = self.state == ENDED and not auto and now - self.ended_at > LATE_GRACE_S
         submission = Submission(version=version, filename=name, sha256=sha, size=len(data), auto=auto,
-                                ts=time.time())
+                                ts=now, late=late)
         st.submissions.append(submission)
         st.submitted = True
         st.file_present = True
@@ -985,13 +1057,22 @@ class Store:
 
         if from_folder:
             label = "Teslim dosyası klasörde bulundu"
+        elif auto:
+            label = "Otomatik teslim alındı"
         else:
-            label = "Otomatik teslim alındı" if auto else "Teslim etti"
+            label = "Geç teslim etti" if late else "Teslim etti"
         self.add_event(
             st.numara, "auto_submit" if auto else "submit", INFO, f"{label}: {name}",
             {"filename": name, "sha256": sha, "size": len(data), "version": version, "auto": auto,
-             "from_folder": from_folder, "original": original},
+             "from_folder": from_folder, "original": original, "late": late},
         )
+        if late:
+            minutes = max(1, round((now - self.ended_at) / 60))
+            self.add_event(
+                st.numara, "late_submission", WARNING,
+                f"Geç teslim: dosyasını sınav bittikten {minutes} dakika sonra teslim etti",
+                {"minutes": minutes, "filename": name},
+            )
 
         exam_size = int(self.exam_file["size"]) if self.exam_file else 0
         unchanged = bool(self.exam_file) and sha == self.exam_file["sha256"]
@@ -1034,6 +1115,7 @@ class Store:
                     {"size": len(data), "exam_size": exam_size},
                 )
         self.changed()
+        return submission
 
     def check_submission_folder(self) -> None:
         """Compare what the server believes with what is really in the "Teslimler" folder.
@@ -1113,10 +1195,11 @@ class Store:
                 writer = csv.writer(handle, delimiter=";", lineterminator="\r\n")
                 if new:
                     writer.writerow(["zaman", "numara", "ad", "soyad", "dosya", "sha256", "boyut",
-                                     "otomatik", "surum", "ip", "bilgisayar", "mac"])
+                                     "otomatik", "surum", "ip", "bilgisayar", "mac", "gec_teslim"])
                 writer.writerow([
                     _fmt_time(sub.ts), st.numara, st.ad, st.soyad, sub.filename, sub.sha256, sub.size,
                     "evet" if sub.auto else "hayır", sub.version, st.ip, st.hostname, st.mac,
+                    "evet" if sub.late else "hayır",
                 ])
         except OSError as exc:
             log.error("index.csv yazılamadı: %s", exc)
@@ -1302,6 +1385,7 @@ class Store:
             "paths": {
                 "submissions": str(self.dir_submissions) if self.exam_dir else "",
                 "recordings": str(self.dir_recordings) if self.exam_dir else "",
+                "alerts": str(self.dir_alerts) if self.exam_dir else "",
             },
             "retention_note": self.cfg.retention_note,
         }

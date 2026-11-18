@@ -2,7 +2,8 @@
 
 Windows öğrenci bilgisayarı olmadan sunucuyu, paneli ve MediaMTX'i denemek için
 gerçek ajanın ağ davranışını taklit eder: UDP keşif -> giriş -> heartbeat ->
-(isteğe bağlı) ffmpeg test yayını -> sınav dosyasını indirme -> teslim.
+(isteğe bağlı) ffmpeg test yayını -> sınav dosyasını indirme -> teslim. Sınav bitince
+gerçek ajan gibi açık kalır; öğretmen sınavı kapatınca dosyasını otomatik teslim edip çıkar.
 
 Örnek (öğretmen bilgisayarında, sunucu çalışırken):
     python server/tests/sim_agent.py --count 5 --stream
@@ -166,6 +167,7 @@ class SimAgent(threading.Thread):
         seen = ""
         started = time.monotonic()
         submitted = False
+        ended = None
         while True:
             alive = self.ffmpeg is not None and self.ffmpeg.poll() is None
             hb = self.api.call("POST", "/api/heartbeat", {
@@ -216,13 +218,26 @@ class SimAgent(threading.Thread):
                 self.log("teslim dosyası sunucuda görüldü, çıkılıyor")
                 return
 
-            if state == "ENDED":
+            if state == "CLOSED":
+                # The teacher closed the exam for everybody: hand in the last saved file and exit.
                 if not submitted and self.exam_bytes is not None:
                     content = self.exam_bytes + f"\notomatik-{self.numara}".encode()
                     result = self.api.submit("sinav.pka", content, auto=True)
                     self.log(f"otomatik teslim: {result['filename']}")
-                self.log("sınav sona erdi, çıkılıyor")
+                self.log("sınav kapatıldı, çıkılıyor")
                 return
+
+            if state == "ENDED":
+                # Like the real agent: stay open after the end; the file can still be handed in (late).
+                if ended is None:
+                    ended = time.monotonic()
+                    self.log("sınav bitti; program açık kalıyor")
+                if (self.args.late_submit is not None and not submitted and self.exam_bytes is not None
+                        and time.monotonic() - ended > self.args.late_submit):
+                    content = self.exam_bytes + f"\ngec-{self.numara}".encode()
+                    result = self.api.submit("sinav.pka", content, auto=False)
+                    self.log(f"geç teslim: {result['filename']} (geç: {result.get('late')})")
+                    return
             time.sleep(2)
 
 
@@ -244,6 +259,8 @@ def main() -> int:
     parser.add_argument("--submit-after", type=float, default=8.0, help="teslimden önce bekleme (sn)")
     parser.add_argument("--submit-unchanged", action="store_true",
                         help="--submit ile: sınav dosyasını hiç değiştirmeden teslim et")
+    parser.add_argument("--late-submit", type=float, default=None, metavar="SN",
+                        help="sınav bittikten SN saniye sonra teslim et (geç teslim)")
     parser.add_argument("--kill-event", action="store_true", help="örnek 'process_killed' olayı gönder")
     parser.add_argument("--desktop-event", action="store_true",
                         help="örnek 'desktop_switch' (başka masaüstüne geçti) olayı gönder")

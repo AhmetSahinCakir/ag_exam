@@ -145,6 +145,9 @@ public sealed class SubmitResponse
 
     /// <summary>The server read the stored file back from its submissions folder and it matched.</summary>
     [JsonPropertyName("verified")] public bool Verified { get; set; }
+
+    /// <summary>The exam had already ended: the file was accepted, but recorded as handed in late.</summary>
+    [JsonPropertyName("late")] public bool Late { get; set; }
 }
 
 public sealed class ErrorResponse

@@ -14,7 +14,14 @@ public enum Phase
     /// <summary>Exam in progress: the allowlist is enforced and the exam file can be downloaded.</summary>
     Running,
 
-    /// <summary>Submitted or exam ended: nothing runs any more.</summary>
+    /// <summary>
+    /// The teacher ended the exam but this student has not handed in yet. Nothing closes:
+    /// the screen is still streamed, the allowlist is still enforced and the file can still
+    /// be handed in - it is then recorded as late.
+    /// </summary>
+    Ended,
+
+    /// <summary>Handed in, or the teacher closed the exam: nothing runs any more.</summary>
     Finished,
 }
 
@@ -91,6 +98,9 @@ public sealed class ExamController : IDisposable
     public string ExamFilePath => _examFilePath;
 
     public bool ExamFileReady => _examFilePath.Length > 0;
+
+    /// <summary>A file can be handed in: during the exam, and (late) after it has ended.</summary>
+    public bool CanSubmit => Phase is Phase.Running or Phase.Ended;
 
     /// <summary>Seconds left when the teacher set a time limit; null when there is none.</summary>
     public double? RemainingSeconds => _endsAt > 0 && Phase is Phase.Countdown or Phase.Running
@@ -269,20 +279,47 @@ public sealed class ExamController : IDisposable
             _ = RefreshPolicyAsync();
         }
 
-        if (status.ExamState == "RUNNING" && Phase == Phase.Waiting && !_ending)
+        if (_ending) return;
+        var inExam = Phase is Phase.Countdown or Phase.Running or Phase.Ended;
+        if (status.ExamState == "CLOSED")
+        {
+            // The teacher closed the exam for everybody ("Yeni sınav" / "Sistemi kapat").
+            _ = CloseExamAsync(status.ExamId);
+        }
+        else if (status.ExamState == "RUNNING" && Phase == Phase.Waiting)
         {
             _ = BeginExamAsync(status.ExamId);
         }
-        else if (status.Submitted && Phase == Phase.Running && !_submitting && !_ending)
+        else if (status.Submitted && CanSubmit && !_submitting)
         {
             // The teacher's computer has this student's file in its submissions folder
             // (it checks the folder itself): nothing is left to do here.
             _ = FinishAsync(new FinishInfo("Teslim alındı", "Dosyanız öğretmen bilgisayarında teslim alındı.", true));
         }
-        else if (status.ExamState == "ENDED" && !_ending)
+        else if (status.ExamState == "ENDED" && Phase != Phase.Ended)
         {
-            _ = EndExamAsync(status.ExamId);
+            EnterEndedPhase(status.ExamId);
         }
+        else if (status.ExamState == "WAITING" && inExam)
+        {
+            // The teacher's computer no longer knows this exam (a new one was prepared).
+            _ = FinishAsync(new FinishInfo("Sınav kapatıldı",
+                "Öğretmen sınavı kapattı. Dosyanız teslim edilmedi; öğretmeninize haber verin.", false));
+        }
+    }
+
+    /// <summary>
+    /// The teacher ended the exam and nothing was handed in from here yet. The program stays
+    /// open so that the student can still hand in; that submission is recorded as late.
+    /// </summary>
+    private void EnterEndedPhase(string examId)
+    {
+        if (ExamId.Length == 0) ExamId = examId;
+        RestoreDownloadedFile(examId);
+        Phase = Phase.Ended; // still streamed and controlled, see EnforceLoopAsync
+        LocalLog.Write("sınav bitti; teslim bekleniyor (geç teslim)");
+        Changed?.Invoke();
+        Notice?.Invoke("Sınav bitti", "Dosyanızı hemen teslim edin. Teslim geç olarak kaydedilecek.");
     }
 
     private async Task RefreshPolicyAsync()
@@ -405,7 +442,8 @@ public sealed class ExamController : IDisposable
         while (!token.IsCancellationRequested && Phase != Phase.Finished)
         {
             var policy = _policy;
-            var enforce = Phase == Phase.Running;
+            // Until the file is handed in the student is still in the exam, also after its end.
+            var enforce = Phase is Phase.Running or Phase.Ended;
             var tolerance = Math.Clamp(_settings.ForegroundToleranceS, 1, 120);
             var reset = enforce && !wasEnforcing;
             wasEnforcing = enforce;
@@ -516,6 +554,10 @@ public sealed class ExamController : IDisposable
             LocalLog.Write($"teslim edildi: {candidate.Path} -> {response.Filename}");
 
             var message = "Dosyanız teslim alındı.";
+            if (response.Late)
+            {
+                message += "\r\n\r\nSınav bittikten sonra teslim ettiğiniz için geç teslim olarak kaydedildi.";
+            }
             if (!string.Equals(candidate.Sha256, response.Sha256, StringComparison.OrdinalIgnoreCase))
             {
                 message += "\r\n\r\nUYARI: Öğretmene ulaşan dosya bu bilgisayardakiyle aynı görünmüyor. " +
@@ -548,7 +590,7 @@ public sealed class ExamController : IDisposable
     /// </summary>
     public void ReportDesktop(bool panelOnCurrentDesktop)
     {
-        if (Phase != Phase.Running || _ending) return;
+        if (!CanSubmit || _ending) return;
         if (!panelOnCurrentDesktop)
         {
             // Two readings in a row, so that a switch animation never counts.
@@ -580,17 +622,27 @@ public sealed class ExamController : IDisposable
 
     // ----------------------------------------------------------------- exam end
 
-    /// <summary>The teacher ended the exam: upload the last saved file automatically, then stop.</summary>
-    private async Task EndExamAsync(string examId)
+    /// <summary>
+    /// The teacher closed the exam for everybody ("Yeni sınav" or "Sistemi kapat"). If nothing
+    /// was handed in from here, the last saved state of the downloaded file is uploaded as a
+    /// last resort; then the program stops.
+    /// </summary>
+    private async Task CloseExamAsync(string examId)
     {
         _ending = true;
-        StatusNote = "Sınav sona erdi; dosyanız teslim ediliyor…";
-        LocalLog.Write("sınav sona erdi");
+        var inExam = Phase is Phase.Countdown or Phase.Running or Phase.Ended;
+        StatusNote = "Sınav kapatılıyor…";
+        LocalLog.Write("öğretmen sınavı kapattı");
         Changed?.Invoke();
 
         // Do not collide with a manual upload or a download that is in flight.
         for (var i = 0; i < 100 && (_submitting || _downloading); i++) await Task.Delay(100);
         if (Phase == Phase.Finished) return;
+        if (!inExam)
+        {
+            await FinishAsync(new FinishInfo("Sınav kapatıldı", "Öğretmen sınav sistemini kapattı.", true));
+            return;
+        }
 
         if (ExamId.Length == 0) ExamId = examId;
         RestoreDownloadedFile(examId);
@@ -601,6 +653,7 @@ public sealed class ExamController : IDisposable
         {
             if (!ExamFileReady || !File.Exists(_examFilePath))
             {
+                success = false;
                 outcome = "Sınav dosyasını indirmediğiniz için teslim yapılmadı.";
             }
             else
@@ -626,13 +679,13 @@ public sealed class ExamController : IDisposable
                       $"Dosyanız: {_examFilePath}\r\nÖğretmeninize hemen haber verin.";
         }
 
-        await FinishAsync(new FinishInfo("Sınav sona erdi", outcome, success));
+        await FinishAsync(new FinishInfo("Sınav kapatıldı", "Öğretmen sınavı kapattı.\r\n\r\n" + outcome, success));
     }
 
     private async Task<string> AutoSubmitAsync(byte[] bytes, string path)
     {
         var lastError = "";
-        for (var attempt = 1; attempt <= 5; attempt++)
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
             try
             {

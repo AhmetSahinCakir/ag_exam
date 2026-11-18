@@ -438,6 +438,7 @@ public sealed class MainForm : Form
         var phase = _controller.Phase;
         if (phase != _shownPhase)
         {
+            var previous = _shownPhase;
             _shownPhase = phase;
             switch (phase)
             {
@@ -449,6 +450,12 @@ public sealed class MainForm : Form
                     break;
                 case Phase.Running:
                     ShowExamPanel();
+                    break;
+                case Phase.Ended:
+                    // The exam is over but nothing was handed in: the panel stays, where it is.
+                    if (previous == Phase.Running) BuildExamPanel();
+                    else ShowExamPanel();
+                    if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
                     break;
             }
         }
@@ -502,7 +509,8 @@ public sealed class MainForm : Form
     }
 
     private static string PanelStage(ExamController controller) =>
-        controller.ExamFileReady ? "ready|" + controller.ExamFilePath : "download";
+        (controller.Phase == Phase.Ended ? "ended|" : "") +
+        (controller.ExamFileReady ? "ready|" + controller.ExamFilePath : "download");
 
     /// <summary>
     /// The panel shows only what the student does next: first "download the exam file" (to a
@@ -513,14 +521,26 @@ public sealed class MainForm : Form
         var controller = _controller!;
         _panelStage = PanelStage(controller);
 
+        var ended = controller.Phase == Phase.Ended;
         NewScreen(PanelWidth, topPadding: 16);
-        AddLabel("Sınav sürüyor", Theme.Semibold(11F), Theme.Text, 2);
+        AddLabel(ended ? "Sınav bitti" : "Sınav sürüyor", Theme.Semibold(11F), Theme.Text, 2);
         AddNote($"{controller.Numara} — {controller.FullName}", 12);
         _infoLabel = AddLabel("", Theme.Semibold(10F), Theme.Text, 0);
         _infoGap = 10;
         _statusLabel = AddStatus(16);
 
-        if (!controller.ExamFileReady)
+        if (ended)
+        {
+            // Nothing closes when the exam ends: the file can still be handed in, as a late submission.
+            _submitButton = AddPrimary("Teslim et", 12, 42);
+            _submitButton.Click += async (_, _) => await SubmitClickedAsync();
+            AddNote("Dosyanızı hemen teslim edin. Sınav bittiği için teslim geç olarak kaydedilecek.", 8, Theme.Bad);
+            if (controller.ExamFileReady)
+            {
+                AddNote($"İndirilen dosya: {Path.GetFileName(controller.ExamFilePath)}", 10);
+            }
+        }
+        else if (!controller.ExamFileReady)
         {
             _downloadButtonText = "Sınav dosyasını indir";
             _downloadButton = AddPrimary(_downloadButtonText, 10, 42);
@@ -536,7 +556,7 @@ public sealed class MainForm : Form
             AddNote($"İndirilen dosya: {Path.GetFileName(controller.ExamFilePath)}", 4);
             AddNote("Bitirince Packet Tracer'da Ctrl+S ile kaydedin, “Teslim et”e basıp dosyanızı seçin.", 10);
         }
-        _downloadButton.Click += async (_, _) => await DownloadClickedAsync();
+        if (_downloadButton != null) _downloadButton.Click += async (_, _) => await DownloadClickedAsync();
         _noteLabel = AddNote("", 0, Theme.Bad);
 
         _panelLayoutKey = "\0"; // forces FitExamPanel in UpdateDynamic
@@ -556,7 +576,7 @@ public sealed class MainForm : Form
         if (controller == null || IsDisposed || controller.Phase == Phase.Finished) return;
 
         // The exam panel changes its buttons once the exam file has been downloaded.
-        var panelShown = _shownPhase == Phase.Running && controller.Phase == Phase.Running;
+        var panelShown = _shownPhase is Phase.Running or Phase.Ended && controller.Phase == _shownPhase;
         if (panelShown && PanelStage(controller) != _panelStage)
         {
             BuildExamPanel();
@@ -700,10 +720,10 @@ public sealed class MainForm : Form
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
             path = dialog.FileName;
         }
-        if (IsDisposed || controller.Phase != Phase.Running) return;
+        if (IsDisposed || !controller.CanSubmit) return;
 
         var candidate = await controller.InspectSubmissionAsync(path);
-        if (IsDisposed || controller.Phase != Phase.Running) return;
+        if (IsDisposed || !controller.CanSubmit) return;
 
         var name = Path.GetFileName(path);
         var refusal = candidate.Error.Length > 0
@@ -738,10 +758,13 @@ public sealed class MainForm : Form
                 "Yine de teslim et", recommendCancel: true),
             _ => MessageDialog.Confirm(this, DialogTone.Question,
                 "Teslim edilsin mi?",
-                $"Dosya: {name}\nSon kayıt: {saved:HH:mm}\n\nTeslimden sonra değişiklik yapamazsınız.",
+                $"Dosya: {name}\nSon kayıt: {saved:HH:mm}\n\n" +
+                (controller.Phase == Phase.Ended
+                    ? "Sınav bittiği için bu teslim geç teslim olarak kaydedilecek."
+                    : "Teslimden sonra değişiklik yapamazsınız."),
                 "Evet, teslim et"),
         };
-        if (!confirmed || IsDisposed || controller.Phase != Phase.Running) return;
+        if (!confirmed || IsDisposed || !controller.CanSubmit) return;
 
         if (_submitButton != null)
         {
@@ -760,7 +783,7 @@ public sealed class MainForm : Form
     private void CheckVirtualDesktop()
     {
         var controller = _controller;
-        if (controller == null || IsDisposed || !IsHandleCreated || controller.Phase != Phase.Running) return;
+        if (controller == null || IsDisposed || !IsHandleCreated || !controller.CanSubmit) return;
         if (VirtualDesktop.IsOnCurrentDesktop(Handle) is { } onCurrent) controller.ReportDesktop(onCurrent);
     }
 
@@ -788,10 +811,14 @@ public sealed class MainForm : Form
         if (_closeAllowed || controller == null || controller.Phase == Phase.Finished) return;
         if (e.CloseReason is CloseReason.WindowsShutDown or CloseReason.TaskManagerClosing) return;
 
-        var text = controller.Phase == Phase.Waiting
-            ? "Programı kapatırsanız sınava katılamazsınız ve bu durum öğretmeninize bildirilir."
-            : "Sınav devam ediyor. Programı kapatırsanız bu durum öğretmeninize bildirilir ve dosyanız " +
-              "teslim edilmez.\n\nTeslim etmek için “Vazgeç” deyip “Teslim et” düğmesini kullanın.";
+        var text = controller.Phase switch
+        {
+            Phase.Waiting => "Programı kapatırsanız sınava katılamazsınız ve bu durum öğretmeninize bildirilir.",
+            Phase.Ended => "Sınav bitti ama dosyanızı teslim etmediniz. Programı kapatırsanız dosyanız teslim " +
+                           "edilmemiş olur.\n\nTeslim etmek için “Vazgeç” deyip “Teslim et” düğmesini kullanın.",
+            _ => "Sınav devam ediyor. Programı kapatırsanız bu durum öğretmeninize bildirilir ve dosyanız " +
+                 "teslim edilmez.\n\nTeslim etmek için “Vazgeç” deyip “Teslim et” düğmesini kullanın.",
+        };
         e.Cancel = true; // decided below; closing continues asynchronously
         if (!MessageDialog.Confirm(this, DialogTone.Warning, "Program kapatılsın mı?", text, "Yine de kapat",
                 recommendCancel: true))

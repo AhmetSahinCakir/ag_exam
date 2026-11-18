@@ -13,6 +13,8 @@
       masaüstüne geçiş uyarısı -> teslimde dosya seçme ve dosya denetimleri -> teslim klasörü
       denetimi -> elle konan dosyanın teslim sayılması -> ajanın kapanması ve iz bırakmaması
       -> ajan zorla sonlandırıldığında ffmpeg'in de kapanması (Job Object)
+      -> ek süre -> sınav bitince programın kapanmaması ve geç teslim -> öğrenci başına uyarı
+      dosyaları -> panel penceresi kapanınca çıkan soru ve "Sistemi kapat"
 
     Yönetici olarak ve etkileşimli bir masaüstü oturumunda çalıştırılmalıdır.
 
@@ -421,6 +423,18 @@ function Get-AgentWindowHandle([string]$titlePattern) {
         try { if ($window.Current.Name -match $titlePattern) { return [IntPtr]$window.Current.NativeWindowHandle } } catch { }
     }
     return [IntPtr]::Zero
+}
+
+function Remaining-Minutes {
+    foreach ($text in (Agent-Texts)) { if ($text -match '^Kalan süre: (\d+) dk$') { return [int]$Matches[1] } }
+    return -1
+}
+
+function Dump-Events {
+    foreach ($n in @('2021001', '2021002', '2021003', '2021004', '2021005', '')) {
+        Write-Host "  olaylar ($n):"
+        Get-Events $n | ForEach-Object { Write-Host "    [$($_.severity)] $($_.type): $($_.message)" }
+    }
 }
 
 function Start-Agent {
@@ -922,15 +936,146 @@ klasorler:
     $lost = Wait-Until { $s = Get-Student $second; if ($s -and $s.status -eq 'lost') { $s } } 16 500
     Check ([bool]$lost) ("kutu kırmızıya döndü ({0:N0} sn sonra)" -f ((Get-Date) - $killedAt).TotalSeconds)
 
-    Step 'Sınavı bitir ve kayıtlar'
+    # ------------------------------------------------ extra time, end of exam, late submission
+    Step 'Ek süre; sınav bitince program kapanmıyor, geç teslim alınıyor'
+    $fourth = '2021004'
+    Start-Agent
+    Login-Agent $fourth 'Geç' 'Kalan'
+    Check ([bool](Wait-AgentText '^Sınav sürüyor$' 40)) 'dördüncü öğrenci sınavda'
+    $latePka = Join-Path $studentFolder 'gec-kalan.pka'
+    Click-Agent '^Sınav dosyasını indir$'
+    Pick-File $latePka
+    Check ([bool](Wait-Until { Test-Path $latePka } 15)) 'dördüncü öğrenci sınav dosyasını indirdi'
+    Check ([bool](Wait-Until { Find-Agent '^Teslim et$' $Types::Button } 10)) '"Teslim et" düğmesi çıktı'
+    [IO.File]::AppendAllText($latePka, "`ncozum-$fourth")
+
+    # "Sınavı bitir" penceresindeki "Ek süre ver".
+    $remainingBefore = Remaining-Minutes
+    $extended = Panel-Post '/panel/api/extend' '{"minutes": 10}'
+    Check ($extended -match 'ends_at') "ek süre verildi ($extended)"
+    $grown = Wait-Until { $now = Remaining-Minutes; if ($now -ge $remainingBefore + 9) { $now } } 10
+    Check ([bool]$grown) "öğrencideki kalan süre 10 dakika arttı ($remainingBefore dk -> $grown dk)"
+
     $end = Panel-Post '/panel/api/end'
+    $endedAt = Get-Date
     Check ($end -match 'ENDED') 'sınav bitirildi'
+    Check ([bool](Wait-AgentText '^Sınav bitti$' 10)) 'sınav bitince öğrenci programı kapanmıyor: panelde "Sınav bitti"'
+    Check ([bool](Wait-AgentText 'geç olarak kaydedilecek' 5)) 'öğrenciye teslimin geç sayılacağı söyleniyor'
+    Check (-not $script:agent.HasExited -and [bool](Find-Agent '^Teslim et$' $Types::Button)) 'program açık, "Teslim et" düğmesi duruyor'
+    Check (-not (Find-Agent 'indir' $Types::Button)) 'sınav bittikten sonra dosya indirilemiyor'
+    Start-Sleep -Seconds 1
+    Shot 'sinav-bitti-panel'
+    $st = Get-Student $fourth
+    Check ($st.status -eq 'nosubmit' -and $st.stream_ready) 'panelde "Teslim yok", ekranı hâlâ izleniyor'
+    $before = Count-Events $fourth 'process_killed' 'notepad'
+    Start-Process notepad.exe | Out-Null
+    Check ([bool](Wait-Until { (Count-Events $fourth 'process_killed' 'notepad') -gt $before } 10)) 'teslim edene kadar izinsiz programlar kapatılmaya devam ediyor'
+
+    # A file that was already on its way when the exam ended is not late; wait past that.
+    $wait = 13 - ((Get-Date) - $endedAt).TotalSeconds
+    if ($wait -gt 0) { Start-Sleep -Seconds ([int][Math]::Ceiling($wait)) }
+    Click-Agent '^Teslim et$'
+    Pick-File $latePka
+    Check ([bool](Wait-AgentText '^Teslim edilsin mi\?$' 10)) 'sınav bittikten sonra da teslim edilebiliyor'
+    Check ([bool](Wait-AgentText 'geç teslim olarak kaydedilecek' 5)) 'onayda "geç teslim olarak kaydedilecek" yazıyor'
+    Start-Sleep -Milliseconds 500
+    Shot 'gec-teslim-onay'
+    Click-Agent '^Evet, teslim et$'
+    Check ([bool](Wait-AgentText 'geç teslim olarak kaydedildi' 20)) '"Teslim alındı — geç teslim olarak kaydedildi"'
+    Shot 'gec-teslim-alindi'
+    Click-Agent '^Kapat'
+    Check ($script:agent.WaitForExit(20000)) 'ajan teslimden sonra kapandı'
+    $st = Get-Student $fourth
+    Check ($st.status -eq 'done' -and $st.submission.late) 'panelde teslim geç olarak işaretli'
+    Check ((Count-Events $fourth 'late_submission') -eq 1) 'öğretmene "Geç teslim" uyarısı'
+    Check (Test-Path (Join-Path $submissionsDir '2021004_GecKalan.pka')) 'geç teslim dosyası Teslimler klasöründe'
+
+    Step 'Uyarılar öğrenci öğrenci ayrı dosyada'
+    $alertsDir = Join-Path $examFolder 'Uyarılar'
+    $lateFile = Join-Path $alertsDir '2021004_GecKalan.csv'
+    Check ((Test-Path $lateFile) -and ((Get-Content $lateFile -Raw -Encoding UTF8) -match 'Geç teslim')) 'Uyarılar\2021004_GecKalan.csv içinde geç teslim uyarısı'
+    $firstFile = Join-Path $alertsDir '2021001_SukruCagriIsik.csv'
+    $firstText = if (Test-Path $firstFile) { Get-Content $firstFile -Raw -Encoding UTF8 } else { '' }
+    Check ($firstText -match 'kapatıldı' -and $firstText -match 'Packet Tracer dışında bir pencere önde') 'Uyarılar\2021001_SukruCagriIsik.csv içinde o öğrencinin uyarıları'
+    Check (-not (Test-Path (Join-Path $alertsDir '2021003_EldenTeslim.csv'))) 'uyarısı olmayan öğrenci için dosya açılmıyor'
+
+    Step 'Kayıtlar'
     $recordings = @(Get-ChildItem (Join-Path $recordingsDir $numara) -Filter *.mp4 -ErrorAction SilentlyContinue)
     Check ($recordings.Count -ge 1 -and ($recordings | Measure-Object Length -Sum).Sum -gt 20000) "ekran kaydı sınav klasöründe: Kayıtlar\$numara ($($recordings.Count) dosya)"
     Check (Test-Path (Join-Path $examFolder 'olay-kaydi.csv')) 'olay kaydı sınav klasörüne yazıldı (olay-kaydi.csv)'
     Check (Test-Path (Join-Path $submissionsDir 'index.csv')) 'teslim dökümü: Teslimler\index.csv'
     Write-Host '  sınav klasörü:'
     Get-ChildItem -Recurse -File $examFolder | ForEach-Object { Write-Host "    $($_.FullName.Substring($examFolder.Length + 1))  ($($_.Length) bayt)" }
+
+    # ------------------------------------- new exam without recording; closing the system
+    Step 'Yeni sınav: ekran kaydı seçilmeden'
+    Dump-Events
+    $reset = Panel-Post '/panel/api/reset'
+    Check ($reset -match 'WAITING') 'yeni sınav hazırlandı'
+    Check (Test-Path $lateFile) 'yeni sınav hazırlanınca önceki sınavın dosyaları yerinde duruyor'
+    $secondFolder = Join-Path $OutDir 'İkinci Sınav'
+    Panel-Post '/panel/api/exam-folder' (@{ path = $secondFolder } | ConvertTo-Json -Compress) | Out-Null
+    Curl-Text @('-m', '10', '-H', 'X-Panel: 1', '-F', "file=@$exam", "$base/panel/api/exam-file") | Out-Null
+    $start = Panel-Post '/panel/api/start' (@{ record = $false } | ConvertTo-Json -Compress)
+    Check ($start -match 'RUNNING') "ikinci sınav süresiz ve kayıtsız başladı ($start)"
+    $fifth = '2021005'
+    Start-Agent
+    Login-Agent $fifth 'Son' 'Öğrenci'
+    Check ([bool](Wait-AgentText '^Sınav sürüyor$' 40)) 'beşinci öğrenci sınavda'
+    Check ((Remaining-Minutes) -eq -1) 'süre verilmeyen sınavda öğrenci süre görmüyor'
+    $streaming = Wait-Until { $s = Get-Student $fifth; if ($s -and $s.stream_ready) { $s } } 40
+    Check ([bool]$streaming) 'ekranı öğretmene aktarılıyor'
+    $lastPka = Join-Path $studentFolder 'son-ogrenci.pka'
+    Click-Agent '^Sınav dosyasını indir$'
+    Pick-File $lastPka
+    Check ([bool](Wait-Until { Test-Path $lastPka } 15)) 'beşinci öğrenci sınav dosyasını indirdi'
+    [IO.File]::AppendAllText($lastPka, "`ncozum-$fifth")
+    Start-Sleep -Seconds 4
+    $state = Get-Snapshot
+    Check (-not $state.health.recording -and -not (Get-ChildItem (Join-Path $secondFolder 'Kayıtlar') -Recurse -File)) '"Ekranları kaydet" seçilmeyince ekranlar diske yazılmıyor (canlı izleme sürüyor)'
+
+    Step 'Panel penceresi kapanınca soru; "Sistemi kapat"'
+    # The panel page keeps a live connection like this one; ending it is closing the window.
+    $panelPage = Start-Process -FilePath 'curl.exe' -ArgumentList @('-s', '-N', "$base/panel/api/stream") `
+        -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $OutDir 'panel-akisi.txt')
+    Start-Sleep -Seconds 4
+    Check (-not ([Native]::FindWindowByTitle('^Sınav İzleme$') -ne [IntPtr]::Zero)) 'panel açıkken soru çıkmıyor'
+    Stop-Process -Id $panelPage.Id -Force
+    $question = Wait-Until { $h = [Native]::FindWindowByTitle('^Sınav İzleme$'); if ($h -ne [IntPtr]::Zero) { $h } } 30
+    Check ([bool]$question) 'panel penceresi kapanınca masaüstünde "sistem mi, pencere mi?" sorusu çıkıyor'
+    Start-Sleep -Seconds 1
+    Shot 'pencere-kapandi-sorusu'
+    if (-not $question) { throw 'Kapanış sorusu çıkmadı; kalan adımlar yapılamaz.' }
+    $questionElement = $AE::FromHandle($question)
+    $isButton = New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, $Types::Button)
+    $choices = @($questionElement.FindAll($Scope::Descendants, $isButton) | ForEach-Object { $_.Current.Name })
+    Check (($choices -contains 'Arka planda çalışsın') -and ($choices -contains 'Paneli yeniden aç') -and ($choices -contains 'Sistemi kapat')) "seçenekler: $($choices -join ' / ')"
+    Check (-not $server.HasExited -and -not $script:agent.HasExited) 'soru yanıtlanana kadar sistem çalışmaya devam ediyor'
+    $shutdownButton = $questionElement.FindAll($Scope::Descendants, $isButton) | Where-Object { $_.Current.Name -eq 'Sistemi kapat' } | Select-Object -First 1
+    Click-Element $shutdownButton 'Sistemi kapat'
+    # The exam is running: a second question makes sure.
+    $questionPid = [Native]::PidOf($question)
+    $sure = Wait-Until { $h = [Native]::FindMessageBox($questionPid); if ($h -ne [IntPtr]::Zero) { $h } } 10
+    Check ([bool]$sure) 'sınav sürerken "Sistem kapatılsın mı?" diye bir kez daha soruluyor'
+    Start-Sleep -Milliseconds 500
+    Shot 'sistemi-kapat-onay'
+    if ($sure) { [Native]::PostMessage($sure, 0x0111, [IntPtr]6, [IntPtr]::Zero) | Out-Null }   # Yes
+
+    Check ([bool](Wait-AgentText '^Sınav kapatıldı$' 25)) 'öğrenci programı "Sınav kapatıldı" diyor'
+    Check ([bool](Wait-AgentText 'otomatik olarak teslim edildi' 5)) 'teslim etmemiş öğrencinin son kaydettiği dosya otomatik alındı'
+    Shot 'sinav-kapatildi'
+    Click-Agent '^Kapat'
+    Check ($script:agent.WaitForExit(20000)) 'öğrenci programı kapandı'
+    Check ($server.WaitForExit(30000)) 'sunucu kendiliğinden kapandı'
+    if ($server.HasExited) { Check ($server.ExitCode -eq 10) "sunucu çıkış kodu 10 (başlatma penceresi de kapanır): $($server.ExitCode)" }
+    $collected = Join-Path $secondFolder 'Teslimler\2021005_SonOgrenci.pka'
+    Check (Test-Path $collected) 'otomatik alınan dosya ikinci sınavın Teslimler klasöründe'
+    if (Test-Path $collected) {
+        Check ((Get-FileHash $collected).Hash -eq (Get-FileHash $lastPka).Hash) 'otomatik alınan dosya öğrencinin son kaydettiğiyle aynı'
+    }
+    $secondLog = Join-Path $secondFolder 'olay-kaydi.csv'
+    Check ((Test-Path $secondLog) -and ((Get-Content $secondLog -Raw -Encoding UTF8) -match 'Sistem kapatıldı')) 'olay kaydında "Sistem kapatıldı"'
+    Check (-not (Get-Process ffmpeg -ErrorAction SilentlyContinue)) 'ffmpeg.exe kalmadı'
 }
 catch {
     Write-Host ''
@@ -943,11 +1088,13 @@ catch {
 finally {
     Step 'Tanılama'
     try {
-        foreach ($n in @('2021001', '2021002', '2021003', '')) {
-            Write-Host "  olaylar ($n):"
-            Get-Events $n | ForEach-Object { Write-Host "    [$($_.severity)] $($_.type): $($_.message)" }
-        }
+        if ($server -and -not $server.HasExited) { Dump-Events }
+        else { Write-Host '  (sunucu kapalı; olaylar yukarıda ve olay-kaydi.csv dosyalarında)' }
     } catch { Write-Host "  (olaylar okunamadı: $($_.Exception.Message))" }
+    foreach ($leftover in @('^Sınav İzleme$')) {
+        $h = [Native]::FindWindowByTitle($leftover)
+        if ($h -ne [IntPtr]::Zero) { [Native]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
+    }
     Write-Host '  görünür pencereler:'
     try { Show-Windows } catch { }
 

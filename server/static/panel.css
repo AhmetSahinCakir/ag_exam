@@ -103,6 +103,8 @@ button.icon { width: 34px; padding: 0; justify-content: center; border-color: tr
   border: 0; border-radius: 6px; background: none; color: var(--text); text-decoration: none; cursor: pointer;
 }
 .menu-item:hover:not(:disabled) { background: var(--hover); }
+.menu-item.danger { color: var(--lost); font-weight: 400; }
+.menu-item.danger:hover:not(:disabled) { background: #1c0a09; }
 .menu-sep { height: 1px; background: var(--line); margin: 6px 4px; }
 .menu-check { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; }
 .menu-check input, #tileSize { accent-color: #d0d0d0; }
@@ -180,6 +182,7 @@ main { flex: 1; min-height: 0; display: flex; }
 .tile.st-warn { border-color: var(--warn); }
 .tile.st-lost, .tile.st-nosubmit, .tile.st-nofile { border-color: var(--lost); }
 .tile.st-done .novideo { color: #9a9a9a; }
+.tile.late .novideo { color: var(--warn); }
 
 /* ---------- student list (right) ---------- */
 #side {
@@ -236,7 +239,7 @@ main { flex: 1; min-height: 0; display: flex; }
 .row .num { font-weight: 600; font-variant-numeric: tabular-nums; }
 .row .name { margin-left: 6px; }
 .row .note { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--muted); font-size: 13px; }
-.row.st-warn .note { color: var(--warn); }
+.row.st-warn .note, .row.late .note { color: var(--warn); }
 .row.st-lost .note, .row.st-nosubmit .note, .row.st-nofile .note { color: var(--lost); }
 .row .count {
   flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
@@ -331,6 +334,10 @@ main { flex: 1; min-height: 0; display: flex; }
 .inline-field { display: flex; align-items: center; gap: 10px; color: var(--muted); }
 .inline-field input { width: 120px; }
 .field-hint { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.field-hint b { color: var(--text); font-weight: 600; }
+.field-hint.end-note { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.inline-field button { height: 36px; margin-top: 5px; }
+#endDialog .dialog { width: min(480px, 92vw); }
 #startDialog .dialog { width: min(480px, 92vw); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 

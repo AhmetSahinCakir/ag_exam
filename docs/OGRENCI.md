@@ -64,12 +64,10 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
 - **Başka bir masaüstüne geçmeyin** (Görev Görünümü, Win+Ctrl+→). Geçerseniz “Başka bir
   masaüstündesiniz” bildirimi çıkar ve öğretmene bildirilir.
 - **Sık sık Ctrl+S ile kaydedin** ve dosyayı **indirdiğiniz yerde, aynı adla** tutun.
-  Teslimde bu dosyayı seçeceksiniz. Öğretmen sınavı siz teslim etmeden bitirirse de
-  **bu dosyanın** son kaydettiğiniz hâli otomatik gönderilir; “Farklı Kaydet” ile başka bir
-  yere ya da başka bir adla kaydettiğiniz kopya otomatik gönderilmez.
+  Teslimde bu dosyayı seçeceksiniz.
 - Öğretmeniniz süre verdiyse panelde **“Kalan süre: … dk”** yazar ve süre dolunca sınav
-  kendiliğinden biter (son kaydettiğiniz dosya otomatik teslim edilir). Süre yazmıyorsa
-  süreyi öğretmeniniz tutar.
+  biter. Süre yazmıyorsa süreyi öğretmeniniz tutar. **Süre dolmadan teslim edin:** sınav
+  bittikten sonra da teslim edebilirsiniz ama tesliminiz **geç teslim** olarak kaydedilir.
 - Wi-Fi koparsa panelde “Sunucuya ulaşılamıyor — yeniden deneniyor…” yazar; program
   kendiliğinden yeniden bağlanır, siz çalışmaya devam edin. Uzun sürerse öğretmeninize haber verin.
 - Program çökerse veya bilgisayar yeniden başlarsa programı yeniden çalıştırıp **aynı
@@ -96,8 +94,18 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
 5. **“Teslim alındı”** penceresi çıkar; program kapanır ve ekran aktarımı biter. Bu pencere,
    dosyanızın öğretmen bilgisayarına **eksiksiz ulaştığı doğrulandıktan sonra** çıkar.
 
-Teslim etmeden öğretmen sınavı bitirirse, indirdiğiniz dosyanın **son kaydettiğiniz hâli
-otomatik olarak** teslim edilir ve “Sınav sona erdi” penceresi çıkar.
+### Sınav bitti ve teslim etmediniz
+
+Program **kapanmaz.** Panelde **“Sınav bitti”** yazar ve “Sınav bitti — dosyanızı hemen
+teslim edin” bildirimi çıkar. **Teslim et** ile dosyanızı yine teslim edebilirsiniz; teslim
+alınır ama **geç teslim** olarak kaydedilir ve öğretmeninize bildirilir. Teslim edene kadar
+ekranınız aktarılmaya ve izin verilmeyen programlar kapatılmaya devam eder. Sınav bittikten
+sonra sınav dosyası yeniden indirilemez.
+
+Öğretmeniniz sınavı tamamen kapattığında **“Sınav kapatıldı”** penceresi çıkar ve program
+kapanır. O ana kadar teslim etmediyseniz, indirdiğiniz dosyanın **son kaydettiğiniz hâli
+otomatik olarak** teslim edilir (“Farklı Kaydet” ile başka bir yere ya da başka bir adla
+kaydettiğiniz kopya otomatik gönderilmez).
 
 ## Sınavdan sonra
 

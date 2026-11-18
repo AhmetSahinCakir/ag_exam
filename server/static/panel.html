@@ -37,7 +37,7 @@
       <div class="menu-wrap">
         <button id="btnMenu" type="button" aria-haspopup="true" aria-expanded="false">Diğer</button>
         <div id="menu" class="menu" hidden>
-          <button id="btnExtend" type="button" class="menu-item" hidden>Süreye 5 dakika ekle</button>
+          <button id="btnExtend" type="button" class="menu-item" hidden>Ek süre ver…</button>
           <button id="btnOpenFolder" type="button" class="menu-item">Sınav klasörünü aç</button>
           <button id="btnRosterMenu" type="button" class="menu-item">Öğrenci listesi yükle (Excel)</button>
           <a id="btnExport" class="menu-item" href="/panel/api/export.csv">Olay kaydını indir (CSV)</a>
@@ -49,6 +49,8 @@
           </label>
           <div class="menu-sep"></div>
           <div id="menuInfo" class="menu-info"></div>
+          <div class="menu-sep"></div>
+          <button id="btnShutdown" type="button" class="menu-item danger">Sistemi kapat…</button>
         </div>
       </div>
     </div>
@@ -60,7 +62,7 @@
       <span class="step-n">1</span>
       <div class="step-text">
         <div class="step-title">Sınav klasörü</div>
-        <div id="folderInfo" class="step-sub path"><bdi>Kayıtlar ve teslimler buraya gelir</bdi></div>
+        <div id="folderInfo" class="step-sub path"><bdi>Kayıtlar, teslimler ve uyarılar buraya gelir</bdi></div>
       </div>
       <button id="btnFolder" type="button">Klasör seç</button>
     </div>
@@ -191,6 +193,45 @@
     </form>
   </div>
 
+  <!-- Sınavı bitir: ek süre ver ya da bitir -->
+  <div id="endDialog" class="modal" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="endTitle">
+      <h2 id="endTitle">Sınavı bitir</h2>
+      <p id="endSummary" class="dialog-note"></p>
+
+      <label class="field-label" for="extendMinutes">Ek süre ver</label>
+      <div class="inline-field">
+        <input id="extendMinutes" type="number" min="1" max="120" step="1" value="5" inputmode="numeric" autocomplete="off">
+        <span>dakika</span>
+        <button id="btnExtendGo" type="button">Ek süre ver</button>
+      </div>
+      <p id="extendHint" class="field-hint"></p>
+
+      <p class="field-hint end-note">Sınavı bitirdiğinizde dosya indirme kapanır. Teslim etmemiş öğrencilerin
+        programı açık kalır: dosyalarını yine teslim edebilirler, ancak teslim <b>geç teslim</b> olarak
+        işaretlenir ve uyarı olarak kaydedilir.</p>
+
+      <div class="dialog-actions">
+        <button id="endCancel" type="button">Vazgeç</button>
+        <button id="btnEndGo" type="button" class="danger">Sınavı bitir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sistemi kapat -->
+  <div id="shutdownDialog" class="modal" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="shutdownTitle">
+      <h2 id="shutdownTitle">Sistemi kapat</h2>
+      <p id="shutdownNote" class="dialog-note"></p>
+      <p class="field-hint">Yalnızca bu pencereyi kapatmak isterseniz pencerenin çarpısını kullanın: sistem arka
+        planda çalışmaya devam eder ve ne yapmak istediğiniz sorulur.</p>
+      <div class="dialog-actions">
+        <button id="shutdownCancel" type="button">Vazgeç</button>
+        <button id="btnShutdownGo" type="button" class="danger">Sistemi kapat</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Sınıf (salon) ve öğretmen adı -->
   <div id="identityDialog" class="modal" hidden>
     <form id="identityForm" class="dialog" role="dialog" aria-modal="true" aria-labelledby="identityTitle">
@@ -212,7 +253,7 @@
     <form id="folderForm" class="dialog" role="dialog" aria-modal="true" aria-labelledby="folderTitle">
       <h2 id="folderTitle">Sınav klasörü</h2>
       <p class="dialog-note">Klasör seçme penceresi açılamadı. Klasörün tam yolunu yazın; yoksa oluşturulur.
-        İçinde “Kayıtlar” ve “Teslimler” klasörleri açılır.</p>
+        İçinde “Kayıtlar”, “Teslimler” ve “Uyarılar” klasörleri açılır.</p>
       <label for="folderPath">Klasör yolu</label>
       <input id="folderPath" type="text" required autocomplete="off" spellcheck="false" placeholder="D:\Sınavlar\Ağ Temelleri Vize">
       <div class="dialog-actions">

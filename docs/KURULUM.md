@@ -117,9 +117,10 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
 2. Üstteki hazırlık satırında, sırayla:
    - **1 Sınav klasörü → Klasör seç** — Windows'un klasör penceresi açılır; bu sınavın
      dosyalarının duracağı klasörü seçin (ör. `D:\Sınavlar\Ağ Temelleri Vize`; pencerede
-     yeni klasör de oluşturabilirsiniz). Seçtiğiniz klasörün içinde iki klasör açılır:
+     yeni klasör de oluşturabilirsiniz). Seçtiğiniz klasörün içinde üç klasör açılır:
      - **`Kayıtlar`** — öğrencilerin ekran kayıtları,
-     - **`Teslimler`** — öğrencilerin teslim ettiği dosyalar.
+     - **`Teslimler`** — öğrencilerin teslim ettiği dosyalar,
+     - **`Uyarılar`** — her öğrencinin uyarıları, öğrenci başına ayrı bir dosyada.
 
      Klasör seçilmeden sınav başlatılamaz. Her sınav için ayrı bir klasör seçin. (Klasör penceresi açılamazsa panel, klasörün yolunu elle
      yazmanız için bir kutu gösterir.)
@@ -144,18 +145,18 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
      saatte kendiliğinden başlar; o zamana kadar üstte “Sınav saat 10:30 için planlandı”
      yazar, öğrenciler de bu saati görür, **İptal et** ile vazgeçebilirsiniz.
    - **Sınav süresi (isteğe bağlı):** Dakika yazarsanız öğrenciler kalan süreyi görür,
-     panelde geri sayım yazar ve **süre dolunca sınav kendiliğinden biter** (teslim
-     etmeyenlerin dosyası otomatik toplanır). Boş bırakırsanız süre tutulmaz; sınavı siz
-     bitirirsiniz. Süreli bir sınavda **Diğer → Süreye 5 dakika ekle** ile ek süre
-     verebilirsiniz.
+     panelde geri sayım yazar ve **süre dolunca sınav kendiliğinden biter**. Boş
+     bırakırsanız süre tutulmaz; sınavı siz bitirirsiniz. Ek süreyi sınav sırasında
+     **Sınavı bitir** penceresinden verirsiniz (aşağıda).
    - **Ekranları kaydet:** İşaretliyse öğrenci ekranları sınav klasöründeki `Kayıtlar`a
      kaydedilir. İşaretli değilse ekranlar yalnızca panelde **canlı izlenir**, diske
      yazılmaz. Öğrenci bu seçimi göremez; her iki durumda da ekranı size aktarılır. Sınav
      başlamadan önce (bekleme aşamasında) hiçbir zaman kayıt yapılmaz. Panelin üstünde
      “kayıt açık / kayıt kapalı” yazar.
 
-   **Sınavın başlaması, sınav dosyasının paylaşılmasıdır:** ayrı bir “paylaş” adımı yoktur;
-   sınav başladığı anda dosya öğrencilere açılır. Öğrencide:
+   **Sınav başlayınca öğrencinin bilgisayarında hiçbir şey kendiliğinden açılmaz ya da
+   inmez.** Ayrı bir “paylaş” adımı da yoktur: sınav başladığı anda öğrencinin panelinde
+   **Sınav dosyasını indir** düğmesi çıkar ve dosyayı kendisi indirir. Öğrencide:
    - “Sınav başlıyor. İzin verilmeyen programlar 10 saniye içinde kapatılacak.” uyarısı
      ve geri sayım görünür,
    - geri sayım bitince uygulama denetimi başlar; program küçük bir panele dönüşür,
@@ -186,13 +187,43 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
    klasöre gerçekten ulaştığını denetler, öğrencinin **ekran yayınını durdurur**, kutusu
    griye döner (“Teslim etti”) ve programı kapanır. Ayrıntı için aşağıdaki “Teslim nasıl
    denetlenir?” bölümüne bakın.
-7. Sınavı bitirmek için **Sınavı bitir**'e basın (onay ister); süre verdiyseniz süre
-   dolunca sınav kendiliğinden de biter. Teslim etmemiş öğrencilerin
-   indirdiği dosyanın **son kaydedilmiş hâli otomatik** toplanır (olay kaydında “Otomatik
-   teslim” yazar) ve programlar kapanır. Dosyayı hiç indirmemiş ya da dosyası alınamamış
-   öğrenciler kırmızı “Teslim yok” olarak kalır.
-8. Sınav bitince üstte beliren **Sınav klasörünü aç** düğmesi klasörü Dosya Gezgini'nde
-   açar: kayıtlar, teslimler ve olay kaydı (`olay-kaydi.csv`) oradadır.
+7. **Sınavı bitir**'e basınca bir pencere açılır (aynı pencere **Diğer → Ek süre ver…**
+   ile de açılır). Henüz teslim etmeyen öğrenci sayısını gösterir ve iki seçenek sunar:
+   - **Ek süre ver:** dakikayı yazıp düğmeye basın. Süreli sınavda bitiş saati o kadar
+     ileri alınır; süresiz sınavda sınav yazdığınız süre sonunda kendiliğinden biter.
+     Öğrenciler yeni kalan süreyi hemen görür.
+   - **Sınavı bitir:** sınav biter (süre verdiyseniz süre dolunca kendiliğinden de biter).
+8. **Sınav bitince teslim etmemiş öğrencilerin programı kapanmaz.** Panellerinde “Sınav
+   bitti” yazar; ekranları izlenmeye, izinsiz programlar kapatılmaya devam eder ve
+   dosyalarını yine **Teslim et** ile teslim edebilirler. Bu teslim kabul edilir ama **geç
+   teslim** olarak işaretlenir: öğrencinin satırında “Geç teslim etti” yazar, size
+   “Geç teslim: dosyasını sınav bittikten … dakika sonra teslim etti” uyarısı düşer,
+   `index.csv` dosyasında “gec_teslim: evet” yazar. Sınav bittikten sonra sınav dosyası
+   artık indirilemez. Henüz teslim etmeyenler kırmızı “Teslim yok” olarak görünür.
+9. İşiniz bitince **Yeni sınav** ya da **Diğer → Sistemi kapat…** deyin. İkisi de hâlâ açık
+   olan öğrenci programlarını kapatır; teslim etmemiş öğrencinin indirdiği dosyanın **son
+   kaydedilmiş hâli** bu sırada otomatik alınır (olay kaydında “Otomatik teslim alındı”
+   yazar; geç teslim sayılmaz). **Sınav klasörünü aç** düğmesi klasörü Dosya Gezgini'nde
+   açar: kayıtlar, teslimler, uyarılar ve olay kaydı oradadır.
+
+### Paneli kapatmak ve sistemi kapatmak
+
+Panel bir tarayıcı penceresidir; küçültebilir, alta alabilirsiniz. **Pencereyi çarpıdan
+kapattığınızda** sistem kapanmaz: birkaç saniye içinde masaüstünde bir soru çıkar —
+“Panel penceresi kapatıldı”:
+
+- **Arka planda çalışsın** — yalnızca pencere kapanmış olur. Öğrenciler bağlı kalır, ekranlar
+  ve teslimler alınmaya devam eder. Paneli yeniden açmak için `start-teacher.bat` dosyasını
+  bir kez daha çalıştırın (sistem zaten çalışıyorsa yalnızca paneli açar) ya da tarayıcıda
+  <http://localhost:8000/panel> adresine gidin.
+- **Paneli yeniden aç** — yanlışlıkla kapattıysanız.
+- **Sistemi kapat** — sınav sürüyorsa bir kez daha sorulur. Sınav biter, açık öğrenci
+  programları son kaydedilen dosyayı teslim edip kapanır, sunucu, MediaMTX ve başlatma
+  penceresi kapanır.
+
+(Tarayıcılar bir sayfanın kendi penceresi kapanırken soru sormasına izin vermediği için soru,
+pencere kapandıktan hemen sonra çıkar.) Sistemi panelin içinden de kapatabilirsiniz:
+**Diğer → Sistemi kapat…**
 
 ### Teslim nasıl denetlenir?
 
@@ -245,6 +276,7 @@ değerlendirmek için dosyayı Packet Tracer'da açmanız gerekir.
 | `Teslim edilen dosya sınav dosyasının kendisi (hiç değişiklik kaydedilmemiş)` | Öğrenci hiçbir şey kaydetmeden, indirdiği dosyayı teslim etti (boş teslim). |
 | `Teslim edilen dosya, sınav dosyası indirilmeden önce kaydedilmiş` | Öğrenci büyük olasılıkla yanlış (eski) bir dosya seçti. |
 | `Teslim edilen dosyanın boyutu sınav dosyasından çok farklı` | Dosya sınav dosyasının üçte birinden küçük ya da beş katından büyük; yanlış dosya olabilir. |
+| `Geç teslim: dosyasını sınav bittikten … dakika sonra teslim etti` | Öğrenci dosyasını sınav bittikten sonra teslim etti. Dosya alınır; teslim “geç” olarak işaretlenir. |
 | **`Teslim dosyası klasörde bulunamıyor`** (kırmızı) | Teslim edilen dosya `Teslimler` klasöründen silinmiş ya da taşınmış. Geri konunca öğrenci yeniden “Teslim etti” olur. |
 | `Teslimler klasöründe hiçbir öğrenciyle eşleşmeyen dosya var` | Klasöre elle konan dosyanın adı giriş yapmış bir öğrencinin numarasıyla başlamıyor. |
 | **`Ekran yayını farklı bir IP adresinden geliyor`** (kırmızı) | Yayın, giriş yapılan bilgisayardan gelmiyor. |
@@ -260,7 +292,8 @@ klasörünü aç** ya da her zaman **Diğer → Sınav klasörünü aç**):
 | Ne | Nerede (sınav klasörünün içinde) |
 |---|---|
 | Teslim dosyaları | `Teslimler\<numara>_<AdSoyad>.pka` (Türkçe harfler çevrilir: `2021001_AhmetSahinCakir.pka`). Aynı öğrencinin sonraki teslimleri `_v2`, `_v3` olarak ayrıca saklanır. |
-| Teslim dökümü | `Teslimler\index.csv` — zaman, numara, ad, dosya, **SHA-256**, boyut, otomatik mi, sürüm, IP, bilgisayar, MAC |
+| Teslim dökümü | `Teslimler\index.csv` — zaman, numara, ad, dosya, **SHA-256**, boyut, otomatik mi, sürüm, IP, bilgisayar, MAC, geç teslim mi |
+| Uyarılar (öğrenci öğrenci) | `Uyarılar\<numara>_<AdSoyad>.csv` — o öğrencinin bütün uyarıları (kapatılan programlar, başka pencere, başka masaüstü, bağlantı kopması, geç teslim…), saatleriyle. Uyarı geldikçe güncellenir; hiç uyarısı olmayan öğrenci için dosya açılmaz. Excel'de açılır. |
 | Ekran kayıtları | `Kayıtlar\<numara>\<tarih-saat>.mp4` — 10 dakikalık bölümler. Bağlantı kopup geri gelince yeni dosya başlar. VLC ile oynatılır. |
 | Olay kaydı | `olay-kaydi.csv` (sınav bitince yazılır; Excel'de açılır). Panelden de indirilebilir: **Diğer → Olay kaydını indir (CSV)**. |
 
@@ -268,9 +301,11 @@ Sunucunun kendi çalışma dosyaları (`data\` klasörü: sınav durumu, ham ola
 `events.jsonl`, MediaMTX günlüğü `mediamtx.log`) deponun içinde kalır.
 
 - **Yeni sınav:** Sınav bitince üstte beliren **Yeni sınav** düğmesi (ya da **Diğer → Yeni
-  sınav hazırla**; sınav sürerken kullanılamaz) paneli boşaltır. Biten sınavın kayıtları,
-  teslimleri ve olay kaydı **sınav klasöründe kalır; hiçbir şey silinmez ya da taşınmaz.**
-  Yeni sınav için yeniden klasör seçersiniz. Öğrenci listesi korunur.
+  sınav hazırla**; sınav sürerken kullanılamaz) paneli boşaltır. Hâlâ açık olan öğrenci
+  programları kapanır (teslim etmemiş olanların son kaydettiği dosya otomatik alınır). Biten
+  sınavın kayıtları, teslimleri, uyarıları ve olay kaydı **sınav klasöründe kalır; hiçbir
+  şey silinmez ya da taşınmaz.** Yeni sınav için yeniden klasör seçersiniz. Öğrenci listesi
+  korunur.
 - Sunucu sınav sırasında kapanırsa (elektrik, yanlışlıkla kapatma) `start-teacher.bat`'ı
   yeniden çalıştırın: sınav durumu, sınav klasörü, öğrenciler ve olaylar `data\state.json`
   dosyasından **geri yüklenir**, programlar kendiliğinden yeniden bağlanır, kayıt aynı

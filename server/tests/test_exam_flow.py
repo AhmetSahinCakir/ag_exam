@@ -11,7 +11,7 @@ import time
 from conftest import EXAM_BYTES, PANEL, Env
 from openpyxl import Workbook
 
-from sinav.store import ENDED, RUNNING, WAITING, Store
+from sinav.store import CLOSED, ENDED, RUNNING, WAITING, Store
 
 
 def roster_xlsx(rows):
@@ -222,7 +222,7 @@ def test_submission_naming_versions_index_and_checks(env: Env):
     work_a = b"cozum A"
     first = env.submit(a, work_a).json()
     assert first == {"sha256": hashlib.sha256(work_a).hexdigest(), "filename": "2021001_AhmetSahinCakir.pka",
-                     "version": 1, "size": len(work_a), "verified": True}
+                     "version": 1, "size": len(work_a), "verified": True, "late": False}
     folder = env.submissions
     assert (folder / "2021001_AhmetSahinCakir.pka").read_bytes() == work_a
     assert env.snapshot_student("2021001")["status"] == "done"
@@ -670,13 +670,22 @@ def test_time_limit_is_optional_and_ends_the_exam(env: Env):
     assert (env.exam_dir / "olay-kaydi.csv").exists()
 
 
-def test_extra_time_needs_a_time_limit(env: Env):
+def test_extra_time_for_an_exam_without_a_time_limit(env: Env):
+    client, _ = env.login()
     prepare(env)
-    assert env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 5}).status_code == 409
+    assert env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 5}).status_code == 409  # not running
     start_with(env)
-    assert env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 5}).status_code == 409
     env.store.tick()
-    assert env.store.state == RUNNING  # no limit: only the teacher ends it
+    assert env.store.state == RUNNING and env.store.ends_at == 0  # no limit: only the teacher ends it
+
+    # "Ek süre ver" in the end-of-exam window: the exam now ends by itself in ten minutes.
+    before = time.time()
+    ends_at = env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 10}).json()["ends_at"]
+    assert 599 <= ends_at - before <= 602
+    assert client.post("/api/heartbeat", json={}).json()["ends_at"] == ends_at
+    env.store.ends_at = time.time() - 1
+    env.store.tick()
+    assert env.store.state == ENDED
 
 
 def test_recording_is_a_choice_made_when_the_exam_starts(env: Env):
@@ -741,3 +750,126 @@ def test_planned_start(env: Env):
     env.panel.post("/panel/api/reset", headers=PANEL)
     prepare(env)
     assert start_with(env, start_at=time.time() - 30).json()["state"] == RUNNING
+
+
+# ------------------------------------------------ after the end: late submissions, closing
+
+
+def test_students_can_still_hand_in_after_the_end_but_it_is_marked_late(env: Env):
+    on_time, _ = env.login(numara="2021001", mac="AA:BB:CC:00:00:01")
+    late, _ = env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    closing, _ = env.login(numara="2021003", ad="Ece", soyad="Su", mac="AA:BB:CC:00:00:03", ip="192.168.1.52")
+    env.start()
+    assert env.submit(on_time, EXAM_BYTES + b"-1").json()["late"] is False
+    env.panel.post("/panel/api/end", headers=PANEL)
+
+    # The exam is over, but nobody is thrown out: the student is told the exam has ended ...
+    hb = late.post("/api/heartbeat", json={}).json()
+    assert hb["exam_state"] == ENDED and hb["submitted"] is False
+    assert late.get("/api/exam-file").status_code == 409  # ... the file can no longer be downloaded ...
+    assert env.snapshot_student("2021002")["status"] == "nosubmit"
+
+    # ... and a file handed in now is accepted and marked as late.
+    env.store.ended_at -= 4 * 60
+    result = env.submit(late, EXAM_BYTES + b"-2")
+    assert result.status_code == 200 and result.json()["late"] is True
+    st = env.snapshot_student("2021002")
+    assert st["status"] == "done" and st["submission"]["late"] is True
+    alert = env.alerts("late_submission")
+    assert len(alert) == 1 and alert[0]["numara"] == "2021002" and alert[0]["severity"] == "warning"
+    assert alert[0]["message"] == "Geç teslim: dosyasını sınav bittikten 4 dakika sonra teslim etti"
+    assert any(e.message.startswith("Geç teslim etti: 2021002_CanEr.pka") for e in env.store.events)
+    rows = list(csv.reader(io.StringIO((env.submissions / "index.csv").read_text(encoding="utf-8-sig")),
+                           delimiter=";"))
+    assert rows[0][-1] == "gec_teslim" and [r[-1] for r in rows[1:]] == ["hayır", "evet"]
+
+    # A file collected automatically when the teacher closes the exam is not "late".
+    assert env.submit(closing, EXAM_BYTES + b"-3", auto=True).json()["late"] is False
+    assert len(env.alerts("late_submission")) == 1
+
+
+def test_a_file_that_was_already_on_its_way_is_not_late(env: Env):
+    client, _ = env.login()
+    env.start()
+    env.panel.post("/panel/api/end", headers=PANEL)
+    assert env.submit(client, EXAM_BYTES + b"-son-saniye").json()["late"] is False
+    assert not env.alerts("late_submission")
+
+
+def test_warnings_are_kept_in_one_file_per_student(env: Env):
+    a, _ = env.login(numara="2021001", ad="Ahmet Şahin", soyad="Çakır", mac="AA:BB:CC:00:00:01")
+    b, _ = env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    # A warning from before the exam folder was chosen ...
+    a.post("/api/event", json={"type": "monitor_change", "details": {"count": 2, "previous": 1}})
+    env.start()
+    folder = env.exam_dir / "Uyarılar"
+    assert env.store.snapshot()["paths"]["alerts"] == str(folder.resolve())
+    # ... is written as soon as the folder exists.
+    path = folder / "2021001_AhmetSahinCakir.csv"
+    assert "Monitör sayısı: 2 (önceki: 1)" in path.read_text(encoding="utf-8-sig")
+
+    a.post("/api/event", json={"type": "process_killed", "details": {"name": "chrome.exe"}})
+    a.post("/api/event", json={"type": "foreground_change", "details": {"name": "PacketTracer.exe"}})  # not a warning
+    a.post("/api/event", json={"type": "desktop_switch", "details": {}})
+    rows = list(csv.reader(io.StringIO(path.read_text(encoding="utf-8-sig")), delimiter=";"))
+    assert rows[0] == ["zaman", "numara", "ad_soyad", "onem", "uyari"]
+    assert [r[4] for r in rows[1:]] == ["Monitör sayısı: 2 (önceki: 1)", "chrome.exe kapatıldı",
+                                        "Başka bir masaüstüne geçti"]
+    assert all(r[1] == "2021001" and r[2] == "Ahmet Şahin Çakır" and r[3] == "uyarı" for r in rows[1:])
+    assert path.read_bytes().startswith(b"\xef\xbb\xbf")  # opens correctly in Excel
+
+    # A student without warnings has no file; a late submission is a warning like any other.
+    assert not list(folder.glob("2021002_*"))
+    env.panel.post("/panel/api/end", headers=PANEL)
+    env.store.ended_at -= 120
+    env.submit(b, EXAM_BYTES + b"-gec")
+    assert "Geç teslim" in (folder / "2021002_CanEr.csv").read_text(encoding="utf-8-sig")
+
+    # The files stay in the exam folder when a new exam is prepared.
+    env.panel.post("/panel/api/reset", headers=PANEL)
+    assert path.exists() and (folder / "2021002_CanEr.csv").exists()
+
+
+def test_warning_file_follows_the_name_in_the_student_list(env: Env):
+    client, _ = env.login(numara="2021001", ad="Ali", soyad="Veli")
+    env.start()
+    client.post("/api/event", json={"type": "process_killed", "details": {"name": "chrome.exe"}})
+    folder = env.exam_dir / "Uyarılar"
+    assert (folder / "2021001_AliVeli.csv").exists()
+    upload_roster(env, [[2021001, "Ali Rıza", "Veli"]])
+    assert [p.name for p in folder.iterdir()] == ["2021001_AliRizaVeli.csv"]
+    assert "Ad uyuşmuyor" in (folder / "2021001_AliRizaVeli.csv").read_text(encoding="utf-8-sig")
+
+
+def test_new_exam_closes_the_student_programs_that_are_still_open(env: Env):
+    client, _ = env.login()
+    env.start()
+    env.panel.post("/panel/api/end", headers=PANEL)
+    assert [st.numara for st in env.store.open_agents()] == ["2021001"]
+
+    # While the exam is being closed, agents are told so; they hand in and exit.
+    env.store.closing = True
+    hb = client.post("/api/heartbeat", json={}).json()
+    assert hb["exam_state"] == CLOSED and env.store.students["2021001"].closed_seen
+    assert env.submit(client, EXAM_BYTES + b"-son", auto=True).status_code == 200
+    assert env.store.open_agents() == []  # handed in: nothing left to wait for
+    env.store.closing = False
+
+    assert env.panel.post("/panel/api/reset", headers=PANEL).json() == {"state": WAITING}
+    assert env.store.closing is False and env.store.students == {}
+
+
+def test_shutting_the_system_down_ends_the_exam_and_stops_the_server(env: Env):
+    stopped = []
+    env.app.state.stop_server = lambda: stopped.append(True)
+    env.login()
+    env.store.students["2021001"].last_hb_mono -= 60  # that program is gone: nothing to wait for
+    env.start()
+    assert env.student().post("/panel/api/shutdown", headers=PANEL).status_code == 403
+    assert env.panel.post("/panel/api/shutdown", headers=PANEL).json() == {"ok": True}
+    deadline = time.time() + 5
+    while not stopped and time.time() < deadline:
+        time.sleep(0.05)
+    assert stopped == [True] and env.app.state.exit_code == 10
+    assert env.store.state == ENDED and env.store.closing
+    assert "Sistem kapatıldı" in (env.exam_dir / "olay-kaydi.csv").read_text(encoding="utf-8-sig")

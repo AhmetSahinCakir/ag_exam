@@ -65,13 +65,19 @@ def main() -> int:
     print("  Durdurmak için bu pencerede Ctrl+C")
     print("=" * 66)
 
+    server = uvicorn.Server(uvicorn.Config(app, host=args.host, port=cfg.port, access_log=False,
+                                           log_level="warning", timeout_graceful_shutdown=2))
+    # "Sistemi kapat" in the panel (or in the question shown after the panel window was
+    # closed) stops the web server through this.
+    app.state.stop_server = lambda: setattr(server, "should_exit", True)
     try:
-        uvicorn.run(app, host=args.host, port=cfg.port, access_log=False, log_level="warning",
-                    timeout_graceful_shutdown=2)
+        server.run()
     except OSError as exc:
         print(f"Sunucu başlatılamadı (port {cfg.port} kullanımda olabilir): {exc}")
         return 1
-    return 0
+    if app.state.exit_code:
+        print("Sistem kapatıldı.")
+    return int(app.state.exit_code)
 
 
 if __name__ == "__main__":

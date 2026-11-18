@@ -25,7 +25,8 @@ sırasında Packet Tracer dışındaki programları kapatır ve sınav dosyasın
 - Ajan `ffmpeg` ile ekranı H.264 olarak MediaMTX'e (RTSP/TCP) yayınlar; MediaMTX diske
   kaydeder ve panele WebRTC ile verir. Python sunucusu video işlemez.
 - Öğretmen sınavdan önce panelde bir **sınav klasörü** seçer; içinde `Kayıtlar` (ekran
-  kayıtları) ve `Teslimler` (teslim edilen dosyalar) klasörleri açılır. Öğrenci teslimde
+  kayıtları), `Teslimler` (teslim edilen dosyalar) ve `Uyarılar` (öğrenci başına uyarı
+  dosyaları) klasörleri açılır. Öğrenci teslimde
   dosyasını kendisi seçer; sistem dosyanın klasöre ulaştığını denetleyip yayını durdurur.
 - Ajan sunucuyu UDP yayınıyla kendisi bulur; sabit IP yoktur. Aynı ajan her sınıfta çalışır.
 - Ajan öğrenci bilgisayarında kalıcı iz bırakmaz (servis, başlangıç kaydı, kayıt defteri,

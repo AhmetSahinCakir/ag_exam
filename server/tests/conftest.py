@@ -12,8 +12,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+import sinav.app as app_module  # noqa: E402
 from sinav.app import create_app  # noqa: E402
 from sinav.config import load_config  # noqa: E402
+
+# Test "students" never answer: do not wait for them when an exam is closed.
+app_module.CLOSE_NOTICE_S = 0.3
+app_module.CLOSE_UPLOAD_S = 0.1
 
 PANEL = {"X-Panel": "1"}
 EXAM_BYTES = b"PKA-SINAV-DOSYASI" * 50

@@ -7,6 +7,7 @@ rem  1) İlk çalıştırmada, internet varken: Python ortamını kurar, MediaMT
 rem  2) Güvenlik duvarı kurallarını denetler; eksikse yönetici izniyle ekler:
 rem       UDP 47000 keşif, TCP 8000 API, TCP 8554 RTSP - yalnızca Özel + Ortak profiller
 rem  3) MediaMTX'i, sonra Python sunucusunu başlatır ve paneli tarayıcıda açar
+rem     (sistem zaten çalışıyorsa yalnızca paneli yeniden açar)
 rem
 rem  Portları server\config.yaml içinde değiştirirseniz aşağıdaki üç satırı da değiştirin.
 rem ============================================================================
@@ -29,6 +30,11 @@ title Sınav İzleme - Öğretmen
 echo.
 echo  ==== Sınav İzleme Sistemi - öğretmen başlatıcı ====
 echo.
+
+rem Sistem arka planda zaten çalışıyorsa (panel penceresi kapatılmış olabilir) yalnızca
+rem paneli yeniden aç.
+curl.exe -s -m 2 -o nul "http://127.0.0.1:%API_PORT%/api/info" 2>nul
+if not errorlevel 1 goto already_running
 
 rem ---------------------------------------------------------------- 1) Python
 set "PY=%ROOT%\.venv\Scripts\python.exe"
@@ -127,12 +133,21 @@ echo.
 start "" /b cmd /c "ping -n 5 127.0.0.1 >nul & start http://localhost:%API_PORT%/panel"
 
 "%PY%" "%ROOT%\server\run.py"
+set "SERVER_EXIT=%ERRORLEVEL%"
 
 echo.
 echo  Sunucu durdu. MediaMTX kapatılıyor...
 taskkill /im mediamtx.exe /f >nul 2>&1
+rem 10 = panelden "Sistemi kapat" denildi: sorulacak bir şey yok, pencere de kapanır.
+if "%SERVER_EXIT%"=="10" exit /b 0
 echo  Bu pencereyi kapatabilirsiniz.
 pause
+exit /b 0
+
+:already_running
+echo  Sınav sistemi zaten çalışıyor; panel tarayıcıda açılıyor.
+start "" "http://localhost:%API_PORT%/panel"
+ping -n 3 127.0.0.1 >nul
 exit /b 0
 
 rem ============================================================================

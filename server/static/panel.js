@@ -34,6 +34,7 @@ let sideCollapsed = false;       // sağdaki öğrenci listesi daraltıldı
 let folderBusy = false;          // klasör seçme penceresi açık
 let byNumara = new Map();        // numara -> öğrenci (son durum)
 let receivedAt = 0;              // son durumun geldiği an (Date.now())
+let systemClosed = false;        // "Sistemi kapat" istendi: sunucu duruyor
 let modalNumara = null;
 let modalEvCount = -1;
 const tiles = new Map();         // numara -> kutu
@@ -309,14 +310,24 @@ function fullName(st) {
   return `${st.ad} ${st.soyad}`.trim();
 }
 
+/* Sınav bittikten sonra teslim edenler "geç teslim" sayılır. */
+function isLate(st) {
+  return st.status === 'done' && Boolean(st.submission && st.submission.late);
+}
+
+function doneText(st) {
+  return isLate(st) ? 'Geç teslim etti' : STATUS_TEXT.done;
+}
+
 function statusText(st) {
   if (st.status === 'lost') return st.lost_reason ? `Bağlantı yok — ${st.lost_reason}` : 'Bağlantı yok';
   if (st.status === 'nofile') return 'Teslim dosyası klasörde yok';
+  if (st.status === 'done') return doneText(st);
   return STATUS_TEXT[st.status] || st.status;
 }
 
 function noVideoText(st) {
-  if (st.status === 'done') return 'Teslim etti';
+  if (st.status === 'done') return doneText(st);
   if (st.status === 'nosubmit') return 'Teslim yok';
   if (st.status === 'nofile') return 'Dosya klasörde yok';
   if (st.status === 'lost') return 'Bağlantı yok';
@@ -405,6 +416,7 @@ function renderTiles() {
       tile.statusClass = statusClass;
     }
     setText(tile.name, fullName(st));
+    tile.root.classList.toggle('late', isLate(st));
     tile.root.title = `${st.numara} ${fullName(st)} — ${statusText(st)}`;
     tile.flag.hidden = st.warn_count === 0;
     setText(tile.flag, String(st.warn_count));
@@ -502,10 +514,10 @@ function renderHeader() {
   $('btnOpenFolderTop').hidden = state !== 'ENDED' || !folder;
   $('btnOpenFolder').disabled = !folder;
   const folderInfo = $('folderInfo').firstElementChild;
-  setText(folderInfo, folder || 'Kayıtlar ve teslimler buraya gelir');
+  setText(folderInfo, folder || 'Kayıtlar, teslimler ve uyarılar buraya gelir');
   $('folderInfo').title = folder
-    ? `${folder}\nİçinde “Kayıtlar” (ekran kayıtları) ve “Teslimler” (teslim edilen dosyalar) klasörleri açıldı.`
-    : 'Seçtiğiniz klasörün içinde “Kayıtlar” ve “Teslimler” klasörleri açılır.';
+    ? `${folder}\nİçinde “Kayıtlar” (ekran kayıtları), “Teslimler” (teslim edilen dosyalar) ve “Uyarılar” klasörleri açıldı.`
+    : 'Seçtiğiniz klasörün içinde “Kayıtlar”, “Teslimler” ve “Uyarılar” klasörleri açılır.';
   $('btnFolder').parentElement.classList.toggle('done', Boolean(folder));
   $('btnFolder').disabled = folderBusy;
   setText($('btnFolder'), folderBusy ? 'Pencere açık…' : (folder ? 'Değiştir' : 'Klasör seç'));
@@ -532,7 +544,7 @@ function renderHeader() {
     setText($('scheduledText'), `Sınav saat ${fmtClock(plan.at)} için planlandı`);
     $('scheduledBox').title = details.join(', ');
   }
-  $('btnExtend').hidden = !(state === 'RUNNING' && S.exam.ends_at);
+  $('btnExtend').hidden = state !== 'RUNNING';
 
   renderMenuInfo();
   renderBanners();
@@ -626,14 +638,16 @@ function railItem(dotColor, count, label) {
 
 function renderSummary() {
   const sum = S.summary;
-  const signature = `${sum.connected}|${sum.warned}|${sum.lost}|${sum.submitted}`;
+  // Sınav bittikten sonra kırmızı sayı "bağlantısı kopan" değil, "teslim etmeyen"dir.
+  const lostLabel = S.exam.state === 'ENDED' ? 'teslim etmedi' : 'kopuk';
+  const signature = `${sum.connected}|${sum.warned}|${sum.lost}|${sum.submitted}|${lostLabel}`;
   const box = $('summary');
   if (box.dataset.signature !== signature) {
     box.dataset.signature = signature;
     box.replaceChildren(
       summaryItem('var(--ok)', sum.connected, 'bağlı'),
       summaryItem('var(--warn)', sum.warned, 'uyarılı'),
-      summaryItem('var(--lost)', sum.lost, 'kopuk'),
+      summaryItem('var(--lost)', sum.lost, lostLabel),
       summaryItem('var(--done)', sum.submitted, 'teslim etti'),
     );
   }
@@ -644,7 +658,7 @@ function renderSummary() {
     rail.replaceChildren(
       railItem('var(--ok)', sum.connected, 'bağlı'),
       railItem('var(--warn)', sum.warned, 'uyarılı'),
-      railItem('var(--lost)', sum.lost, 'kopuk'),
+      railItem('var(--lost)', sum.lost, lostLabel),
       railItem('var(--done)', sum.submitted, 'teslim etti'),
     );
   }
@@ -705,7 +719,7 @@ function toggleRow(numara) {
 function rowNote(st, alert) {
   if (st.status === 'lost' || st.status === 'nofile' || st.status === 'nosubmit') return statusText(st);
   if (alert) return alert.message;
-  if (st.status === 'done') return STATUS_TEXT.done;
+  if (st.status === 'done') return doneText(st);
   return '';
 }
 
@@ -793,6 +807,7 @@ function updateRow(row, st, alert) {
     row.statusClass = statusClass;
   }
   row.root.classList.toggle('open', open);
+  row.root.classList.toggle('late', isLate(st));
   row.head.setAttribute('aria-expanded', open ? 'true' : 'false');
   setText(row.name, fullName(st));
   const note = rowNote(st, alert);
@@ -994,10 +1009,21 @@ function connectStream() {
     if (down) { down.remove(); $('banners').dataset.signature = ''; }
     render();
   };
+  // Sunucu "Sistemi kapat" ile duruyor (bu pencereden ya da masaüstündeki sorudan).
+  source.addEventListener('closed', () => { systemClosed = true; });
   source.onerror = () => {
-    // EventSource kendiliğinden yeniden bağlanır; bu arada durumu göster.
     const box = $('banners');
-    if (!box.querySelector('.server-down')) {
+    const old = box.querySelector('.server-down');
+    if (systemClosed) {
+      // "Sistemi kapat" istendi: yeniden bağlanmayı deneme.
+      source.close();
+      if (old) old.remove();
+      box.prepend(el('div', 'banner server-down closed',
+        'Sistem kapatıldı. Bu pencereyi kapatabilirsiniz. Yeniden başlatmak için start-teacher.bat dosyasını çalıştırın.'));
+      return;
+    }
+    // EventSource kendiliğinden yeniden bağlanır; bu arada durumu göster.
+    if (!old) {
       box.prepend(el('div', 'banner server-down',
         'Sunucuyla bağlantı kesildi. Başlatma penceresi (start-teacher.bat) açık mı? Yeniden bağlanılıyor…'));
     }
@@ -1025,16 +1051,97 @@ function closeMenu() {
   $('btnMenu').setAttribute('aria-expanded', 'false');
 }
 
+/* Programı hâlâ açık olan, teslim etmemiş öğrenciler. */
+function openStudents() {
+  return S.students.filter((st) => st.status !== 'done' && st.status !== 'nofile' && st.last_seen_s < 10);
+}
+
 async function resetExam() {
   closeMenu();
-  const question = 'Yeni sınav hazırlansın mı?\n\n'
-    + 'Bu sınavın ekran kayıtları ve teslim dosyaları sınav klasöründe kalır; hiçbir şey silinmez. '
-    + 'Yeni sınav için yeniden klasör seçersiniz. Öğrenci listesi korunur.';
+  const open = S ? openStudents().length : 0;
+  let question = 'Yeni sınav hazırlansın mı?\n\n'
+    + 'Bu sınavın ekran kayıtları, teslim dosyaları ve uyarıları sınav klasöründe kalır; hiçbir şey '
+    + 'silinmez. Yeni sınav için yeniden klasör seçersiniz. Öğrenci listesi korunur.';
+  if (open > 0) {
+    question += `\n\n${open} öğrencinin programı hâlâ açık: son kaydettikleri dosya otomatik alınır ve `
+      + 'programları kapanır.';
+  }
   if (!confirm(question)) return;
+  if (open > 0) toast('Öğrenci programları kapatılıyor…');
   try {
     await api('/panel/api/reset');
     toast('Yeni sınav hazır.');
   } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+/* "Sınavı bitir" penceresi: ek süre ver ya da sınavı bitir. */
+function openEndDialog() {
+  if (!S || S.exam.state !== 'RUNNING') return;
+  closeMenu();
+  const total = S.students.length;
+  const waiting = S.students.filter((st) => st.status !== 'done').length;
+  setText($('endSummary'), waiting === 0
+    ? (total ? 'Giriş yapan bütün öğrenciler teslim etti.' : 'Giriş yapan öğrenci yok.')
+    : `Henüz teslim etmeyen öğrenci: ${waiting} (toplam ${total}).`);
+  let hint = 'Sınav, yazdığınız süre sonunda kendiliğinden biter; öğrenciler kalan süreyi görür.';
+  if (S.exam.ends_at) {
+    const serverNow = S.server_time + (Date.now() - receivedAt) / 1000;
+    hint = `Bitiş saati (${fmtClock(S.exam.ends_at)}) yazdığınız süre kadar ileri alınır; `
+      + `şu an kalan süre ${fmtRemaining(S.exam.ends_at - serverNow)}.`;
+  }
+  setText($('extendHint'), hint);
+  $('extendMinutes').value = '5';
+  $('endDialog').hidden = false;
+  $('endCancel').focus();
+}
+
+async function extendExam() {
+  const minutes = Number($('extendMinutes').value);
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 120) {
+    toast('Ek süre 1 ile 120 dakika arasında bir sayı olmalı.', true);
+    return;
+  }
+  try {
+    const data = await api('/panel/api/extend', { json: { minutes } });
+    closeDialogs();
+    toast(`${minutes} dakika ek süre verildi. Sınav ${fmtClock(data.ends_at)} saatinde bitecek.`);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function endExam() {
+  try {
+    await api('/panel/api/end');
+    closeDialogs();
+    toast('Sınav bitirildi. Teslim etmeyen öğrenciler dosyalarını geç teslim olarak verebilir.');
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+/* "Sistemi kapat": sunucu durur, öğrenci programları kapanır. */
+function openShutdownDialog() {
+  closeMenu();
+  let note = 'Sunucu ve ekran kaydı durur, öğrenci programları kapanır (programı açık olan ve teslim '
+    + 'etmemiş öğrencilerin son kaydettiği dosya otomatik alınır). Kayıtlar, teslimler ve uyarılar '
+    + 'sınav klasöründe kalır.';
+  if (S && S.exam.state === 'RUNNING') note = `Sınav sürüyor: sistemi kapatırsanız sınav biter. ${note}`;
+  setText($('shutdownNote'), note);
+  $('shutdownDialog').hidden = false;
+  $('shutdownCancel').focus();
+}
+
+async function shutdownSystem() {
+  try {
+    systemClosed = true;
+    await api('/panel/api/shutdown');
+    closeDialogs();
+    toast('Sistem kapatılıyor…');
+  } catch (error) {
+    systemClosed = false;
     toast(error.message, true);
   }
 }
@@ -1074,10 +1181,10 @@ function openDialog(id, focusId, value) {
   input.select();
 }
 
+const DIALOGS = ['identityDialog', 'folderDialog', 'startDialog', 'endDialog', 'shutdownDialog'];
+
 function closeDialogs() {
-  $('identityDialog').hidden = true;
-  $('folderDialog').hidden = true;
-  $('startDialog').hidden = true;
+  for (const id of DIALOGS) $(id).hidden = true;
 }
 
 /* "Sınavı başlat" penceresi: başlangıç (hemen / saat), isteğe bağlı süre, ekran kaydı. */
@@ -1085,8 +1192,9 @@ function openStartDialog() {
   if (!S || !S.exam.file) return;
   closeMenu();
   setText($('startFileNote'),
-    `Sınav dosyası (${S.exam.file.name}) sınav başladığı anda öğrencilerle paylaşılır; `
-    + 'izin verilmeyen programlar kısa bir geri sayımdan sonra kapatılır.');
+    'Sınav başladığında öğrenci panelinde “Sınav dosyasını indir” düğmesi çıkar; her öğrenci dosyayı '
+    + `(${S.exam.file.name}) istediği yere kendisi indirir. İzin verilmeyen programlar kısa bir geri `
+    + 'sayımdan sonra kapatılır.');
   // Öneri: beş dakikanın katı olan, en az beş dakika sonraki ilk saat.
   const suggestion = new Date(Math.ceil((Date.now() + 5 * 60000) / 300000) * 300000);
   $('startTime').value = `${String(suggestion.getHours()).padStart(2, '0')}:${String(suggestion.getMinutes()).padStart(2, '0')}`;
@@ -1176,17 +1284,16 @@ function bindDialogs() {
       toast(error.message, true);
     }
   });
-  $('btnExtend').addEventListener('click', async () => {
-    closeMenu();
-    try {
-      const data = await api('/panel/api/extend', { json: { minutes: 5 } });
-      toast(`5 dakika eklendi. Yeni bitiş: ${fmtClock(data.ends_at)}`);
-    } catch (error) {
-      toast(error.message, true);
-    }
-  });
+  $('btnEnd').addEventListener('click', openEndDialog);
+  $('btnExtend').addEventListener('click', openEndDialog);
+  $('endCancel').addEventListener('click', closeDialogs);
+  $('btnExtendGo').addEventListener('click', extendExam);
+  $('btnEndGo').addEventListener('click', endExam);
+  $('btnShutdown').addEventListener('click', openShutdownDialog);
+  $('shutdownCancel').addEventListener('click', closeDialogs);
+  $('btnShutdownGo').addEventListener('click', shutdownSystem);
 
-  for (const id of ['identityDialog', 'folderDialog', 'startDialog']) {
+  for (const id of DIALOGS) {
     $(id).addEventListener('mousedown', (event) => { if (event.target === $(id)) closeDialogs(); });
   }
 }
@@ -1208,19 +1315,6 @@ function bindControls() {
   $('btnRosterMenu').addEventListener('click', chooseRoster);
   $('fileRoster').addEventListener('change', () => uploadFile(
     $('fileRoster'), '/panel/api/roster', (file, data) => `Öğrenci listesi yüklendi: ${data.count} öğrenci`));
-
-  $('btnEnd').addEventListener('click', async () => {
-    const question = 'Sınavı bitirmek istediğinize emin misiniz?\n\n'
-      + 'Teslim etmemiş öğrencilerin son kaydettiği dosya otomatik toplanır ve öğrenci programları kapanır. '
-      + 'Bu işlem geri alınamaz.';
-    if (!confirm(question)) return;
-    try {
-      await api('/panel/api/end');
-      toast('Sınav bitirildi. Teslimler toplanıyor…');
-    } catch (error) {
-      toast(error.message, true);
-    }
-  });
 
   $('btnReset').addEventListener('click', resetExam);
   $('btnResetTop').addEventListener('click', resetExam);
@@ -1246,7 +1340,7 @@ function bindControls() {
   $('modal').addEventListener('click', (event) => { if (event.target === $('modal')) closeModal(); });
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
-    if (!$('identityDialog').hidden || !$('folderDialog').hidden || !$('startDialog').hidden) closeDialogs();
+    if (DIALOGS.some((id) => !$(id).hidden)) closeDialogs();
     else if (modalNumara) closeModal();
     else closeMenu();
   });

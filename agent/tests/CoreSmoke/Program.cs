@@ -265,6 +265,8 @@ internal static class Program
         // Optional time limit and planned start.
         var timed = JsonSerializer.Deserialize<ExamStatus>("{\"exam_state\":\"RUNNING\",\"ends_at\":1800000000.5,\"scheduled_at\":0}")!;
         Check(timed.EndsAt == 1800000000.5 && timed.ScheduledAt == 0, "heartbeat 'ends_at' / 'scheduled_at' alanları okunuyor");
+        var lateAnswer = JsonSerializer.Deserialize<SubmitResponse>("{\"sha256\":\"ab\",\"filename\":\"1_A.pka\",\"late\":true}")!;
+        Check(lateAnswer.Late && !JsonSerializer.Deserialize<SubmitResponse>("{\"sha256\":\"ab\"}")!.Late, "teslim yanıtındaki 'late' (geç teslim) alanı okunuyor");
         Check(status.EndsAt == 0 && status.ScheduledAt == 0, "süre ve planlama yoksa 0");
         Equal("Kalan süre: 34 dk", ExamClock.Remaining(33 * 60 + 1), "kalan süre dakikaya yukarı yuvarlanır");
         Equal("Kalan süre: 1 dk", ExamClock.Remaining(60), "son dakika");

@@ -8,6 +8,7 @@ import json
 import logging
 import secrets
 import time
+import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -18,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from . import __version__
 from .config import Config, ConfigError, reload_policy
 from .discovery import DiscoveryResponder, lan_ips
-from .folderdialog import DialogUnavailable, open_folder, pick_folder
+from .folderdialog import DialogUnavailable, ask_panel_closed, open_folder, pick_folder
 from .mediamtx import fetch_streams, kick_publishers, set_recording
 from .roster import RosterError, parse_roster
 from .store import MAX_UPLOAD_BYTES, RUNNING, WAITING, ApiError, Store, Student
@@ -31,6 +32,15 @@ LOCAL_HOSTS = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 AGENT_ZIP = "SinavAjan.zip"
 MAX_JSON_BYTES = 64 * 1024
 SSE_MIN_INTERVAL_S = 0.4
+# The panel window counts as closed when no panel page has been connected for this long
+# (a reload reconnects much faster).
+PANEL_CLOSED_AFTER_S = 3.0
+# Closing the exam for everybody: how long to wait until every open student program has
+# been told (they ask every 2 s), and then for the uploads this triggers.
+CLOSE_NOTICE_S = 7.0
+CLOSE_UPLOAD_S = 4.0
+# Exit code of run.py after "Sistemi kapat": the start script then closes its window.
+EXIT_CLOSED_BY_TEACHER = 10
 NO_STORE = {"Cache-Control": "no-store"}
 
 
@@ -46,6 +56,10 @@ def create_app(cfg: Config) -> FastAPI:
     instance_id = secrets.token_hex(8)
     cached_ips: list[str] = lan_ips()
     dialog_open = False
+    panel_clients = 0          # panel pages connected to the live stream
+    panel_gone_since = 0.0     # monotonic time the last one disconnected; 0 = never seen / connected
+    panel_asked = False        # the "window closed" question was already asked for this closing
+    shutting_down = False
 
     # ------------------------------------------------------------ background
 
@@ -102,6 +116,77 @@ def create_app(cfg: Config) -> FastAPI:
                         log.warning("Teslim eden öğrencinin yayını durdurulamadı: %s", ", ".join(done))
             await asyncio.sleep(2)
 
+    async def close_agents() -> None:
+        """Tell every student program that the exam is closed, and give them a moment.
+
+        A program that has nothing handed in uploads the last saved file first.
+        """
+        waiting = store.open_agents()
+        store.closing = True
+        store.changed(persist=False)
+        if not waiting:
+            return
+        log.info("Öğrenci programları kapatılıyor (%d açık)…", len(waiting))
+        deadline = time.monotonic() + CLOSE_NOTICE_S
+        while time.monotonic() < deadline and any(not st.closed_seen for st in store.open_agents()):
+            await asyncio.sleep(0.25)
+        # Time for the automatic uploads that the notice triggers.
+        deadline = time.monotonic() + CLOSE_UPLOAD_S
+        while time.monotonic() < deadline and store.open_agents():
+            await asyncio.sleep(0.25)
+
+    async def shutdown_system(reason: str) -> None:
+        """“Sistemi kapat”: close the exam for everybody, then stop this server."""
+        nonlocal shutting_down
+        if shutting_down:
+            return
+        shutting_down = True
+        log.info("Sistem kapatılıyor (%s)…", reason)
+        await close_agents()
+        if store.state == RUNNING:
+            store.end_exam()
+        store.add_event("", "system_shutdown", "info", "Sistem kapatıldı")
+        store.write_events_csv()
+        store.write_all_student_alerts()
+        app.state.exit_code = EXIT_CLOSED_BY_TEACHER
+        stop = getattr(app.state, "stop_server", None)
+        if stop is not None:
+            stop()
+
+    async def panel_watch() -> None:
+        """After the panel window was closed, ask on the desktop: keep running or shut down?"""
+        nonlocal panel_asked
+        while True:
+            await asyncio.sleep(1)
+            if (panel_asked or shutting_down or panel_clients > 0 or not panel_gone_since
+                    or time.monotonic() - panel_gone_since < PANEL_CLOSED_AFTER_S):
+                continue
+            panel_asked = True
+            url = f"http://localhost:{cfg.port}/panel"
+            open_count = len(store.open_agents())
+            text = ("Sınav sistemi arka planda çalışmaya devam ediyor: öğrenciler bağlı kalır, "
+                    "ekranlar ve teslimler alınmayı sürdürür.\n\n"
+                    "Sistemi de kapatmak istiyor musunuz?")
+            confirm = ""
+            if store.state == RUNNING or open_count:
+                confirm = ("Sınav sürüyor." if store.state == RUNNING
+                           else f"{open_count} öğrencinin programı hâlâ açık.")
+                confirm += (" Sistemi kapatırsanız sınav biter; açık olan öğrenci programları son "
+                            "kaydedilen dosyayı otomatik teslim edip kapanır.\n\nSistem kapatılsın mı?")
+            try:
+                answer = await asyncio.to_thread(ask_panel_closed, text, confirm, lambda: panel_clients > 0)
+            except DialogUnavailable:
+                answer = "background"
+            except Exception:  # noqa: BLE001 - a broken dialog must never stop the exam
+                log.exception("Kapanış sorusu gösterilemedi")
+                answer = "background"
+            if answer == "shutdown":
+                await shutdown_system("panel penceresi kapatıldı")
+            elif answer == "reopen":
+                await asyncio.to_thread(webbrowser.open, url)
+            elif panel_clients == 0:
+                log.info("Panel penceresi kapalı; sistem arka planda çalışıyor. Yeniden açmak için: %s", url)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         responder = None
@@ -118,7 +203,8 @@ def create_app(cfg: Config) -> FastAPI:
                 "bulamaz; öğrenciler IP adresini elle girmelidir."
             )
             log.error(store.discovery_error)
-        tasks = [asyncio.create_task(ticker()), asyncio.create_task(poller())]
+        tasks = [asyncio.create_task(ticker()), asyncio.create_task(poller()),
+                 asyncio.create_task(panel_watch())]
         try:
             yield
         finally:
@@ -134,6 +220,8 @@ def create_app(cfg: Config) -> FastAPI:
     app = FastAPI(title="Sınav İzleme Sistemi", docs_url=None, redoc_url=None, openapi_url=None,
                   lifespan=lifespan)
     app.state.store = store
+    app.state.exit_code = 0
+    app.state.stop_server = None  # set by run.py: stops the web server
 
     @app.exception_handler(ApiError)
     async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:
@@ -269,9 +357,17 @@ def create_app(cfg: Config) -> FastAPI:
     @app.get("/panel/api/stream", dependencies=[Depends(local_only)])
     async def panel_stream(request: Request) -> StreamingResponse:
         async def generate():
+            nonlocal panel_clients, panel_gone_since, panel_asked
             waiter = store.subscribe()
+            panel_clients += 1
+            panel_gone_since = 0.0
+            panel_asked = False
             try:
                 while True:
+                    if shutting_down:
+                        # Tell the page, and end the stream so that the server can stop at once.
+                        yield "event: closed\ndata: {}\n\n"
+                        break
                     payload = json.dumps(store.snapshot(cached_ips), ensure_ascii=False)
                     yield f"data: {payload}\n\n"
                     sent = time.monotonic()
@@ -287,6 +383,9 @@ def create_app(cfg: Config) -> FastAPI:
                         break
             finally:
                 store.unsubscribe(waiter)
+                panel_clients -= 1
+                if panel_clients == 0:
+                    panel_gone_since = time.monotonic()
 
         return StreamingResponse(generate(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -389,8 +488,18 @@ def create_app(cfg: Config) -> FastAPI:
 
     @app.post("/panel/api/reset", dependencies=[Depends(local_only)])
     async def panel_reset() -> dict[str, Any]:
+        """“Yeni sınav”: student programs that are still open hand in and close first."""
+        if store.state == RUNNING:
+            raise ApiError(409, "Sınav sürerken sıfırlanamaz. Önce sınavı bitirin.")
+        await close_agents()
         store.reset()
         return {"state": store.state}
+
+    @app.post("/panel/api/shutdown", dependencies=[Depends(local_only)])
+    async def panel_shutdown() -> dict[str, Any]:
+        """“Sistemi kapat”: ends the exam, closes the student programs and stops the server."""
+        asyncio.get_running_loop().create_task(shutdown_system("panelden"))
+        return {"ok": True}
 
     @app.post("/panel/api/ack", dependencies=[Depends(local_only)])
     async def panel_ack(request: Request) -> dict[str, Any]:

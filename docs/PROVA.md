@@ -23,7 +23,7 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
   SHA-256, boş teslim, şüpheli boyut ve eski dosya uyarıları, MAC/ikinci oturum uyarıları,
   kopma tespiti, başka masaüstü uyarısı, sınıf/öğretmen adının panelden değiştirilmesi,
   yeniden başlatmada durumun geri yüklenmesi, panelin yalnızca `localhost`'tan
-  erişilebilmesi; başlangıç planlama, isteğe bağlı süre ve kayıt seçeneği → `server/tests` (55 test).
+  erişilebilmesi; başlangıç planlama, isteğe bağlı süre, ek süre ve kayıt seçeneği; geç teslim, öğrenci başına uyarı dosyaları, sınavın herkes için kapatılması ve sistemin kapatılması → `server/tests` (61 test).
 - `mediamtx.yml`: yayın yetkisi (yanlış şifre ve numara dışı yollar reddediliyor), kaydın
   sınav klasörü seçilince çalışırken açılması ve `Kayıtlar\<numara>\` altına yazılması
   (Türkçe harfli ve boşluklu klasör adıyla), teslim edenin yayınının durdurulması, denetim
@@ -62,6 +62,12 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
   “Teslim etti”; klasöre elle konan dosyanın teslim sayılması ve o öğrencinin ajanının
   kendiliğinden “Teslim alındı” deyip kapanması.
 - Ajan zorla sonlandırılınca ffmpeg'in de kapanması (Job Object) ve kutunun kırmızıya dönmesi.
+- Ek süre verilince öğrencideki kalan sürenin artması; sınav bitince programın kapanmaması,
+  izinsiz programların kapatılmaya devam etmesi, geç teslimin alınıp işaretlenmesi; öğrenci
+  başına uyarı dosyaları (`Uyarılar`); “Ekranları kaydet” seçilmeden başlatılan sınavda kayıt
+  yapılmaması.
+- Panel penceresi kapanınca masaüstünde çıkan soru; “Sistemi kapat” ile açık öğrenci
+  programının son kaydettiği dosyayı teslim edip kapanması ve sunucunun kendiliğinden kapanması.
 - `start-teacher.bat` güvenlik duvarı kurallarının eklenmesi; sunucu testleri (Windows, Python 3.11).
 
 **Otomatik sınanamayanlar** — bu provada asıl bakılacak yerler:
@@ -147,9 +153,12 @@ Her maddeyi deneyip işaretleyin.
       Görev Yöneticisi → Ayrıntılar'da **`ffmpeg.exe` de kalmamış** olmalı.
 - [ ] **12. Dosya adı.** Teslim, sınav klasöründe `Teslimler\<numara>_<AdSoyad>.pka` olarak kaydediliyor;
       “Şükrü Çağrı Işık” gibi bir adla deneyin → `…_SukruCagriIsik.pka`.
-- [ ] **13. Otomatik toplama.** Bir öğrenci dosyayı indirip kaydettikten sonra teslim
-      etmeden “Sınavı bitir”e basın: dosyası otomatik geliyor, olay kaydında “Otomatik teslim alındı” yazıyor, ajanı “Sınav sona
-      erdi” deyip kapanıyor.
+- [ ] **13. Sınav bitince geç teslim ve otomatik toplama.** İki öğrenci dosyayı indirip
+      kaydetsin, teslim etmesin. “Sınavı bitir”e basın: ikisinin de programı **açık
+      kalıyor**, panellerinde “Sınav bitti” yazıyor. Biri “Teslim et” ile teslim etsin:
+      panelde “Geç teslim etti” ve “Geç teslim” uyarısı çıkıyor. Sonra “Yeni sınav”a (ya da
+      “Sistemi kapat”a) basın: teslim etmeyen öğrencinin dosyası otomatik geliyor (olay
+      kaydında “Otomatik teslim alındı”), programı “Sınav kapatıldı” deyip kapanıyor.
 - [ ] **14. Kayıtlar oynuyor.** Sınav klasöründe `Kayıtlar\<numara>\` altındaki `.mp4`
       dosyaları VLC'de oynuyor.
 - [ ] **15. İnternetsiz çalışma.** Modemin internet kablosu çıkarılmışken tüm akış
@@ -178,6 +187,16 @@ Ek denemeler (önerilir):
       dosya oluşuyor; işaretli değilken klasör boş kalıyor ama panelde ekranlar canlı
       görünüyor. Öğrenci tarafında iki durumda da hiçbir fark yok.
 - [ ] **Teslim edenler alta gidiyor.** Teslim eden öğrencinin ekran kutusu en alta iniyor.
+- [ ] **Sınavı bitir penceresi.** “Sınavı bitir”e basınca açılan pencerede “Ek süre ver”
+      çalışıyor: öğrencide kalan süre artıyor (süresiz sınavda “Kalan süre” belirmeye
+      başlıyor).
+- [ ] **Uyarı dosyaları.** Sınav klasöründeki `Uyarılar` klasöründe uyarı alan her öğrenci
+      için `<numara>_<AdSoyad>.csv` oluşuyor; Excel'de Türkçe harfler doğru açılıyor.
+- [ ] **Pencereyi kapatma.** Panelin tarayıcı penceresini çarpıdan kapatın: birkaç saniye
+      içinde “Panel penceresi kapatıldı” sorusu çıkıyor (başka pencerelerin önünde mi?).
+      “Arka planda çalışsın” deyin: öğrenciler bağlı kalıyor; `start-teacher.bat`'ı yeniden
+      çalıştırınca yalnızca panel açılıyor. Pencereyi yeniden kapatıp “Sistemi kapat” deyin:
+      öğrenci programları, sunucu, MediaMTX ve başlatma penceresi kapanıyor.
 - [ ] **Teslimde dosya seçme.** “Teslim et” dosya seçme penceresini açıyor; pencere
       indirilen dosyanın klasöründe açılıyor. **Packet Tracer'da gerçekten kaydedilmiş**
       dosya seçilince ad ve son kayıt saatiyle onay soruluyor; “Evet, teslim et” → “Teslim
