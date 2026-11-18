@@ -23,7 +23,7 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
   SHA-256, boş teslim, şüpheli boyut ve eski dosya uyarıları, MAC/ikinci oturum uyarıları,
   kopma tespiti, başka masaüstü uyarısı, sınıf/öğretmen adının panelden değiştirilmesi,
   yeniden başlatmada durumun geri yüklenmesi, panelin yalnızca `localhost`'tan
-  erişilebilmesi; başlangıç planlama, isteğe bağlı süre, ek süre ve kayıt seçeneği; geç teslim, öğrenci başına uyarı dosyaları, sınavın herkes için kapatılması ve sistemin kapatılması → `server/tests` (61 test).
+  erişilebilmesi; başlangıç planlama, isteğe bağlı süre, ek süre ve kayıt seçeneği; geç teslim, öğrenci başına uyarı dosyaları, sınavın herkes için kapatılması ve sistemin kapatılması → `server/tests` (62 test).
 - `mediamtx.yml`: yayın yetkisi (yanlış şifre ve numara dışı yollar reddediliyor), kaydın
   sınav klasörü seçilince çalışırken açılması ve `Kayıtlar\<numara>\` altına yazılması
   (Türkçe harfli ve boşluklu klasör adıyla), teslim edenin yayınının durdurulması, denetim
@@ -66,8 +66,9 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
   izinsiz programların kapatılmaya devam etmesi, geç teslimin alınıp işaretlenmesi; öğrenci
   başına uyarı dosyaları (`Uyarılar`); “Ekranları kaydet” seçilmeden başlatılan sınavda kayıt
   yapılmaması.
-- Panel penceresi kapanınca masaüstünde çıkan soru; “Sistemi kapat” ile açık öğrenci
-  programının son kaydettiği dosyayı teslim edip kapanması ve sunucunun kendiliğinden kapanması.
+- Panelin kendi penceresinde (Edge, sekmesiz) açılması; pencere kapanınca öğretmen
+  bilgisayarında çıkan soru; “Sistemi kapat” ile açık öğrenci programının kapanması
+  (otomatik teslim yapılmaması) ve sunucunun kendiliğinden kapanması.
 - `start-teacher.bat` güvenlik duvarı kurallarının eklenmesi; sunucu testleri (Windows, Python 3.11).
 
 **Otomatik sınanamayanlar** — bu provada asıl bakılacak yerler:
@@ -89,7 +90,7 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
 ```
 
 Bu **simülatör** gerçek ajanın ağ davranışını taklit eder (keşif → giriş → heartbeat →
-test görüntüsü yayını → sınav dosyasını indirme → otomatik teslim). `--stream` için
+test görüntüsü yayını → sınav dosyasını indirme → teslim). `--stream` için
 `ffmpeg.exe`'nin PATH'te olması gerekir (`scripts\fetch-ffmpeg.ps1` ile indirip
 `agent\` klasörünü PATH'e ekleyebilirsiniz). Panelde 5 kutu ve canlı test görüntüsü
 görmelisiniz. `--count 35` ile panelin ve bilgisayarınızın 35 yayını kaldırıp kaldırmadığını
@@ -153,12 +154,13 @@ Her maddeyi deneyip işaretleyin.
       Görev Yöneticisi → Ayrıntılar'da **`ffmpeg.exe` de kalmamış** olmalı.
 - [ ] **12. Dosya adı.** Teslim, sınav klasöründe `Teslimler\<numara>_<AdSoyad>.pka` olarak kaydediliyor;
       “Şükrü Çağrı Işık” gibi bir adla deneyin → `…_SukruCagriIsik.pka`.
-- [ ] **13. Sınav bitince geç teslim ve otomatik toplama.** İki öğrenci dosyayı indirip
+- [ ] **13. Sınav bitince geç teslim; otomatik teslim yok.** İki öğrenci dosyayı indirip
       kaydetsin, teslim etmesin. “Sınavı bitir”e basın: ikisinin de programı **açık
       kalıyor**, panellerinde “Sınav bitti” yazıyor. Biri “Teslim et” ile teslim etsin:
       panelde “Geç teslim etti” ve “Geç teslim” uyarısı çıkıyor. Sonra “Yeni sınav”a (ya da
-      “Sistemi kapat”a) basın: teslim etmeyen öğrencinin dosyası otomatik geliyor (olay
-      kaydında “Otomatik teslim alındı”), programı “Sınav kapatıldı” deyip kapanıyor.
+      “Sistemi kapat”a) basın: panel teslim etmeyen öğrenci olduğunu söyleyip onay istiyor;
+      onaylayınca o öğrencinin programı “Sınav kapatıldı — dosyanızı teslim etmediniz” deyip
+      kapanıyor ve `Teslimler` klasörüne **dosya gelmiyor**.
 - [ ] **14. Kayıtlar oynuyor.** Sınav klasöründe `Kayıtlar\<numara>\` altındaki `.mp4`
       dosyaları VLC'de oynuyor.
 - [ ] **15. İnternetsiz çalışma.** Modemin internet kablosu çıkarılmışken tüm akış
@@ -192,11 +194,12 @@ Ek denemeler (önerilir):
       başlıyor).
 - [ ] **Uyarı dosyaları.** Sınav klasöründeki `Uyarılar` klasöründe uyarı alan her öğrenci
       için `<numara>_<AdSoyad>.csv` oluşuyor; Excel'de Türkçe harfler doğru açılıyor.
-- [ ] **Pencereyi kapatma.** Panelin tarayıcı penceresini çarpıdan kapatın: birkaç saniye
-      içinde “Panel penceresi kapatıldı” sorusu çıkıyor (başka pencerelerin önünde mi?).
-      “Arka planda çalışsın” deyin: öğrenciler bağlı kalıyor; `start-teacher.bat`'ı yeniden
-      çalıştırınca yalnızca panel açılıyor. Pencereyi yeniden kapatıp “Sistemi kapat” deyin:
-      öğrenci programları, sunucu, MediaMTX ve başlatma penceresi kapanıyor.
+- [ ] **Panel penceresi ve kapatma.** `start-teacher.bat` paneli kendi penceresinde (sekmesiz,
+      adres çubuksuz) açıyor. Pencereyi çarpıdan kapatın: bir iki saniye içinde **öğretmen
+      bilgisayarında** “Pencereyi kapattınız” sorusu çıkıyor (başka pencerelerin önünde mi?).
+      “Yalnızca pencere kapansın” deyin: öğrenciler bağlı kalıyor; `start-teacher.bat`'ı
+      yeniden çalıştırınca yalnızca panel açılıyor. Pencereyi yeniden kapatıp “Sistemi kapat”
+      deyin: öğrenci programları, sunucu, MediaMTX ve başlatma penceresi kapanıyor.
 - [ ] **Teslimde dosya seçme.** “Teslim et” dosya seçme penceresini açıyor; pencere
       indirilen dosyanın klasöründe açılıyor. **Packet Tracer'da gerçekten kaydedilmiş**
       dosya seçilince ad ve son kayıt saatiyle onay soruluyor; “Evet, teslim et” → “Teslim

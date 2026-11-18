@@ -240,7 +240,7 @@ def test_submission_naming_versions_index_and_checks(env: Env):
     assert all(t["severity"] == "critical" for t in twins)
 
     # Identical to the exam file: warning, but not reported as a copy.
-    assert env.submit(c, EXAM_BYTES, auto=True).status_code == 200
+    assert env.submit(c, EXAM_BYTES).status_code == 200
     unchanged = env.alerts("unchanged_submission")
     assert [u["numara"] for u in unchanged] == ["2021003"]
     assert len(env.alerts("duplicate_hash")) == 2
@@ -249,7 +249,8 @@ def test_submission_naming_versions_index_and_checks(env: Env):
     assert rows[0][:6] == ["zaman", "numara", "ad", "soyad", "dosya", "sha256"]
     assert [r[4] for r in rows[1:]] == ["2021001_AhmetSahinCakir.pka", "2021001_AhmetSahinCakir_v2.pka",
                                          "2021002_IsilOzturk.pka", "2021003_CanEr.pka"]
-    assert rows[4][7] == "evet" and rows[1][7] == "hayır"  # otomatik
+    assert rows[0][6:] == ["boyut", "gec_teslim", "surum", "ip", "bilgisayar", "mac"]
+    assert all(r[7] == "hayır" for r in rows[1:])  # nothing was handed in late
     assert rows[1][5] == hashlib.sha256(work_a).hexdigest()
 
 
@@ -263,14 +264,15 @@ def test_upload_size_limit(env: Env, monkeypatch):
     assert not list(env.submissions.glob("*.pka"))
 
 
-def test_auto_submit_after_end_and_final_status(env: Env):
+def test_final_status_after_the_end(env: Env):
     a, _ = env.login(numara="2021001", mac="AA:BB:CC:00:00:01")
     env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
     env.start()
+    assert env.submit(a, b"son kayit").status_code == 200
     env.panel.post("/panel/api/end", headers=PANEL)
-    result = env.submit(a, b"son kayit", auto=True)
-    assert result.status_code == 200
-    assert any(e.type == "auto_submit" for e in env.store.events)
+    # Nothing is ever handed in automatically: who did not hand in has no file.
+    assert not any(e.type == "auto_submit" for e in env.store.events)
+    assert [p.name for p in env.submissions.glob("*.pka")] == ["2021001_AliVeli.pka"]
     assert env.snapshot_student("2021001")["status"] == "done"
     assert env.snapshot_student("2021002")["status"] == "nosubmit"
     summary = env.store.snapshot()["summary"]
@@ -758,7 +760,6 @@ def test_planned_start(env: Env):
 def test_students_can_still_hand_in_after_the_end_but_it_is_marked_late(env: Env):
     on_time, _ = env.login(numara="2021001", mac="AA:BB:CC:00:00:01")
     late, _ = env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
-    closing, _ = env.login(numara="2021003", ad="Ece", soyad="Su", mac="AA:BB:CC:00:00:03", ip="192.168.1.52")
     env.start()
     assert env.submit(on_time, EXAM_BYTES + b"-1").json()["late"] is False
     env.panel.post("/panel/api/end", headers=PANEL)
@@ -781,11 +782,7 @@ def test_students_can_still_hand_in_after_the_end_but_it_is_marked_late(env: Env
     assert any(e.message.startswith("Geç teslim etti: 2021002_CanEr.pka") for e in env.store.events)
     rows = list(csv.reader(io.StringIO((env.submissions / "index.csv").read_text(encoding="utf-8-sig")),
                            delimiter=";"))
-    assert rows[0][-1] == "gec_teslim" and [r[-1] for r in rows[1:]] == ["hayır", "evet"]
-
-    # A file collected automatically when the teacher closes the exam is not "late".
-    assert env.submit(closing, EXAM_BYTES + b"-3", auto=True).json()["late"] is False
-    assert len(env.alerts("late_submission")) == 1
+    assert rows[0][7] == "gec_teslim" and [r[7] for r in rows[1:]] == ["hayır", "evet"]
 
 
 def test_a_file_that_was_already_on_its_way_is_not_late(env: Env):
@@ -847,16 +844,16 @@ def test_new_exam_closes_the_student_programs_that_are_still_open(env: Env):
     env.panel.post("/panel/api/end", headers=PANEL)
     assert [st.numara for st in env.store.open_agents()] == ["2021001"]
 
-    # While the exam is being closed, agents are told so; they hand in and exit.
+    # While the exam is being closed, agents are told so and exit. Nothing is collected
+    # automatically: a student who did not hand in has no file.
     env.store.closing = True
     hb = client.post("/api/heartbeat", json={}).json()
     assert hb["exam_state"] == CLOSED and env.store.students["2021001"].closed_seen
-    assert env.submit(client, EXAM_BYTES + b"-son", auto=True).status_code == 200
-    assert env.store.open_agents() == []  # handed in: nothing left to wait for
     env.store.closing = False
 
     assert env.panel.post("/panel/api/reset", headers=PANEL).json() == {"state": WAITING}
     assert env.store.closing is False and env.store.students == {}
+    assert not list(env.submissions.glob("*.pka"))
 
 
 def test_shutting_the_system_down_ends_the_exam_and_stops_the_server(env: Env):
@@ -873,3 +870,28 @@ def test_shutting_the_system_down_ends_the_exam_and_stops_the_server(env: Env):
     assert stopped == [True] and env.app.state.exit_code == 10
     assert env.store.state == ENDED and env.store.closing
     assert "Sistem kapatıldı" in (env.exam_dir / "olay-kaydi.csv").read_text(encoding="utf-8-sig")
+
+
+def test_panel_window_is_opened_like_an_application(env: Env, monkeypatch):
+    import sinav.app as app_module
+    from conftest import write_config
+    from sinav.config import load_config
+
+    opened = []
+    monkeypatch.setattr(app_module, "open_panel_window",
+                        lambda url, as_app=True: opened.append((url, as_app)) or "app")
+    # start-teacher.bat calls this when the system is already running in the background.
+    assert env.panel.post("/panel/api/open-window", headers=PANEL).json() == {"window": "app"}
+    assert opened == [("http://localhost:8000/panel", True)]
+    assert env.student().post("/panel/api/open-window", headers=PANEL).status_code == 403
+    assert env.store.snapshot()["health"]["panel_clients"] == 0
+
+    # An ordinary browser tab can be chosen in config.yaml.
+    assert env.cfg.panel_as_app is True
+    other = env.tmp_path / "tarayici"
+    other.mkdir()
+    cfg = load_config(write_config(other, "").parent / "config.yaml")
+    assert cfg.panel_as_app is True
+    text = (other / "config.yaml").read_text(encoding="utf-8").replace("  port: 8000", "  port: 8000\n  panel_penceresi: tarayici")
+    (other / "config.yaml").write_text(text, encoding="utf-8")
+    assert load_config(other / "config.yaml").panel_as_app is False

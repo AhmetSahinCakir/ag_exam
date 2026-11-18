@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import time
+import webbrowser
 
 TITLE = "Sınav klasörünü seçin"
 TIMEOUT_S = 900
@@ -56,6 +57,37 @@ class DialogUnavailable(Exception):
     """No folder window can be opened on this computer."""
 
 
+def _app_window_browser() -> str | None:
+    """Edge or Chrome: both can show a page in a window of its own (no tabs, no address bar)."""
+    roots = [os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles"), os.environ.get("LocalAppData")]
+    for relative in (os.path.join("Microsoft", "Edge", "Application", "msedge.exe"),
+                     os.path.join("Google", "Chrome", "Application", "chrome.exe")):
+        for root in roots:
+            if root and os.path.isfile(os.path.join(root, relative)):
+                return os.path.join(root, relative)
+    return None
+
+
+def open_panel_window(url: str, as_app: bool = True) -> str:
+    """Open the teacher panel on this computer. Returns "app" or "browser".
+
+    as_app: show it like an application, in a window of its own; falls back to an ordinary
+    browser tab when neither Edge nor Chrome is found.
+    """
+    if as_app and os.name == "nt":
+        browser = _app_window_browser()
+        if browser:
+            try:
+                subprocess.Popen([browser, f"--app={url}", "--start-maximized", "--no-first-run",
+                                  "--no-default-browser-check"],
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return "app"
+            except OSError:
+                pass
+    webbrowser.open(url)
+    return "browser"
+
+
 def open_folder(path: str) -> None:
     """Show a folder in the file manager of the teacher's computer. Raises OSError on failure."""
     if os.name == "nt":
@@ -90,7 +122,7 @@ $ink = [System.Drawing.Color]::FromArgb(29, 37, 48)
 $line = [System.Drawing.Color]::FromArgb(201, 206, 214)
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Sınav İzleme'
+$form.Text = 'Sınav İzleme Sistemi'
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -104,7 +136,7 @@ $form.ClientSize = New-Object System.Drawing.Size(580, 236)
 $form.Tag = 'background'
 
 $title = New-Object System.Windows.Forms.Label
-$title.Text = 'Panel penceresi kapatıldı'
+$title.Text = 'Pencereyi kapattınız'
 $title.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 14)
 $title.SetBounds(28, 22, 524, 34)
 $form.Controls.Add($title)
@@ -133,7 +165,7 @@ function Add-Choice([string]$text, [int]$left, [int]$width, [string]$answer, [bo
     $button.Add_Click({
         param($sender, $e)
         if ($sender.Tag -eq 'shutdown' -and $env:SINAV_DIALOG_CONFIRM) {
-            $sure = [System.Windows.Forms.MessageBox]::Show($form, $env:SINAV_DIALOG_CONFIRM, 'Sınav İzleme',
+            $sure = [System.Windows.Forms.MessageBox]::Show($form, $env:SINAV_DIALOG_CONFIRM, 'Sınav İzleme Sistemi',
                 'YesNo', 'Warning', 'Button2')
             if ($sure -ne [System.Windows.Forms.DialogResult]::Yes) { return }
         }
@@ -144,9 +176,9 @@ function Add-Choice([string]$text, [int]$left, [int]$width, [string]$answer, [bo
     return $button
 }
 
-$keep = Add-Choice 'Arka planda çalışsın' 28 196 'background' $true
-[void](Add-Choice 'Paneli yeniden aç' 236 160 'reopen' $false)
-[void](Add-Choice 'Sistemi kapat' 408 144 'shutdown' $false)
+$keep = Add-Choice 'Yalnızca pencere kapansın' 28 216 'background' $true
+[void](Add-Choice 'Paneli yeniden aç' 256 152 'reopen' $false)
+[void](Add-Choice 'Sistemi kapat' 420 132 'shutdown' $false)
 $form.AcceptButton = $keep
 [void]$form.ShowDialog()
 [Console]::Out.Write($form.Tag)

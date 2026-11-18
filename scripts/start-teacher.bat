@@ -128,11 +128,10 @@ goto start_server
 echo  [4/4] MediaMTX zaten çalışıyor.
 
 :start_server
-echo        Sunucu başlatılıyor; panel birkaç saniye içinde tarayıcıda açılacak.
+echo        Sunucu başlatılıyor; panel birkaç saniye içinde kendi penceresinde açılacak.
 echo.
-start "" /b cmd /c "ping -n 5 127.0.0.1 >nul & start http://localhost:%API_PORT%/panel"
 
-"%PY%" "%ROOT%\server\run.py"
+"%PY%" "%ROOT%\server\run.py" --open-panel
 set "SERVER_EXIT=%ERRORLEVEL%"
 
 echo.
@@ -145,8 +144,9 @@ pause
 exit /b 0
 
 :already_running
-echo  Sınav sistemi zaten çalışıyor; panel tarayıcıda açılıyor.
-start "" "http://localhost:%API_PORT%/panel"
+echo  Sınav sistemi zaten çalışıyor; panel yeniden açılıyor.
+curl.exe -s -m 8 -o nul -X POST -H "X-Panel: 1" "http://127.0.0.1:%API_PORT%/panel/api/open-window" 2>nul
+if errorlevel 1 start "" "http://localhost:%API_PORT%/panel"
 ping -n 3 127.0.0.1 >nul
 exit /b 0
 

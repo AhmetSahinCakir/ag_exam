@@ -8,7 +8,6 @@ import json
 import logging
 import secrets
 import time
-import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -19,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from . import __version__
 from .config import Config, ConfigError, reload_policy
 from .discovery import DiscoveryResponder, lan_ips
-from .folderdialog import DialogUnavailable, ask_panel_closed, open_folder, pick_folder
+from .folderdialog import DialogUnavailable, ask_panel_closed, open_folder, open_panel_window, pick_folder
 from .mediamtx import fetch_streams, kick_publishers, set_recording
 from .roster import RosterError, parse_roster
 from .store import MAX_UPLOAD_BYTES, RUNNING, WAITING, ApiError, Store, Student
@@ -34,11 +33,10 @@ MAX_JSON_BYTES = 64 * 1024
 SSE_MIN_INTERVAL_S = 0.4
 # The panel window counts as closed when no panel page has been connected for this long
 # (a reload reconnects much faster).
-PANEL_CLOSED_AFTER_S = 3.0
+PANEL_CLOSED_AFTER_S = 1.5
 # Closing the exam for everybody: how long to wait until every open student program has
-# been told (they ask every 2 s), and then for the uploads this triggers.
+# been told (they ask every 2 s).
 CLOSE_NOTICE_S = 7.0
-CLOSE_UPLOAD_S = 4.0
 # Exit code of run.py after "Sistemi kapat": the start script then closes its window.
 EXIT_CLOSED_BY_TEACHER = 10
 NO_STORE = {"Cache-Control": "no-store"}
@@ -60,6 +58,21 @@ def create_app(cfg: Config) -> FastAPI:
     panel_gone_since = 0.0     # monotonic time the last one disconnected; 0 = never seen / connected
     panel_asked = False        # the "window closed" question was already asked for this closing
     shutting_down = False
+    panel_url = f"http://localhost:{cfg.port}/panel"
+
+    def count_panel(delta: int) -> None:
+        nonlocal panel_clients, panel_gone_since, panel_asked
+        panel_clients += delta
+        store.panel_clients = panel_clients
+        if delta > 0:
+            panel_gone_since = 0.0
+            panel_asked = False
+        elif panel_clients == 0:
+            panel_gone_since = time.monotonic()
+
+    async def open_panel_soon() -> None:
+        await asyncio.sleep(1.0)
+        await asyncio.to_thread(open_panel_window, panel_url, cfg.panel_as_app)
 
     # ------------------------------------------------------------ background
 
@@ -117,9 +130,10 @@ def create_app(cfg: Config) -> FastAPI:
             await asyncio.sleep(2)
 
     async def close_agents() -> None:
-        """Tell every student program that the exam is closed, and give them a moment.
+        """Tell every student program that is still open that the exam is closed.
 
-        A program that has nothing handed in uploads the last saved file first.
+        The programs exit; nothing is handed in automatically. Waits until each of them has
+        been told (they ask every 2 s).
         """
         waiting = store.open_agents()
         store.closing = True
@@ -129,10 +143,6 @@ def create_app(cfg: Config) -> FastAPI:
         log.info("Öğrenci programları kapatılıyor (%d açık)…", len(waiting))
         deadline = time.monotonic() + CLOSE_NOTICE_S
         while time.monotonic() < deadline and any(not st.closed_seen for st in store.open_agents()):
-            await asyncio.sleep(0.25)
-        # Time for the automatic uploads that the notice triggers.
-        deadline = time.monotonic() + CLOSE_UPLOAD_S
-        while time.monotonic() < deadline and store.open_agents():
             await asyncio.sleep(0.25)
 
     async def shutdown_system(reason: str) -> None:
@@ -157,22 +167,21 @@ def create_app(cfg: Config) -> FastAPI:
         """After the panel window was closed, ask on the desktop: keep running or shut down?"""
         nonlocal panel_asked
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.25)
             if (panel_asked or shutting_down or panel_clients > 0 or not panel_gone_since
                     or time.monotonic() - panel_gone_since < PANEL_CLOSED_AFTER_S):
                 continue
             panel_asked = True
-            url = f"http://localhost:{cfg.port}/panel"
             open_count = len(store.open_agents())
-            text = ("Sınav sistemi arka planda çalışmaya devam ediyor: öğrenciler bağlı kalır, "
-                    "ekranlar ve teslimler alınmayı sürdürür.\n\n"
+            text = ("Yalnızca panel penceresi kapandı. Sınav sistemi çalışmaya devam ediyor: öğrenciler "
+                    "bağlı, ekranlar ve teslimler alınıyor.\n\n"
                     "Sistemi de kapatmak istiyor musunuz?")
             confirm = ""
             if store.state == RUNNING or open_count:
                 confirm = ("Sınav sürüyor." if store.state == RUNNING
                            else f"{open_count} öğrencinin programı hâlâ açık.")
-                confirm += (" Sistemi kapatırsanız sınav biter; açık olan öğrenci programları son "
-                            "kaydedilen dosyayı otomatik teslim edip kapanır.\n\nSistem kapatılsın mı?")
+                confirm += (" Sistemi kapatırsanız sınav biter ve açık olan öğrenci programları kapanır; "
+                            "teslim etmemiş öğrencilerin dosyası alınmaz.\n\nSistem kapatılsın mı?")
             try:
                 answer = await asyncio.to_thread(ask_panel_closed, text, confirm, lambda: panel_clients > 0)
             except DialogUnavailable:
@@ -183,9 +192,10 @@ def create_app(cfg: Config) -> FastAPI:
             if answer == "shutdown":
                 await shutdown_system("panel penceresi kapatıldı")
             elif answer == "reopen":
-                await asyncio.to_thread(webbrowser.open, url)
+                await asyncio.to_thread(open_panel_window, panel_url, cfg.panel_as_app)
             elif panel_clients == 0:
-                log.info("Panel penceresi kapalı; sistem arka planda çalışıyor. Yeniden açmak için: %s", url)
+                log.info("Panel penceresi kapalı; sistem arka planda çalışıyor. Yeniden açmak için "
+                         "start-teacher.bat dosyasını çalıştırın (ya da tarayıcıda %s).", panel_url)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -205,6 +215,8 @@ def create_app(cfg: Config) -> FastAPI:
             log.error(store.discovery_error)
         tasks = [asyncio.create_task(ticker()), asyncio.create_task(poller()),
                  asyncio.create_task(panel_watch())]
+        if app.state.open_panel:
+            tasks.append(asyncio.create_task(open_panel_soon()))
         try:
             yield
         finally:
@@ -222,6 +234,7 @@ def create_app(cfg: Config) -> FastAPI:
     app.state.store = store
     app.state.exit_code = 0
     app.state.stop_server = None  # set by run.py: stops the web server
+    app.state.open_panel = False  # set by run.py --open-panel: show the panel window at start
 
     @app.exception_handler(ApiError)
     async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:
@@ -320,9 +333,8 @@ def create_app(cfg: Config) -> FastAPI:
     @app.post("/api/submit")
     async def api_submit(request: Request, st: Student = Depends(current_student)) -> dict[str, Any]:
         filename, data, form = await read_upload(request)
-        auto = str(form.get("auto") or "").strip().lower() in ("1", "true", "evet", "yes")
         stale = str(form.get("stale") or "").strip().lower() in ("1", "true")
-        return store.submit(st, filename, data, auto, str(form.get("sha256") or ""), stale,
+        return store.submit(st, filename, data, str(form.get("sha256") or ""), stale,
                             str(form.get("original_name") or ""))
 
     # ============================================================ panel pages
@@ -357,11 +369,8 @@ def create_app(cfg: Config) -> FastAPI:
     @app.get("/panel/api/stream", dependencies=[Depends(local_only)])
     async def panel_stream(request: Request) -> StreamingResponse:
         async def generate():
-            nonlocal panel_clients, panel_gone_since, panel_asked
             waiter = store.subscribe()
-            panel_clients += 1
-            panel_gone_since = 0.0
-            panel_asked = False
+            count_panel(+1)
             try:
                 while True:
                     if shutting_down:
@@ -383,9 +392,7 @@ def create_app(cfg: Config) -> FastAPI:
                         break
             finally:
                 store.unsubscribe(waiter)
-                panel_clients -= 1
-                if panel_clients == 0:
-                    panel_gone_since = time.monotonic()
+                count_panel(-1)
 
         return StreamingResponse(generate(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -494,6 +501,11 @@ def create_app(cfg: Config) -> FastAPI:
         await close_agents()
         store.reset()
         return {"state": store.state}
+
+    @app.post("/panel/api/open-window", dependencies=[Depends(local_only)])
+    async def panel_open_window() -> dict[str, Any]:
+        """Show the panel window again (start-teacher.bat calls this when the system already runs)."""
+        return {"window": await asyncio.to_thread(open_panel_window, panel_url, cfg.panel_as_app)}
 
     @app.post("/panel/api/shutdown", dependencies=[Depends(local_only)])
     async def panel_shutdown() -> dict[str, Any]:

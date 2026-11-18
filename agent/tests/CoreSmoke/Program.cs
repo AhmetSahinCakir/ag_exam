@@ -377,14 +377,14 @@ internal static class Program
             Check(!status.Submitted, "teslimden önce heartbeat 'submitted' değil");
             try
             {
-                await api.SubmitAsync(work, auto: false, NetInfo.Sha256Hex(file), "bozuk.pka");
+                await api.SubmitAsync(work, NetInfo.Sha256Hex(file), "bozuk.pka");
                 Check(false, "özeti tutmayan yükleme reddedilmeli");
             }
             catch (ApiException ex)
             {
                 Equal(400, ex.Status, "özeti tutmayan yükleme -> 400");
             }
-            var submit = await api.SubmitAsync(work, auto: false, NetInfo.Sha256Hex(work), "Ağ çözümüm.pka");
+            var submit = await api.SubmitAsync(work, NetInfo.Sha256Hex(work), "Ağ çözümüm.pka");
             Equal(NetInfo.Sha256Hex(work), submit.Sha256, "sunucunun SHA-256 değeri yerelle aynı");
             Check(submit.Verified, "sunucu dosyayı teslim klasöründen okuyup doğruladı");
             var after = await api.HeartbeatAsync(new HeartbeatRequest { ExamStateSeen = "RUNNING" });

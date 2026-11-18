@@ -78,7 +78,7 @@ Panel (`/panel`), MediaMTX'in WebRTC'si (8889, 8189) ve denetim API'si (9997) ya
      Kurallar yalnızca **Özel** ve **Ortak** ağ profilleri için eklenir (modem ağı
      genelde “Ortak” görünür).
    - MediaMTX'i ayrı (simge durumunda) bir pencerede, sunucuyu bu pencerede başlatır
-     ve paneli tarayıcıda açar: <http://localhost:8000/panel>
+     ve paneli kendi penceresinde açar (adresi: <http://localhost:8000/panel>).
 4. **Sınıf (salon) ve öğretmen adını yazın.** Panelin sol üstünde sınıf adının yanındaki
    **Düzenle**'ye basın, **Sınıf / salon adı** ile **Öğretmen adı**nı yazıp **Kaydet** deyin.
    Öğrenciler programı açtığında bu adları görür. Sınıf adı **her sınıfın bilgisayarında
@@ -201,29 +201,37 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
    `index.csv` dosyasında “gec_teslim: evet” yazar. Sınav bittikten sonra sınav dosyası
    artık indirilemez. Henüz teslim etmeyenler kırmızı “Teslim yok” olarak görünür.
 9. İşiniz bitince **Yeni sınav** ya da **Diğer → Sistemi kapat…** deyin. İkisi de hâlâ açık
-   olan öğrenci programlarını kapatır; teslim etmemiş öğrencinin indirdiği dosyanın **son
-   kaydedilmiş hâli** bu sırada otomatik alınır (olay kaydında “Otomatik teslim alındı”
-   yazar; geç teslim sayılmaz). **Sınav klasörünü aç** düğmesi klasörü Dosya Gezgini'nde
-   açar: kayıtlar, teslimler, uyarılar ve olay kaydı oradadır.
+   olan öğrenci programlarını kapatır. **Otomatik teslim yoktur:** dosyayı yalnızca öğrencinin
+   kendisi teslim eder. Teslim etmemiş bir öğrencinin programı açıkken sınavı kapatırsanız
+   dosyası **alınmaz**; panel bunu kapatmadan önce size sayısıyla birlikte söyler. Teslim
+   etmelerini bekleyin ya da dosyayı öğrenciden elden alıp `Teslimler` klasörüne koyun.
+   **Sınav klasörünü aç** düğmesi klasörü Dosya Gezgini'nde açar: kayıtlar, teslimler,
+   uyarılar ve olay kaydı oradadır.
 
 ### Paneli kapatmak ve sistemi kapatmak
 
-Panel bir tarayıcı penceresidir; küçültebilir, alta alabilirsiniz. **Pencereyi çarpıdan
-kapattığınızda** sistem kapanmaz: birkaç saniye içinde masaüstünde bir soru çıkar —
-“Panel penceresi kapatıldı”:
+Panel, öğretmen bilgisayarındaki sunucunun gösterdiği bir **web sayfasıdır**; Edge (yoksa
+Chrome) ile **kendi penceresinde**, sekmesiz ve adres çubuksuz açılır. Bir uygulama gibi
+görünür ve davranır: küçültebilir, alta alabilir, görev çubuğundan geri çağırabilirsiniz.
+Sistemin kendisi (sunucu, ekran kaydı) bu pencereden ayrıdır ve arka planda çalışır.
 
-- **Arka planda çalışsın** — yalnızca pencere kapanmış olur. Öğrenciler bağlı kalır, ekranlar
-  ve teslimler alınmaya devam eder. Paneli yeniden açmak için `start-teacher.bat` dosyasını
-  bir kez daha çalıştırın (sistem zaten çalışıyorsa yalnızca paneli açar) ya da tarayıcıda
-  <http://localhost:8000/panel> adresine gidin.
+**Pencereyi çarpıdan kapattığınızda** sistem kapanmaz; bir iki saniye içinde **öğretmen
+bilgisayarının** ekranında bir soru çıkar — “Pencereyi kapattınız”:
+
+- **Yalnızca pencere kapansın** — sistem arka planda çalışmaya devam eder: öğrenciler bağlı
+  kalır, ekranlar ve teslimler alınır. Paneli yeniden açmak için `start-teacher.bat`
+  dosyasını bir kez daha çalıştırın (sistem zaten çalışıyorsa yalnızca paneli açar).
 - **Paneli yeniden aç** — yanlışlıkla kapattıysanız.
-- **Sistemi kapat** — sınav sürüyorsa bir kez daha sorulur. Sınav biter, açık öğrenci
-  programları son kaydedilen dosyayı teslim edip kapanır, sunucu, MediaMTX ve başlatma
+- **Sistemi kapat** — sınav sürüyorsa ya da teslim etmemiş öğrencinin programı açıksa bir kez
+  daha sorulur. Sınav biter, öğrenci programları kapanır, sunucu, MediaMTX ve başlatma
   penceresi kapanır.
 
-(Tarayıcılar bir sayfanın kendi penceresi kapanırken soru sormasına izin vermediği için soru,
-pencere kapandıktan hemen sonra çıkar.) Sistemi panelin içinden de kapatabilirsiniz:
-**Diğer → Sistemi kapat…**
+Bu soru yalnızca öğretmen bilgisayarında görünür; **öğrencilere hiçbir şey gitmez.** Bir web
+sayfası kendi penceresi kapanırken soru soramadığı için soru, pencere kapandıktan hemen
+sonra çıkar. Sistemi panelin içinden de kapatabilirsiniz: **Diğer → Sistemi kapat…**
+
+Paneli sıradan bir tarayıcı sekmesinde açmak isterseniz `server\config.yaml` içinde
+`sunucu.panel_penceresi: tarayici` yazın.
 
 ### Teslim nasıl denetlenir?
 
@@ -292,7 +300,7 @@ klasörünü aç** ya da her zaman **Diğer → Sınav klasörünü aç**):
 | Ne | Nerede (sınav klasörünün içinde) |
 |---|---|
 | Teslim dosyaları | `Teslimler\<numara>_<AdSoyad>.pka` (Türkçe harfler çevrilir: `2021001_AhmetSahinCakir.pka`). Aynı öğrencinin sonraki teslimleri `_v2`, `_v3` olarak ayrıca saklanır. |
-| Teslim dökümü | `Teslimler\index.csv` — zaman, numara, ad, dosya, **SHA-256**, boyut, otomatik mi, sürüm, IP, bilgisayar, MAC, geç teslim mi |
+| Teslim dökümü | `Teslimler\index.csv` — zaman, numara, ad, dosya, **SHA-256**, boyut, geç teslim mi, sürüm, IP, bilgisayar, MAC |
 | Uyarılar (öğrenci öğrenci) | `Uyarılar\<numara>_<AdSoyad>.csv` — o öğrencinin bütün uyarıları (kapatılan programlar, başka pencere, başka masaüstü, bağlantı kopması, geç teslim…), saatleriyle. Uyarı geldikçe güncellenir; hiç uyarısı olmayan öğrenci için dosya açılmaz. Excel'de açılır. |
 | Ekran kayıtları | `Kayıtlar\<numara>\<tarih-saat>.mp4` — 10 dakikalık bölümler. Bağlantı kopup geri gelince yeni dosya başlar. VLC ile oynatılır. |
 | Olay kaydı | `olay-kaydi.csv` (sınav bitince yazılır; Excel'de açılır). Panelden de indirilebilir: **Diğer → Olay kaydını indir (CSV)**. |
@@ -302,7 +310,7 @@ Sunucunun kendi çalışma dosyaları (`data\` klasörü: sınav durumu, ham ola
 
 - **Yeni sınav:** Sınav bitince üstte beliren **Yeni sınav** düğmesi (ya da **Diğer → Yeni
   sınav hazırla**; sınav sürerken kullanılamaz) paneli boşaltır. Hâlâ açık olan öğrenci
-  programları kapanır (teslim etmemiş olanların son kaydettiği dosya otomatik alınır). Biten
+  programları kapanır (teslim etmemiş olanların dosyası alınmaz; panel önce uyarır). Biten
   sınavın kayıtları, teslimleri, uyarıları ve olay kaydı **sınav klasöründe kalır; hiçbir
   şey silinmez ya da taşınmaz.** Yeni sınav için yeniden klasör seçersiniz. Öğrenci listesi
   korunur.

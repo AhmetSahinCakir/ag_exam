@@ -103,9 +103,8 @@ ekranınız aktarılmaya ve izin verilmeyen programlar kapatılmaya devam eder. 
 sonra sınav dosyası yeniden indirilemez.
 
 Öğretmeniniz sınavı tamamen kapattığında **“Sınav kapatıldı”** penceresi çıkar ve program
-kapanır. O ana kadar teslim etmediyseniz, indirdiğiniz dosyanın **son kaydettiğiniz hâli
-otomatik olarak** teslim edilir (“Farklı Kaydet” ile başka bir yere ya da başka bir adla
-kaydettiğiniz kopya otomatik gönderilmez).
+kapanır. **Otomatik teslim yoktur:** o ana kadar teslim etmediyseniz dosyanız teslim
+edilmemiş olur. Dosyanızı mutlaka kendiniz **Teslim et** ile teslim edin.
 
 ## Sınavdan sonra
 

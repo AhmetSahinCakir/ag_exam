@@ -284,7 +284,7 @@ public sealed class ExamController : IDisposable
         if (status.ExamState == "CLOSED")
         {
             // The teacher closed the exam for everybody ("Yeni sınav" / "Sistemi kapat").
-            _ = CloseExamAsync(status.ExamId);
+            _ = CloseExamAsync();
         }
         else if (status.ExamState == "RUNNING" && Phase == Phase.Waiting)
         {
@@ -548,7 +548,7 @@ public sealed class ExamController : IDisposable
         Changed?.Invoke();
         try
         {
-            var response = await _api.SubmitAsync(candidate.Bytes, auto: false, candidate.Sha256,
+            var response = await _api.SubmitAsync(candidate.Bytes, candidate.Sha256,
                 Path.GetFileName(candidate.Path), candidate.Problem == SubmitProblem.SavedBeforeDownload, _cts.Token);
             RememberSubmitted(response.Sha256);
             LocalLog.Write($"teslim edildi: {candidate.Path} -> {response.Filename}");
@@ -623,11 +623,10 @@ public sealed class ExamController : IDisposable
     // ----------------------------------------------------------------- exam end
 
     /// <summary>
-    /// The teacher closed the exam for everybody ("Yeni sınav" or "Sistemi kapat"). If nothing
-    /// was handed in from here, the last saved state of the downloaded file is uploaded as a
-    /// last resort; then the program stops.
+    /// The teacher closed the exam for everybody ("Yeni sınav" or "Sistemi kapat"): the program
+    /// stops. Nothing is ever handed in automatically - only the student hands in a file.
     /// </summary>
-    private async Task CloseExamAsync(string examId)
+    private async Task CloseExamAsync()
     {
         _ending = true;
         var inExam = Phase is Phase.Countdown or Phase.Running or Phase.Ended;
@@ -635,75 +634,15 @@ public sealed class ExamController : IDisposable
         LocalLog.Write("öğretmen sınavı kapattı");
         Changed?.Invoke();
 
-        // Do not collide with a manual upload or a download that is in flight.
+        // Let a submission the student already started finish first.
         for (var i = 0; i < 100 && (_submitting || _downloading); i++) await Task.Delay(100);
         if (Phase == Phase.Finished) return;
-        if (!inExam)
-        {
-            await FinishAsync(new FinishInfo("Sınav kapatıldı", "Öğretmen sınav sistemini kapattı.", true));
-            return;
-        }
 
-        if (ExamId.Length == 0) ExamId = examId;
-        RestoreDownloadedFile(examId);
-
-        var success = true;
-        string outcome;
-        try
-        {
-            if (!ExamFileReady || !File.Exists(_examFilePath))
-            {
-                success = false;
-                outcome = "Sınav dosyasını indirmediğiniz için teslim yapılmadı.";
-            }
-            else
-            {
-                var path = _examFilePath;
-                var bytes = await Task.Run(() => ExamFiles.ReadShared(path));
-                var sha = NetInfo.Sha256Hex(bytes);
-                if (sha == _submittedSha)
-                {
-                    outcome = "Dosyanız daha önce teslim edilmişti.";
-                }
-                else
-                {
-                    outcome = await AutoSubmitAsync(bytes, path);
-                    success = _submittedSha == sha;
-                }
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            success = false;
-            outcome = $"Dosya okunamadığı için otomatik teslim yapılamadı ({ex.Message}).\r\n" +
-                      $"Dosyanız: {_examFilePath}\r\nÖğretmeninize hemen haber verin.";
-        }
-
-        await FinishAsync(new FinishInfo("Sınav kapatıldı", "Öğretmen sınavı kapattı.\r\n\r\n" + outcome, success));
-    }
-
-    private async Task<string> AutoSubmitAsync(byte[] bytes, string path)
-    {
-        var lastError = "";
-        for (var attempt = 1; attempt <= 3; attempt++)
-        {
-            try
-            {
-                // Deliberately not tied to _cts: the upload must finish even while shutting down.
-                var response = await _api.SubmitAsync(bytes, auto: true, NetInfo.Sha256Hex(bytes),
-                    Path.GetFileName(path));
-                RememberSubmitted(response.Sha256);
-                return "Son kaydettiğiniz dosya otomatik olarak teslim edildi.";
-            }
-            catch (ApiException ex)
-            {
-                lastError = ex.Message;
-                LocalLog.Write($"otomatik teslim denemesi {attempt} başarısız: {ex.Message}");
-                await Task.Delay(2000);
-            }
-        }
-        return $"Otomatik teslim BAŞARISIZ oldu ({lastError}).\r\n" +
-               $"Dosyanız bu bilgisayarda duruyor:\r\n{path}\r\nÖğretmeninize hemen haber verin.";
+        var info = inExam
+            ? new FinishInfo("Sınav kapatıldı",
+                "Öğretmen sınavı kapattı.\r\n\r\nDosyanızı teslim etmediniz; öğretmeninize haber verin.", false)
+            : new FinishInfo("Sınav kapatıldı", "Öğretmen sınav sistemini kapattı.", true);
+        await FinishAsync(info);
     }
 
     // ------------------------------------------------------------------ shutdown

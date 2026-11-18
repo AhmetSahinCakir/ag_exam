@@ -74,11 +74,10 @@ public sealed class ApiClient : IDisposable
     /// Uploads a file as this student's submission. <paramref name="sha256"/> is the hash of the
     /// bytes as read on this computer; the server refuses the upload if what arrives differs.
     /// </summary>
-    public async Task<SubmitResponse> SubmitAsync(byte[] content, bool auto, string sha256,
+    public async Task<SubmitResponse> SubmitAsync(byte[] content, string sha256,
         string originalName = "", bool stale = false, CancellationToken ct = default)
     {
         using var form = new MultipartFormDataContent();
-        form.Add(new StringContent(auto ? "true" : "false"), "auto");
         form.Add(new StringContent(sha256), "sha256");
         // Sent as a text field: file names with Turkish letters do not survive every
         // multipart "filename" encoding.

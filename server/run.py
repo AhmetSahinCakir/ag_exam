@@ -29,6 +29,8 @@ def main() -> int:
     parser.add_argument("--config", default=str(HERE / "config.yaml"), help="config.yaml yolu")
     parser.add_argument("--host", default="0.0.0.0",
                         help="dinlenecek adres (varsayılan: tüm ağ arayüzleri)")
+    parser.add_argument("--open-panel", action="store_true",
+                        help="sunucu başlayınca öğretmen panelini aç")
     args = parser.parse_args()
 
     try:
@@ -51,6 +53,7 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
                         datefmt="%H:%M:%S")
     app = create_app(cfg)
+    app.state.open_panel = args.open_panel
 
     ips = lan_ips()
     print("=" * 66)

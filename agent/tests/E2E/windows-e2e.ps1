@@ -536,6 +536,9 @@ kapatma_disi:
   - 'C:\Packages\**'
   - 'C:\Users\**'
   - 'C:\Program Files\WindowsApps\Microsoft.WindowsTerminal*\**'
+  # Öğretmen paneli bu testte aynı makinede (Edge ile, kendi penceresinde) açılır.
+  - 'C:\Program Files (x86)\Microsoft\Edge\**'
+  - 'C:\Program Files\Microsoft\Edge\**'
   - '$root\**'
 esikler:
   on_pencere_toleransi_sn: 5
@@ -1069,20 +1072,37 @@ klasorler:
     $state = Get-Snapshot
     Check (-not $state.health.recording -and -not (Get-ChildItem (Join-Path $secondFolder 'Kayıtlar') -Recurse -File)) '"Ekranları kaydet" seçilmeyince ekranlar diske yazılmıyor (canlı izleme sürüyor)'
 
-    Step 'Panel penceresi kapanınca soru; "Sistemi kapat"'
-    # The panel page keeps a live connection like this one; ending it is closing the window.
-    $panelPage = Start-Process -FilePath 'curl.exe' -ArgumentList @('-s', '-N', "$base/panel/api/stream") `
-        -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $OutDir 'panel-akisi.txt')
-    Start-Sleep -Seconds 4
-    Check (-not ([Native]::FindWindowByTitle('^Sınav İzleme$') -ne [IntPtr]::Zero)) 'panel açıkken soru çıkmıyor'
-    Stop-Process -Id $panelPage.Id -Force
-    $question = Wait-Until { $h = [Native]::FindWindowByTitle('^Sınav İzleme$'); if ($h -ne [IntPtr]::Zero) { $h } } 30
-    Check ([bool]$question) 'panel penceresi kapanınca masaüstünde "sistem mi, pencere mi?" sorusu çıkıyor'
+    Step 'Panel kendi penceresinde; pencere kapanınca soru; "Sistemi kapat"'
+    # What start-teacher.bat does: the panel opens like an application, in a window of its own.
+    $question = '^Sınav İzleme Sistemi$'          # the question shown on the teacher's desktop
+    $opened = Panel-Post '/panel/api/open-window'
+    Check ($opened -match '"window":\s*"app"') "panel uygulama penceresi olarak açılıyor ($opened)"
+    $panelWindow = Wait-Until { $h = [Native]::FindWindowByTitle('^Sınav İzleme($| — )'); if ($h -ne [IntPtr]::Zero) { $h } } 90
+    Check ([bool]$panelWindow) 'panel penceresi açıldı (Edge, sekmesiz)'
+    $panelPage = $null
+    if (-not $panelWindow) {
+        # No browser window on this machine: keep a live connection like the page's own.
+        $panelPage = Start-Process -FilePath 'curl.exe' -ArgumentList @('-s', '-N', "$base/panel/api/stream") `
+            -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $OutDir 'panel-akisi.txt')
+    }
+    $connected = Wait-Until { $s = Get-Snapshot; if ($s -and $s.health.panel_clients -ge 1) { $s } } 60
+    Check ([bool]$connected) 'panel sunucuya bağlandı (canlı durum akışı)'
+    Start-Sleep -Seconds 6
+    Shot 'panel-penceresi'
+    Check (-not ([Native]::FindWindowByTitle($question) -ne [IntPtr]::Zero)) 'panel açıkken soru çıkmıyor'
+
+    # The X of the window.
+    if ($panelWindow) { [Native]::PostMessage($panelWindow, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
+    else { Stop-Process -Id $panelPage.Id -Force }
+    $closedAt = Get-Date
+    $question = Wait-Until { $h = [Native]::FindWindowByTitle('^Sınav İzleme Sistemi$'); if ($h -ne [IntPtr]::Zero) { $h } } 30
+    Check ([bool]$question) ("pencere kapanınca öğretmen bilgisayarında soru çıkıyor ({0:N1} sn sonra)" -f ((Get-Date) - $closedAt).TotalSeconds)
     Start-Sleep -Seconds 1
     Shot 'pencere-kapandi-sorusu'
     if (-not $question) { throw 'Kapanış sorusu çıkmadı; kalan adımlar yapılamaz.' }
+    Check (-not (Agent-Texts | Where-Object { $_ -match 'Pencereyi kapattınız|Sistemi kapat' })) 'öğrenci programına bu soruyla ilgili hiçbir şey gitmiyor'
     $choices = @([Native]::ChildTexts($question))
-    Check (($choices -contains 'Arka planda çalışsın') -and ($choices -contains 'Paneli yeniden aç') -and ($choices -contains 'Sistemi kapat')) 'seçenekler: Arka planda çalışsın / Paneli yeniden aç / Sistemi kapat'
+    Check (($choices -contains 'Yalnızca pencere kapansın') -and ($choices -contains 'Paneli yeniden aç') -and ($choices -contains 'Sistemi kapat')) 'seçenekler: Yalnızca pencere kapansın / Paneli yeniden aç / Sistemi kapat'
     Check (-not $server.HasExited -and -not $script:agent.HasExited) 'soru yanıtlanana kadar sistem çalışmaya devam ediyor'
     $shutdownButton = [Native]::FindChildByText($question, 'Sistemi kapat')
     if ($shutdownButton -eq [IntPtr]::Zero) { throw "Kapanış sorusunda 'Sistemi kapat' düğmesi bulunamadı (bulunanlar: $($choices -join ' | '))." }
@@ -1096,17 +1116,14 @@ klasorler:
     if ($sure) { [Native]::PostMessage($sure, 0x0111, [IntPtr]6, [IntPtr]::Zero) | Out-Null }   # Yes
 
     Check ([bool](Wait-AgentText '^Sınav kapatıldı$' 25)) 'öğrenci programı "Sınav kapatıldı" diyor'
-    Check ([bool](Wait-AgentText 'otomatik olarak teslim edildi' 5)) 'teslim etmemiş öğrencinin son kaydettiği dosya otomatik alındı'
+    Check ([bool](Wait-AgentText 'Dosyanızı teslim etmediniz' 5)) 'teslim etmemiş öğrenciye dosyasının teslim edilmediği söyleniyor'
     Shot 'sinav-kapatildi'
     Click-Agent '^Kapat'
     Check ($script:agent.WaitForExit(20000)) 'öğrenci programı kapandı'
     Check ($server.WaitForExit(30000)) 'sunucu kendiliğinden kapandı'
     if ($server.HasExited) { Check ($server.ExitCode -eq 10) "sunucu çıkış kodu 10 (başlatma penceresi de kapanır): $($server.ExitCode)" }
-    $collected = Join-Path $secondFolder 'Teslimler\2021005_SonOgrenci.pka'
-    Check (Test-Path $collected) 'otomatik alınan dosya ikinci sınavın Teslimler klasöründe'
-    if (Test-Path $collected) {
-        Check ((Get-FileHash $collected).Hash -eq (Get-FileHash $lastPka).Hash) 'otomatik alınan dosya öğrencinin son kaydettiğiyle aynı'
-    }
+    Check (-not (Get-ChildItem (Join-Path $secondFolder 'Teslimler') -Filter *.pka)) 'otomatik teslim yok: teslim etmeyen öğrencinin dosyası alınmıyor'
+    Check (Test-Path $lastPka) 'dosya öğrencinin bilgisayarında duruyor'
     $secondLog = Join-Path $secondFolder 'olay-kaydi.csv'
     Check ((Test-Path $secondLog) -and ((Get-Content $secondLog -Raw -Encoding UTF8) -match 'Sistem kapatıldı')) 'olay kaydında "Sistem kapatıldı"'
     Check (-not (Get-Process ffmpeg -ErrorAction SilentlyContinue)) 'ffmpeg.exe kalmadı'
@@ -1125,7 +1142,8 @@ finally {
         if ($server -and -not $server.HasExited) { Dump-Events }
         else { Write-Host '  (sunucu kapalı; olaylar yukarıda ve olay-kaydi.csv dosyalarında)' }
     } catch { Write-Host "  (olaylar okunamadı: $($_.Exception.Message))" }
-    foreach ($leftover in @('^Sınav İzleme$')) {
+    Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    foreach ($leftover in @('^Sınav İzleme Sistemi$')) {
         $h = [Native]::FindWindowByTitle($leftover)
         if ($h -ne [IntPtr]::Zero) { [Native]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
     }

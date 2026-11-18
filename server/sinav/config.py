@@ -75,6 +75,7 @@ class Config:
     ogretmen_adi: str = "Öğretmen"
     port: int = 8000
     discovery_port: int = 47000
+    panel_as_app: bool = True  # open the panel in its own window (no tabs, no address bar)
     rtsp_port: int = 8554
     stream_user: str = "sinavajan"
     stream_pass: str = "sinav-yayin-2026"
@@ -178,6 +179,7 @@ def load_config(path: str | Path) -> Config:
         ogretmen_adi=str(raw.get("ogretmen_adi") or "Öğretmen").strip(),
         port=int(_number(server, "port", 8000, 1, 65535)),
         discovery_port=int(_number(server, "kesif_portu", 47000, 1, 65535)),
+        panel_as_app=str(server.get("panel_penceresi") or "uygulama").strip().lower() != "tarayici",
         rtsp_port=int(_number(stream, "rtsp_portu", 8554, 1, 65535)),
         stream_user=str(stream.get("kullanici") or "").strip(),
         stream_pass=str(stream.get("sifre") or "").strip(),

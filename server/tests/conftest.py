@@ -18,7 +18,6 @@ from sinav.config import load_config  # noqa: E402
 
 # Test "students" never answer: do not wait for them when an exam is closed.
 app_module.CLOSE_NOTICE_S = 0.3
-app_module.CLOSE_UPLOAD_S = 0.1
 
 PANEL = {"X-Panel": "1"}
 EXAM_BYTES = b"PKA-SINAV-DOSYASI" * 50
@@ -103,9 +102,8 @@ class Env:
         response = self.panel.post("/panel/api/start", headers=PANEL)
         assert response.status_code == 200, response.text
 
-    def submit(self, client: TestClient, data: bytes, auto: bool = False, name: str = "sinav.pka",
-               **fields: str):
-        return client.post("/api/submit", data={"auto": "true" if auto else "false", **fields},
+    def submit(self, client: TestClient, data: bytes, name: str = "sinav.pka", **fields: str):
+        return client.post("/api/submit", data=fields,
                            files={"file": (name, data, "application/octet-stream")})
 
     def alerts(self, kind: str | None = None) -> list[dict]:

@@ -966,7 +966,7 @@ function renderModal() {
   if (st.monitors > 1) infoRow(info, 'Monitör sayısı', st.monitors);
   if (st.submission) {
     const sub = st.submission;
-    infoRow(info, 'Teslim', `${sub.filename}${sub.auto ? ' (otomatik)' : ''}, ${fmtClockSeconds(sub.ts)}`);
+    infoRow(info, 'Teslim', `${sub.filename}${sub.late ? ' (geç teslim)' : ''}, ${fmtClockSeconds(sub.ts)}`);
     infoRow(info, 'Dosya özeti', sub.sha256);
   }
   if (st.status === 'nofile') infoRow(info, 'Uyarı', 'Teslim dosyası Teslimler klasöründe bulunamıyor');
@@ -1063,8 +1063,8 @@ async function resetExam() {
     + 'Bu sınavın ekran kayıtları, teslim dosyaları ve uyarıları sınav klasöründe kalır; hiçbir şey '
     + 'silinmez. Yeni sınav için yeniden klasör seçersiniz. Öğrenci listesi korunur.';
   if (open > 0) {
-    question += `\n\n${open} öğrencinin programı hâlâ açık: son kaydettikleri dosya otomatik alınır ve `
-      + 'programları kapanır.';
+    question += `\n\nDİKKAT: ${open} öğrenci teslim etmedi ve programı hâlâ açık. Yeni sınav hazırlarsanız `
+      + 'programları kapanır ve dosyaları ALINMAZ. Önce teslim etmelerini bekleyin.';
   }
   if (!confirm(question)) return;
   if (open > 0) toast('Öğrenci programları kapatılıyor…');
@@ -1125,9 +1125,13 @@ async function endExam() {
 /* "Sistemi kapat": sunucu durur, öğrenci programları kapanır. */
 function openShutdownDialog() {
   closeMenu();
-  let note = 'Sunucu ve ekran kaydı durur, öğrenci programları kapanır (programı açık olan ve teslim '
-    + 'etmemiş öğrencilerin son kaydettiği dosya otomatik alınır). Kayıtlar, teslimler ve uyarılar '
+  let note = 'Sunucu ve ekran kaydı durur, öğrenci programları kapanır. Kayıtlar, teslimler ve uyarılar '
     + 'sınav klasöründe kalır.';
+  const open = S ? openStudents().length : 0;
+  if (open > 0) {
+    note += ` DİKKAT: ${open} öğrenci teslim etmedi ve programı hâlâ açık; sistemi kapatırsanız dosyaları `
+      + 'alınmaz.';
+  }
   if (S && S.exam.state === 'RUNNING') note = `Sınav sürüyor: sistemi kapatırsanız sınav biter. ${note}`;
   setText($('shutdownNote'), note);
   $('shutdownDialog').hidden = false;

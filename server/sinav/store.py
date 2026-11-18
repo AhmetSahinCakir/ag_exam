@@ -41,7 +41,7 @@ ALERTS_DIRNAME = "Uyarılar"          # one file per student with that student's
 EVENTS_CSV_NAME = "olay-kaydi.csv"
 
 # What agents are told while the teacher closes the exam for everybody ("Yeni sınav",
-# "Sistemi kapat"): hand in the last saved file and exit.
+# "Sistemi kapat"): the program exits. Nothing is ever handed in automatically.
 CLOSED = "CLOSED"
 # A file that arrives this long after "Sınavı bitir" still counts as on time (an upload that
 # was already on its way).
@@ -71,9 +71,9 @@ class Submission:
     filename: str
     sha256: str
     size: int
-    auto: bool
     ts: float
     late: bool = False  # handed in by the student after the exam had ended
+    auto: bool = False  # unused; only kept so that state files of older versions still load
 
 
 @dataclass
@@ -242,7 +242,8 @@ class Store:
         self.ignored_files: set[str] = set()
         self.recording_applied: str | None = None  # record path last sent to MediaMTX
         self.folder_error = ""
-        self.closing = False  # agents are being told to hand in and exit
+        self.closing = False  # agents are being told that the exam is closed
+        self.panel_clients = 0  # panel windows that are open right now
         self.roster: dict[str, RosterEntry] = {}
         self.roster_name = ""
         self.students: dict[str, Student] = {}
@@ -755,7 +756,7 @@ class Store:
 
         keep = {key: getattr(self, key) for key in (
             "roster", "roster_name", "_waiters", "mediamtx_ok", "mediamtx_checked",
-            "discovery_error", "config_error", "recording_applied")}
+            "discovery_error", "config_error", "recording_applied", "panel_clients")}
         self.__init__(self.cfg)
         for key, value in keep.items():
             setattr(self, key, value)
@@ -1000,7 +1001,7 @@ class Store:
         if not data:
             raise ApiError(400, "Dosya boş.")
 
-    def submit(self, st: Student, filename: str, data: bytes, auto: bool, claimed_sha: str = "",
+    def submit(self, st: Student, filename: str, data: bytes, claimed_sha: str = "",
                stale: bool = False, original_name: str = "") -> dict[str, Any]:
         """A student uploaded a file. It counts only once it is really in the submissions folder."""
         if self.state == WAITING:
@@ -1036,19 +1037,18 @@ class Store:
             raise ApiError(500, "Dosya öğretmen bilgisayarına doğru kaydedilemedi. Yeniden deneyin.")
 
         submission = self._register_submission(
-            st, name, data, sha, version, auto, from_folder=False,
+            st, name, data, sha, version, from_folder=False,
             original=_clean(Path((original_name or filename).replace("\\", "/")).name, 120), stale=stale)
         return {"sha256": sha, "filename": name, "version": version, "size": len(data), "verified": True,
                 "late": submission.late}
 
     def _register_submission(self, st: Student, name: str, data: bytes, sha: str, version: int,
-                             auto: bool, from_folder: bool, original: str = "",
+                             from_folder: bool, original: str = "",
                              stale: bool = False) -> Submission:
         now = time.time()
-        # Handed in by the student after the exam had ended. Files collected automatically
-        # when the teacher closes the exam are not "late": the student did nothing wrong.
-        late = self.state == ENDED and not auto and now - self.ended_at > LATE_GRACE_S
-        submission = Submission(version=version, filename=name, sha256=sha, size=len(data), auto=auto,
+        # Handed in after the exam had ended.
+        late = self.state == ENDED and now - self.ended_at > LATE_GRACE_S
+        submission = Submission(version=version, filename=name, sha256=sha, size=len(data),
                                 ts=now, late=late)
         st.submissions.append(submission)
         st.submitted = True
@@ -1057,13 +1057,11 @@ class Store:
 
         if from_folder:
             label = "Teslim dosyası klasörde bulundu"
-        elif auto:
-            label = "Otomatik teslim alındı"
         else:
             label = "Geç teslim etti" if late else "Teslim etti"
         self.add_event(
-            st.numara, "auto_submit" if auto else "submit", INFO, f"{label}: {name}",
-            {"filename": name, "sha256": sha, "size": len(data), "version": version, "auto": auto,
+            st.numara, "submit", INFO, f"{label}: {name}",
+            {"filename": name, "sha256": sha, "size": len(data), "version": version,
              "from_folder": from_folder, "original": original, "late": late},
         )
         if late:
@@ -1180,7 +1178,7 @@ class Store:
                 self.ignored_files.add(name)
                 continue
             self._register_submission(st, name, data, _sha256(data), len(st.submissions) + 1,
-                                      auto=False, from_folder=True)
+                                      from_folder=True)
 
     def streams_to_stop(self) -> list[str]:
         """Students whose file has arrived: their screen stream is no longer needed."""
@@ -1195,11 +1193,10 @@ class Store:
                 writer = csv.writer(handle, delimiter=";", lineterminator="\r\n")
                 if new:
                     writer.writerow(["zaman", "numara", "ad", "soyad", "dosya", "sha256", "boyut",
-                                     "otomatik", "surum", "ip", "bilgisayar", "mac", "gec_teslim"])
+                                     "gec_teslim", "surum", "ip", "bilgisayar", "mac"])
                 writer.writerow([
                     _fmt_time(sub.ts), st.numara, st.ad, st.soyad, sub.filename, sub.sha256, sub.size,
-                    "evet" if sub.auto else "hayır", sub.version, st.ip, st.hostname, st.mac,
-                    "evet" if sub.late else "hayır",
+                    "evet" if sub.late else "hayır", sub.version, st.ip, st.hostname, st.mac,
                 ])
         except OSError as exc:
             log.error("index.csv yazılamadı: %s", exc)
@@ -1374,6 +1371,7 @@ class Store:
                 "config_error": self.config_error,
                 "folder_error": self.folder_error,
                 "recording": bool(self.recording_applied),
+                "panel_clients": self.panel_clients,
                 "lan_ips": lan_ips or [],
                 "port": self.cfg.port,
             },

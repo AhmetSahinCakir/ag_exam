@@ -3,7 +3,7 @@
 Windows öğrenci bilgisayarı olmadan sunucuyu, paneli ve MediaMTX'i denemek için
 gerçek ajanın ağ davranışını taklit eder: UDP keşif -> giriş -> heartbeat ->
 (isteğe bağlı) ffmpeg test yayını -> sınav dosyasını indirme -> teslim. Sınav bitince
-gerçek ajan gibi açık kalır; öğretmen sınavı kapatınca dosyasını otomatik teslim edip çıkar.
+gerçek ajan gibi açık kalır; öğretmen sınavı kapatınca çıkar (otomatik teslim yoktur).
 
 Örnek (öğretmen bilgisayarında, sunucu çalışırken):
     python server/tests/sim_agent.py --count 5 --stream
@@ -85,11 +85,9 @@ class Api:
             raise RuntimeError(f"{method} {path} -> {exc.code}: {detail}") from None
         return payload if raw else json.loads(payload.decode("utf-8"))
 
-    def submit(self, filename: str, content: bytes, auto: bool) -> dict:
+    def submit(self, filename: str, content: bytes) -> dict:
         boundary = uuid.uuid4().hex
         parts = [
-            f'--{boundary}\r\nContent-Disposition: form-data; name="auto"\r\n\r\n'
-            f'{"true" if auto else "false"}\r\n'.encode(),
             # The real agent sends the hash of the file it read, so that the server can tell
             # whether the upload arrived intact.
             f'--{boundary}\r\nContent-Disposition: form-data; name="sha256"\r\n\r\n'
@@ -207,7 +205,7 @@ class SimAgent(threading.Thread):
                 content = self.exam_bytes or b""
                 if not self.args.submit_unchanged:
                     content += f"\ncozum-{self.numara}".encode()
-                result = self.api.submit("sinav.pka", content, auto=False)
+                result = self.api.submit("sinav.pka", content)
                 self.log(f"teslim edildi: {result['filename']} sha256={result['sha256'][:16]}…")
                 submitted = True
                 return
@@ -219,11 +217,8 @@ class SimAgent(threading.Thread):
                 return
 
             if state == "CLOSED":
-                # The teacher closed the exam for everybody: hand in the last saved file and exit.
-                if not submitted and self.exam_bytes is not None:
-                    content = self.exam_bytes + f"\notomatik-{self.numara}".encode()
-                    result = self.api.submit("sinav.pka", content, auto=True)
-                    self.log(f"otomatik teslim: {result['filename']}")
+                # The teacher closed the exam for everybody: the program exits. Nothing is
+                # handed in automatically.
                 self.log("sınav kapatıldı, çıkılıyor")
                 return
 
@@ -235,7 +230,7 @@ class SimAgent(threading.Thread):
                 if (self.args.late_submit is not None and not submitted and self.exam_bytes is not None
                         and time.monotonic() - ended > self.args.late_submit):
                     content = self.exam_bytes + f"\ngec-{self.numara}".encode()
-                    result = self.api.submit("sinav.pka", content, auto=False)
+                    result = self.api.submit("sinav.pka", content)
                     self.log(f"geç teslim: {result['filename']} (geç: {result.get('late')})")
                     return
             time.sleep(2)

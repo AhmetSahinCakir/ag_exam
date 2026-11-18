@@ -24,6 +24,12 @@ sunucu:
   # Ajanların sunucuyu bulmak için yayın (broadcast) yaptığı UDP portu.
   # Değiştirirseniz agent.json içindeki discovery_port ile aynı olmalı.
   kesif_portu: 47000
+  # Öğretmen paneli nasıl açılsın?
+  #   uygulama : kendi penceresinde, sekmesiz ve adres çubuksuz (Edge ya da Chrome ile).
+  #              Bir uygulama gibi görünür; pencereyi kapatınca "yalnızca pencere mi,
+  #              sistem mi kapansın?" diye sorulur.
+  #   tarayici : varsayılan tarayıcıda, sıradan bir sekme olarak.
+  panel_penceresi: uygulama
 
 # -----------------------------------------------------------------------------
 # Ekran yayını (ffmpeg -> MediaMTX)
