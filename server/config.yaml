@@ -97,7 +97,7 @@ esikler:
   # Bu süre boyunca sinyal (heartbeat) gelmezse veya ekran yayını yoksa
   # öğrenci kutusu kırmızıya döner.
   kopma_suresi_sn: 10
-  # "Sınavı başlat"tan sonra izinsiz programların kapatılmasına kadar geçen süre.
+  # "Sınav dosyasını paylaş"tan sonra izinsiz programların kapatılmasına kadar geçen süre.
   kapatma_geri_sayim_sn: 10
 
 # -----------------------------------------------------------------------------

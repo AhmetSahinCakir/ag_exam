@@ -300,15 +300,9 @@ def create_app(cfg: Config) -> FastAPI:
         return {"count": store.set_roster(entries, filename)}
 
     @app.post("/panel/api/start", dependencies=[Depends(local_only)])
-    async def panel_start(request: Request) -> dict[str, Any]:
-        body = await json_body(request)
-        try:
-            duration = int(body.get("duration_min") or 0)
-        except (TypeError, ValueError) as exc:
-            raise ApiError(422, "Süre dakika cinsinden bir sayı olmalı.") from exc
-        if duration < 0:
-            raise ApiError(422, "Süre negatif olamaz.")
-        store.start_exam(duration)
+    async def panel_start() -> dict[str, Any]:
+        """“Sınav dosyasını paylaş”: makes the file downloadable and starts the exam."""
+        store.start_exam()
         return {"state": store.state}
 
     @app.post("/panel/api/end", dependencies=[Depends(local_only)])

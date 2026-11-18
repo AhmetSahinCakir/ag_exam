@@ -3,12 +3,18 @@ using System.Text.Json.Serialization;
 
 namespace SinavAjan.Core;
 
-/// <summary>Small note next to sinav.pka: which exam it belongs to and when it was downloaded.</summary>
+/// <summary>
+/// Small note the agent keeps about the exam file: which exam it belongs to and where the
+/// student chose to save it. It lets a restarted agent continue with the same file.
+/// </summary>
 public sealed class ExamFileMeta
 {
     [JsonPropertyName("exam_id")] public string ExamId { get; set; } = "";
 
-    /// <summary>Last-write time (UTC ticks) of sinav.pka right after the download.</summary>
+    /// <summary>Full path the student picked in the "save" dialog.</summary>
+    [JsonPropertyName("path")] public string Path { get; set; } = "";
+
+    /// <summary>Last-write time (UTC ticks) of the file right after the download.</summary>
     [JsonPropertyName("baseline_write_ticks")] public long BaselineWriteTicks { get; set; }
 
     /// <summary>SHA-256 of the last version the server confirmed.</summary>

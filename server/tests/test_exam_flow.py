@@ -178,13 +178,15 @@ def test_exam_state_machine_and_exam_file_access(env: Env):
 
     assert env.upload_exam(b"x", "sinav.txt").status_code == 400
     assert env.upload_exam(b"", "sinav.pka").status_code == 400
-    env.start(duration=40)
+    env.start()
     assert env.store.state == RUNNING
 
     hb = client.post("/api/heartbeat", json={"fg_process": "PacketTracer.exe", "monitors": 1,
                                              "ffmpeg_alive": True, "exam_state_seen": "WAITING"}).json()
-    assert hb["exam_state"] == RUNNING and hb["exam_id"]
-    assert abs(hb["ends_at"] - hb["started_at"] - 40 * 60) < 1
+    assert hb["exam_state"] == RUNNING and hb["exam_id"] and hb["started_at"] > 0
+    # There is no duration or deadline: the teacher keeps the time.
+    assert "ends_at" not in hb and "duration_min" not in env.store.snapshot()["exam"]
+    # Once shared, the file can be downloaded.
     assert client.get("/api/exam-file").content == EXAM_BYTES
 
     assert env.panel.post("/panel/api/start", headers=PANEL, json={}).status_code == 409
@@ -367,7 +369,7 @@ def test_agent_exit_marks_student_red(env: Env):
 
 def test_state_survives_a_server_restart(env: Env):
     client, body = env.login(numara="2021001", ad="Ahmet", soyad="Çakır")
-    env.start(duration=30)
+    env.start()
     env.submit(client, b"cozum")
     env.store.save()
 

@@ -7,11 +7,11 @@
     UI Automation ile bir öğrenci gibi kullanır:
 
       keşif -> sınıf/öğretmen onayı -> giriş -> ekran yayını (ffmpeg/gdigrab -> MediaMTX)
-      -> sınav başlatma -> izinsiz programların kapatılması -> öndeki pencere toleransı
+      -> sınav dosyasının paylaşılması (sınavın başlaması) -> dosyanın seçilen yere indirilmesi
+      -> izinsiz programların kapatılması -> öndeki pencere toleransı
       -> kaydetmeden teslim uyarısı -> teslim -> ajanın kapanması ve iz bırakmaması
       -> ajan zorla sonlandırıldığında ffmpeg'in de kapanması (Job Object)
 
-    Packet Tracer bu ortamda kurulu olmadığı için "Packet Tracer açılamadı" olayı beklenir.
     Yönetici olarak ve etkileşimli bir masaüstü oturumunda çalıştırılmalıdır.
 
 .EXAMPLE
@@ -69,6 +69,29 @@ public static class Native
         return (GetWindowLongPtr(hwnd, -16).ToInt64() & 0x00020000L) != 0;   // GWL_STYLE & WS_MINIMIZEBOX
     }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hwnd, StringBuilder name, int max);
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hwnd);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, string lParam);
+
+    // Types a path into the "File name" box of a standard save dialog.
+    public static bool SetFileDialogPath(IntPtr dialog, string path)
+    {
+        IntPtr edit = IntPtr.Zero;
+        EnumChildWindows(dialog, delegate(IntPtr child, IntPtr lParam)
+        {
+            var name = new StringBuilder(64);
+            GetClassName(child, name, 64);
+            if (name.ToString() != "Edit") return true;
+            var parentName = new StringBuilder(64);
+            GetClassName(GetParent(child), parentName, 64);
+            if (!parentName.ToString().StartsWith("ComboBox")) return true;
+            edit = child;
+            return false;
+        }, IntPtr.Zero);
+        if (edit == IntPtr.Zero) return false;
+        SendMessage(edit, 0x000C, IntPtr.Zero, path);   // WM_SETTEXT
+        return true;
+    }
 
     // The standard message box (window class #32770) of a process, or zero.
     public static IntPtr FindMessageBox(uint processId)
@@ -455,13 +478,13 @@ klasorler:
     Get-Process -Name notepad -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
     # --------------------------------------------------------------- exam start
-    Step 'Sınavı başlat'
+    Step 'Sınav dosyasını paylaş (sınav başlar)'
     $exam = Join-Path $OutDir 'sinav.pka'
     [IO.File]::WriteAllBytes($exam, [Text.Encoding]::ASCII.GetBytes(('PKA-E2E-SINAV-DOSYASI ' * 400)))
     $upload = Curl-Text @('-m', '10', '-H', 'X-Panel: 1', '-F', "file=@$exam", "$base/panel/api/exam-file")
     Check ($upload -match 'sha256') 'sınav dosyası yüklendi'
-    $start = Panel-Post '/panel/api/start' '{"duration_min": 30}'
-    Check ($start -match 'RUNNING') "sınav başlatıldı ($start)"
+    $start = Panel-Post '/panel/api/start'
+    Check ($start -match 'RUNNING') "sınav dosyası paylaşıldı, sınav başladı ($start)"
     if ($start -notmatch 'RUNNING') { throw 'Sınav başlatılamadı; kalan adımlar anlamsız.' }
 
     $countdown = Wait-AgentText 'Sınav başlıyor' 8
@@ -469,16 +492,33 @@ klasorler:
     Shot 'geri-sayim'
     $running = Wait-AgentText '^Sınav sürüyor$' 20
     Check ([bool]$running) 'geri sayımdan sonra sınav paneli: "Sınav sürüyor"'
-    Check ([bool](Wait-AgentText '^\d\d:\d\d$' 5)) 'sınav panelinde kalan süre görünüyor'
+    Check (-not (Agent-Texts | Where-Object { $_ -match '^\d\d:\d\d(:\d\d)?$' })) 'öğrenci panelinde süre gösterilmiyor'
+    Check ([bool](Wait-Until { (Count-Events $numara 'enforcement_started') -ge 1 } 10)) 'olay: uygulama denetimi başladı'
+    Check (-not (Find-Agent '^Teslim et$' $Types::Button)) 'dosya indirilmeden "Teslim et" görünmüyor'
+    Shot 'panel-indirmeden-once'
 
-    $pka = Join-Path $localDir "$numara\sinav.pka"
-    $downloaded = Wait-Until { Test-Path $pka } 10
-    Check ([bool]$downloaded) "sınav dosyası indirildi: $pka"
+    Step 'Sınav dosyasını indir (kayıt yerini öğrenci seçer)'
+    $studentFolder = Join-Path $OutDir 'ogrencinin-sectigi-klasor'
+    New-Item -ItemType Directory -Force -Path $studentFolder | Out-Null
+    $pka = Join-Path $studentFolder 'benim-sinavim.pka'
+    Click-Agent '^Sınav dosyasını indir$'
+    $saveDialog = Wait-Until { $h = [Native]::FindMessageBox([uint32]$script:agent.Id); if ($h -ne [IntPtr]::Zero) { $h } } 15
+    Check ([bool]$saveDialog) '"Sınav dosyasını indir" kayıt yerini soran pencereyi açıyor'
+    Start-Sleep -Seconds 1
+    Shot 'kayit-yeri'
+    if ($saveDialog) {
+        Check ([Native]::SetFileDialogPath($saveDialog, $pka)) 'kayıt yeri seçilebildi'
+        Start-Sleep -Milliseconds 600
+        [Native]::PostMessage($saveDialog, 0x0111, [IntPtr]1, [IntPtr]::Zero) | Out-Null   # "Kaydet"
+    }
+    $downloaded = Wait-Until { Test-Path $pka } 20
+    Check ([bool]$downloaded) 'sınav dosyası öğrencinin seçtiği yere indirildi'
     if ($downloaded) {
         Check ((Get-FileHash $pka).Hash -eq (Get-FileHash $exam).Hash) 'indirilen dosya yüklenenle aynı'
     }
-    Check ([bool](Wait-Until { (Count-Events $numara 'enforcement_started') -ge 1 } 10)) 'olay: uygulama denetimi başladı'
-    Check ([bool](Wait-Until { (Count-Events $numara 'pt_launch_failed') -ge 1 } 10)) 'olay: Packet Tracer açılamadı (bu ortamda kurulu değil; beklenen)'
+    Check ([bool](Wait-Until { (Count-Events $numara 'exam_file_ready') -ge 1 } 10)) 'olay: sınav dosyası indirildi'
+    Check ([bool](Wait-Until { Find-Agent '^Teslim et$' $Types::Button } 10)) 'dosya indirilince "Teslim et" düğmesi çıkıyor'
+    Check (-not (Get-Process | Where-Object { $_.ProcessName -like 'OpenWith*' })) 'dosya kendiliğinden açılmıyor (yalnızca indiriliyor)'
     Start-Sleep -Seconds 2
     Shot 'yan-panel'
     Write-Host '  sınav başında kapatılan programlar:'
@@ -506,9 +546,9 @@ klasorler:
 
     # ----------------------------------------------------------- foreground rule
     Step 'Öndeki pencere toleransı (5 sn)'
-    # The panel title is "Sınav" or "Sınav — 29:41" (remaining time), never "Sınav Ajanı".
-    $agentWindow = Wait-Until { $h = Get-AgentWindowHandle '^Sınav( — .+)?$'; if ($h -ne [IntPtr]::Zero) { $h } } 10
-    Check ([bool]$agentWindow) 'sınav paneli bulundu (pencere başlığı "Sınav — kalan süre")'
+    # The panel title is "Sınav" (the other windows are titled "Sınav Ajanı").
+    $agentWindow = Wait-Until { $h = Get-AgentWindowHandle '^Sınav$'; if ($h -ne [IntPtr]::Zero) { $h } } 10
+    Check ([bool]$agentWindow) 'sınav paneli bulundu (pencere başlığı "Sınav")'
     if ($agentWindow) {
         Check ([Native]::HasMinimizeBox($agentWindow)) 'sınav panelinde simge durumuna küçültme düğmesi var'
         [Native]::ShowWindow($agentWindow, 6) | Out-Null      # SW_MINIMIZE
@@ -563,8 +603,8 @@ klasorler:
     Check ([bool]$done) '"Teslim alındı" penceresi'
     Shot 'teslim-alindi'
     $texts = (Agent-Texts) -join "`n"
-    Check ($texts -match $localHash) 'pencerede dosyanın SHA-256 değeri gösteriliyor'
-    Check ($texts -match '2021001_SukruCagriIsik\.pka') 'dosya adı Türkçe karakterler çevrilerek oluşturuldu (2021001_SukruCagriIsik.pka)'
+    Check ($texts -notmatch $localHash -and $texts -notmatch 'SHA') 'öğrenciye SHA gösterilmiyor'
+    Check (-not (Find-Agent 'sil' $Types::Button)) 'son pencerede "dosyaları sil" seçeneği yok'
     Click-Agent '^Kapat'
 
     $exited = $script:agent.WaitForExit(20000)
@@ -572,7 +612,7 @@ klasorler:
     Start-Sleep -Seconds 2
     Check (-not (Get-Process ffmpeg -ErrorAction SilentlyContinue)) 'ajan kapanınca ffmpeg.exe de kapandı'
     $submitted = Join-Path $OutDir 'submissions\2021001_SukruCagriIsik.pka'
-    Check (Test-Path $submitted) 'teslim dosyası sunucuda kaydedildi'
+    Check (Test-Path $submitted) 'teslim dosyası sunucuda Türkçe karakterler çevrilerek kaydedildi (2021001_SukruCagriIsik.pka)'
     if (Test-Path $submitted) {
         Check ((Get-FileHash $submitted -Algorithm SHA256).Hash.ToLowerInvariant() -eq $localHash) 'sunucudaki dosya öğrencinin kaydettiğiyle birebir aynı'
     }
@@ -584,6 +624,7 @@ klasorler:
     Check (-not (Get-Service | Where-Object { $_.Name -match 'Sinav' -or $_.DisplayName -match 'Sinav' })) 'ajana ait servis yok'
     Check (-not (Get-ScheduledTask | Where-Object { $_.TaskName -match 'Sinav' })) 'ajana ait zamanlanmış görev yok'
     Check (-not (Get-Process SinavAjan -ErrorAction SilentlyContinue)) 'SinavAjan.exe çalışmıyor'
+    Check (Test-Path $pka) 'öğrencinin indirdiği dosya yerinde duruyor (silinmiyor)'
     Write-Host "  $localDir içeriği:"
     Get-ChildItem -Recurse -File $localDir | ForEach-Object { Write-Host "    $($_.FullName.Substring($localDir.Length + 1))  ($($_.Length) bayt)" }
 

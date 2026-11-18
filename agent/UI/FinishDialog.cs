@@ -1,20 +1,17 @@
 namespace SinavAjan.UI;
 
 /// <summary>
-/// Final message ("Teslim alındı" / "Sınav sona erdi"). The text can be selected and
-/// copied (SHA-256). Closes by itself after a while so that the agent always exits.
+/// Final message ("Teslim alındı" / "Sınav sona erdi"). Closes by itself after a while so
+/// that the agent always exits.
 /// </summary>
 public sealed class FinishDialog : Form
 {
     private const int AutoCloseSeconds = 180;
-    private const int ContentWidth = 480; // logical pixels; a SHA-256 value fits on one line
+    private const int ContentWidth = 380; // logical pixels
 
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 1000 };
     private readonly Button _close;
     private int _left = AutoCloseSeconds;
-
-    /// <summary>True when the student asked to delete the local exam files.</summary>
-    public bool CleanRequested { get; private set; }
 
     public FinishDialog(FinishInfo info)
     {
@@ -32,21 +29,15 @@ public sealed class FinishDialog : Form
 
         var width = LogicalToDeviceUnits(ContentWidth);
         var pad = LogicalToDeviceUnits(28);
-        ClientSize = new Size(width + 2 * pad, LogicalToDeviceUnits(info.Success ? 360 : 330));
 
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
-            Padding = new Padding(pad, pad, pad, LogicalToDeviceUnits(22)),
+            Padding = new Padding(pad, pad, pad, LogicalToDeviceUnits(24)),
             BackColor = Theme.Background,
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, width));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         var title = new StatusLabel
         {
@@ -54,47 +45,28 @@ public sealed class FinishDialog : Form
             Font = Theme.Semibold(15F),
             DotColor = info.Success ? Theme.Good : Theme.Bad,
             MaximumSize = new Size(width, 0),
-            Margin = new Padding(0, 0, 0, LogicalToDeviceUnits(14)),
+            Margin = new Padding(0, 0, 0, LogicalToDeviceUnits(12)),
         };
-        var message = new TextBox
+        var message = new PlainLabel
         {
             Text = info.Message,
-            Multiline = true,
-            ReadOnly = true,
-            BorderStyle = BorderStyle.None,
-            BackColor = Theme.Background,
-            ForeColor = Theme.Text,
             Font = Theme.Regular(10F),
-            Dock = DockStyle.Fill,
-            Margin = new Padding(0, 0, 0, LogicalToDeviceUnits(16)),
-            TabStop = false,
+            MaximumSize = new Size(width, 0),
+            Margin = new Padding(0, 0, 0, LogicalToDeviceUnits(24)),
         };
-
         _close = Theme.PrimaryButton("Kapat", LogicalToDeviceUnits(40));
         _close.Width = width;
-        _close.Margin = new Padding(0, 0, 0, LogicalToDeviceUnits(8));
         _close.Click += (_, _) => Close();
 
-        layout.Controls.Add(title, 0, 0);
-        layout.Controls.Add(message, 0, 1);
-        layout.Controls.Add(_close, 0, 2);
-
-        // Deleting is only offered when the server confirmed the submission.
-        if (info.Success)
-        {
-            var clean = Theme.SecondaryButton("Sınav dosyalarını bu bilgisayardan sil ve kapat",
-                LogicalToDeviceUnits(36));
-            clean.Width = width;
-            clean.Click += (_, _) =>
-            {
-                CleanRequested = true;
-                Close();
-            };
-            layout.Controls.Add(clean, 0, 3);
-        }
-
+        layout.Controls.Add(title);
+        layout.Controls.Add(message);
+        layout.Controls.Add(_close);
         Controls.Add(layout);
         AcceptButton = _close;
+
+        // Exactly as tall as the content.
+        var content = layout.GetPreferredSize(new Size(width + 2 * pad, 0)).Height;
+        ClientSize = new Size(width + 2 * pad, content);
 
         UpdateCloseText();
         _timer.Tick += (_, _) =>

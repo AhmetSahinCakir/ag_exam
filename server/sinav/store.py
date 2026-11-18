@@ -182,10 +182,6 @@ def describe_agent_event(kind: str, d: dict[str, Any]) -> tuple[str, bool, bool,
         return INFO, False, False, "Sınav dosyası indirildi"
     if kind == "exam_file_kept":
         return INFO, False, False, "Önceki oturumdan kalan sınav dosyasıyla devam ediliyor"
-    if kind == "pt_started":
-        return INFO, False, False, "Packet Tracer açıldı"
-    if kind == "pt_launch_failed":
-        return WARNING, True, True, f"Packet Tracer açılamadı: {_clean(d.get('error'), 160) or '?'}"
     if kind == "enforcement_started":
         return INFO, False, False, "Uygulama denetimi başladı"
     if kind == "agent_exit":
@@ -202,7 +198,6 @@ class Store:
         self.exam_id = ""
         self.started_at = 0.0
         self.ended_at = 0.0
-        self.duration_min = 0
         self.exam_file: dict[str, Any] | None = None
         self.roster: dict[str, RosterEntry] = {}
         self.roster_name = ""
@@ -267,7 +262,6 @@ class Store:
             "exam_id": self.exam_id,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
-            "duration_min": self.duration_min,
             "exam_file": self.exam_file,
             "roster_name": self.roster_name,
             "roster": [asdict(e) for e in self.roster.values()],
@@ -296,7 +290,6 @@ class Store:
             self.exam_id = data.get("exam_id", "")
             self.started_at = float(data.get("started_at") or 0)
             self.ended_at = float(data.get("ended_at") or 0)
-            self.duration_min = int(data.get("duration_min") or 0)
             self.exam_file = data.get("exam_file")
             self.roster_name = data.get("roster_name", "")
             self.roster = {e["numara"]: RosterEntry(**e) for e in data.get("roster", [])}
@@ -447,9 +440,10 @@ class Store:
         self.changed()
         return len(entries)
 
-    def start_exam(self, duration_min: int = 0) -> None:
+    def start_exam(self) -> None:
+        """Share the exam file with the students. Sharing the file IS the start of the exam."""
         if self.state == RUNNING:
-            raise ApiError(409, "Sınav zaten başlatılmış.")
+            raise ApiError(409, "Sınav dosyası zaten paylaşıldı; sınav sürüyor.")
         if self.state == ENDED:
             raise ApiError(409, "Sınav sona erdi. Yeni bir sınav için önce “Yeni sınav”a basın.")
         if not self.exam_file:
@@ -458,9 +452,7 @@ class Store:
         self.exam_id = secrets.token_hex(8)
         self.started_at = time.time()
         self.ended_at = 0.0
-        self.duration_min = max(0, min(int(duration_min or 0), 24 * 60))
-        extra = f" (süre: {self.duration_min} dk)" if self.duration_min else ""
-        self.add_event("", "exam_started", INFO, f"Sınav başlatıldı{extra}")
+        self.add_event("", "exam_started", INFO, "Sınav dosyası paylaşıldı; sınav başladı")
 
     def end_exam(self) -> None:
         if self.state != RUNNING:
@@ -498,12 +490,6 @@ class Store:
                        "Yeni sınav hazırlandı" + (f"; önceki sınav arşivlendi: {archive}" if archive else ""))
         self.save()
         return archive
-
-    @property
-    def ends_at(self) -> float:
-        if self.state == RUNNING and self.duration_min and self.started_at:
-            return self.started_at + self.duration_min * 60
-        return 0.0
 
     # --------------------------------------------------------------- agent API
 
@@ -673,7 +659,6 @@ class Store:
             "allowlist_version": self.cfg.policy.version,
             "server_time": time.time(),
             "started_at": self.started_at,
-            "ends_at": self.ends_at,
         }
 
     def auth(self, token: str) -> Student:
@@ -955,8 +940,6 @@ class Store:
                 "exam_id": self.exam_id,
                 "started_at": self.started_at,
                 "ended_at": self.ended_at,
-                "ends_at": self.ends_at,
-                "duration_min": self.duration_min,
                 "file": self.exam_file,
             },
             "roster": {"name": self.roster_name, "count": len(self.roster), "missing": missing},

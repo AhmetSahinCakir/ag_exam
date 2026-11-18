@@ -22,7 +22,6 @@ const ROSTER_TEXT = {
 const ROW_EVENT_LIMIT = 6;
 
 let S = null;                    // sunucudan gelen son durum
-let clockOffset = 0;             // sunucu saati - yerel saat (sn)
 let lastAlertId = null;          // sesli uyarı için
 let filter = 'all';              // 'all' | 'alerts'
 let modalNumara = null;
@@ -51,15 +50,6 @@ function fmtClock(ts) {
 
 function fmtClockSeconds(ts) {
   return new Date(ts * 1000).toLocaleTimeString('tr-TR', { hour12: false });
-}
-
-function fmtDuration(seconds) {
-  seconds = Math.max(0, Math.floor(seconds));
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  const pad = (n) => String(n).padStart(2, '0');
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
 function toast(message, isError) {
@@ -453,7 +443,7 @@ function renderHeader() {
   $('btnRoster').parentElement.classList.toggle('done', S.roster.count > 0);
   setText($('btnRoster'), S.roster.count ? 'Değiştir' : 'Dosya seç');
   $('btnStart').disabled = !file;
-  $('btnStart').title = file ? '' : 'Önce sınav dosyasını seçin';
+  $('btnStart').title = file ? 'Dosyayı paylaşmak sınavı başlatır' : 'Önce sınav dosyasını seçin';
 
   renderMenuInfo();
   renderBanners();
@@ -496,21 +486,16 @@ function renderBanners() {
 
 function renderTimer() {
   if (!S) return;
-  const now = Date.now() / 1000 + clockOffset;
   const exam = S.exam;
+  // Süre tutulmaz; yalnızca başlangıç (ve bitiş) saati gösterilir.
   let text = '';
-  if (exam.state === 'RUNNING') {
-    text = fmtDuration(now - exam.started_at);
-    if (exam.ends_at) {
-      const left = exam.ends_at - now;
-      text += left >= 0 ? ` · kalan ${fmtDuration(left)}` : ' · süre doldu';
-    }
+  if (exam.state === 'RUNNING' && exam.started_at) {
+    text = `başlangıç ${fmtClock(exam.started_at)}`;
   } else if (exam.state === 'ENDED' && exam.started_at) {
-    text = `süre ${fmtDuration(exam.ended_at - exam.started_at)}`;
+    text = `${fmtClock(exam.started_at)} – ${fmtClock(exam.ended_at)}`;
   }
   setText($('timer'), text);
 }
-setInterval(renderTimer, 1000);
 
 /* ----------------------------------------------------------------- öğrenci listesi (sağ) */
 
@@ -849,7 +834,6 @@ function connectStream() {
   const source = new EventSource('/panel/api/stream');
   source.onmessage = (message) => {
     S = JSON.parse(message.data);
-    clockOffset = S.server_time - Date.now() / 1000;
     const down = $('banners').querySelector('.server-down');
     if (down) { down.remove(); $('banners').dataset.signature = ''; }
     render();
@@ -911,13 +895,12 @@ function bindControls() {
     $('fileRoster'), '/panel/api/roster', (file, data) => `Öğrenci listesi yüklendi: ${data.count} öğrenci`));
 
   $('btnStart').addEventListener('click', async () => {
-    const duration = parseInt($('duration').value, 10) || 0;
-    const question = 'Sınav başlatılsın mı?\n\n'
-      + 'Öğrencilerde sınav dosyası açılacak ve izin verilmeyen programlar kısa bir geri sayımdan sonra kapatılacak.'
-      + (duration ? `\nSüre: ${duration} dakika.` : '');
+    const question = 'Sınav dosyası paylaşılsın mı?\n\n'
+      + 'Paylaştığınız anda sınav başlar: öğrencilerde izin verilmeyen programlar kısa bir geri sayımdan '
+      + 'sonra kapatılır ve öğrenciler dosyayı indirebilir.';
     if (!confirm(question)) return;
     try {
-      await api('/panel/api/start', { json: { duration_min: duration } });
+      await api('/panel/api/start');
     } catch (error) {
       toast(error.message, true);
     }

@@ -30,14 +30,15 @@ public sealed class MainForm : Form
     private bool _closeAllowed;
     private bool _searching;
     private string _panelLayoutKey = "";
+    private string _panelStage = "";
 
     // Controls that are refreshed while a screen is shown.
     private StatusLabel? _statusLabel;
     private PlainLabel? _noteLabel;
     private PlainLabel? _countdownLabel;
-    private PlainLabel? _remainingCaption;
-    private PlainLabel? _remainingLabel;
     private Button? _submitButton;
+    private Button? _downloadButton;
+    private string _downloadButtonText = "";
 
     public MainForm(AgentConfig config)
     {
@@ -82,8 +83,8 @@ public sealed class MainForm : Form
     private void NewScreen(int logicalWidth = ContentWidth, int topPadding = 36)
     {
         _statusLabel = null;
-        _noteLabel = _countdownLabel = _remainingCaption = _remainingLabel = null;
-        _submitButton = null;
+        _noteLabel = _countdownLabel = null;
+        _submitButton = _downloadButton = null;
         AcceptButton = null;
 
         _frame.SuspendLayout();
@@ -471,12 +472,12 @@ public sealed class MainForm : Form
         AddText($"İzin verilmeyen programlar {Math.Max(0, seconds)} saniye içinde kapatılacak.", 14);
         _countdownLabel = AddLabel("", Theme.Semibold(44F), Theme.Accent, 14);
         _noteLabel = AddNote("", 10);
-        AddNote("Açık işlerinizi hemen kaydedin. Sınav dosyası Packet Tracer ile kendiliğinden açılacak.", 0);
+        AddNote("Açık işlerinizi hemen kaydedin. Geri sayım bitince sınav dosyasını indirebileceksiniz.", 0);
     }
 
     /// <summary>
     /// During the exam the window becomes a small panel at the right edge of the screen. It stays
-    /// above Packet Tracer so that "Teslim et" is always at hand, and it can be moved or minimised.
+    /// above Packet Tracer so that its buttons are always at hand, and it can be moved or minimised.
     /// </summary>
     private void ShowExamPanel()
     {
@@ -486,23 +487,51 @@ public sealed class MainForm : Form
         TopMost = true;
         Text = PanelTitle;
 
-        NewScreen(PanelWidth, topPadding: 16);
-        AddLabel("Sınav sürüyor", Theme.Semibold(11F), Theme.Text, 2);
-        AddNote($"{_controller!.Numara} — {_controller.FullName}", 14);
-        _remainingCaption = AddNote("Kalan süre", 0);
-        _remainingLabel = AddLabel("", Theme.Semibold(20F), Theme.Text, 12);
-        _statusLabel = AddStatus(16);
-
-        _submitButton = AddPrimary("Teslim et", 8, 42);
-        _submitButton.Click += async (_, _) => await SubmitClickedAsync();
-        var open = AddSecondary("Sınav dosyasını aç", 12, 34);
-        open.Click += (_, _) => _controller?.OpenExamFile();
-        _noteLabel = AddNote("", 0, Theme.Bad);
-
-        _panelLayoutKey = "";
-        UpdateDynamic();
+        BuildExamPanel();
         var area = Screen.FromControl(this).WorkingArea;
         Location = new Point(area.Right - Width - Px(12), area.Top + Px(72));
+    }
+
+    private static string PanelStage(ExamController controller) =>
+        controller.ExamFileReady ? "ready|" + controller.ExamFilePath : "download";
+
+    /// <summary>
+    /// The panel shows only what the student does next: first "download the exam file" (to a
+    /// place they choose), and once the file is on the computer, "submit".
+    /// </summary>
+    private void BuildExamPanel()
+    {
+        var controller = _controller!;
+        _panelStage = PanelStage(controller);
+
+        NewScreen(PanelWidth, topPadding: 16);
+        AddLabel("Sınav sürüyor", Theme.Semibold(11F), Theme.Text, 2);
+        AddNote($"{controller.Numara} — {controller.FullName}", 12);
+        _statusLabel = AddStatus(16);
+
+        if (!controller.ExamFileReady)
+        {
+            _downloadButtonText = "Sınav dosyasını indir";
+            _downloadButton = AddPrimary(_downloadButtonText, 10, 42);
+            AddNote("Dosyayı nereye kaydedeceğinizi siz seçersiniz.", 10);
+        }
+        else
+        {
+            _submitButton = AddPrimary("Teslim et", 8, 42);
+            _submitButton.Click += async (_, _) => await SubmitClickedAsync();
+            _downloadButtonText = "Sınav dosyasını yeniden indir";
+            _downloadButton = AddSecondary(_downloadButtonText, 12, 34);
+
+            var path = controller.ExamFilePath;
+            var folder = Path.GetFileName(Path.GetDirectoryName(path) ?? "");
+            AddNote($"Dosyanız: {Path.GetFileName(path)}" + (folder.Length > 0 ? $" ({folder})" : ""), 4);
+            AddNote("Bitirince Packet Tracer'da Ctrl+S ile kaydedip “Teslim et”e basın.", 10);
+        }
+        _downloadButton.Click += async (_, _) => await DownloadClickedAsync();
+        _noteLabel = AddNote("", 0, Theme.Bad);
+
+        _panelLayoutKey = "\0"; // forces FitExamPanel in UpdateDynamic
+        UpdateDynamic();
     }
 
     /// <summary>Makes the exam panel exactly as tall as its content.</summary>
@@ -516,6 +545,14 @@ public sealed class MainForm : Form
     {
         var controller = _controller;
         if (controller == null || IsDisposed || controller.Phase == Phase.Finished) return;
+
+        // The exam panel changes its buttons once the exam file has been downloaded.
+        var panelShown = _shownPhase == Phase.Running && controller.Phase == Phase.Running;
+        if (panelShown && PanelStage(controller) != _panelStage)
+        {
+            BuildExamPanel();
+            return;
+        }
 
         if (_statusLabel != null)
         {
@@ -545,28 +582,6 @@ public sealed class MainForm : Form
             if (_countdownLabel.Text != text) _countdownLabel.Text = text;
         }
 
-        var remainingText = "";
-        if (_remainingLabel != null && _remainingCaption != null)
-        {
-            var remaining = controller.Remaining;
-            if (remaining != null)
-            {
-                var left = remaining.Value;
-                remainingText = left <= TimeSpan.Zero
-                    ? "Süre doldu"
-                    : left.TotalHours >= 1
-                        ? $"{(int)left.TotalHours}:{left.Minutes:00}:{left.Seconds:00}"
-                        : $"{left.Minutes:00}:{left.Seconds:00}";
-                _remainingLabel.ForeColor = left.TotalMinutes < 5 ? Theme.Bad : Theme.Text;
-            }
-            if (_remainingLabel.Text != remainingText) _remainingLabel.Text = remainingText;
-            _remainingLabel.Visible = _remainingCaption.Visible = remainingText.Length > 0;
-
-            // The remaining time is also in the title, so it stays visible on the taskbar when minimised.
-            var title = remainingText.Length > 0 ? $"{PanelTitle} — {remainingText}" : PanelTitle;
-            if (Text != title) Text = title;
-        }
-
         var note = "";
         if (_noteLabel != null)
         {
@@ -574,20 +589,60 @@ public sealed class MainForm : Form
             if (_noteLabel.Text != note) _noteLabel.Text = note;
         }
 
-        if (_submitButton != null)
+        if (_downloadButton != null && !controller.Downloading && !_downloadButton.Enabled)
         {
-            if (!controller.Submitting && !_submitButton.Enabled)
-            {
-                _submitButton.Enabled = true;
-                _submitButton.Text = "Teslim et";
-            }
-            var layoutKey = $"{remainingText.Length > 0}|{note}";
-            if (layoutKey != _panelLayoutKey)
-            {
-                _panelLayoutKey = layoutKey;
-                FitExamPanel();
-            }
+            _downloadButton.Enabled = true;
+            _downloadButton.Text = _downloadButtonText;
         }
+        if (_submitButton != null && !controller.Submitting && !_submitButton.Enabled)
+        {
+            _submitButton.Enabled = true;
+            _submitButton.Text = "Teslim et";
+        }
+
+        if (panelShown && note != _panelLayoutKey)
+        {
+            _panelLayoutKey = note;
+            FitExamPanel();
+        }
+    }
+
+    /// <summary>"Sınav dosyasını indir": the student picks where to save the file.</summary>
+    private async Task DownloadClickedAsync()
+    {
+        var controller = _controller;
+        if (controller == null || controller.Downloading) return;
+
+        string target;
+        using (var dialog = new SaveFileDialog
+               {
+                   Title = "Sınav dosyasını kaydet",
+                   FileName = "sinav.pka",
+                   Filter = "Packet Tracer etkinliği (*.pka)|*.pka",
+                   DefaultExt = "pka",
+                   AddExtension = true,
+                   OverwritePrompt = true,
+                   InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+               })
+        {
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            target = dialog.FileName;
+        }
+
+        if (_downloadButton != null)
+        {
+            _downloadButton.Enabled = false;
+            _downloadButton.Text = "İndiriliyor…";
+        }
+        var error = await controller.DownloadExamFileAsync(target);
+        if (IsDisposed || controller.Phase == Phase.Finished) return;
+        if (error != null)
+        {
+            MessageBox.Show(this, $"Sınav dosyası indirilemedi: {error}", AppTitle, MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+        ToastForm.ShowNotice("Sınav dosyası indirildi. Packet Tracer'da File → Open ile açabilirsiniz.");
     }
 
     private async Task SubmitClickedAsync()
@@ -598,8 +653,8 @@ public sealed class MainForm : Form
         switch (controller.CheckBeforeSubmit())
         {
             case SubmitCheck.NoFile:
-                MessageBox.Show(this, "Sınav dosyası bulunamadı. “Sınav dosyasını aç” düğmesini deneyin veya " +
-                                      "öğretmeninize haber verin.", AppTitle, MessageBoxButtons.OK,
+                MessageBox.Show(this, "Sınav dosyası indirdiğiniz yerde bulunamadı. Dosyayı taşıdıysanız geri " +
+                                      "koyun ya da yeniden indirin.", AppTitle, MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
                 return;
             case SubmitCheck.NotSaved:
@@ -635,20 +690,9 @@ public sealed class MainForm : Form
         ToastForm.CloseCurrent();
         Hide();
 
-        bool clean;
         using (var dialog = new FinishDialog(info))
         {
             dialog.ShowDialog();
-            clean = dialog.CleanRequested;
-        }
-        if (clean)
-        {
-            var error = AgentPaths.DeleteAll();
-            if (error != null)
-            {
-                MessageBox.Show($"Dosyalar silinemedi: {error}\n\nKlasörü elle silebilirsiniz:\n{AgentPaths.Root}",
-                    AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
         }
         _closeAllowed = true;
         Close();

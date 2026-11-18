@@ -84,9 +84,10 @@ class Env:
         return self.panel.post("/panel/api/exam-file", headers=PANEL,
                                files={"file": (name, data, "application/octet-stream")})
 
-    def start(self, duration: int = 0):
+    def start(self):
+        """Upload the exam file and share it (sharing the file starts the exam)."""
         assert self.upload_exam().status_code == 200
-        response = self.panel.post("/panel/api/start", headers=PANEL, json={"duration_min": duration})
+        response = self.panel.post("/panel/api/start", headers=PANEL)
         assert response.status_code == 200, response.text
 
     def submit(self, client: TestClient, data: bytes, auto: bool = False, name: str = "sinav.pka"):

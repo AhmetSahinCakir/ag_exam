@@ -17,10 +17,6 @@ internal static class NativeMethods
     public const uint PROCESS_SET_QUOTA = 0x0100;
     public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 
-    /// <summary>Fail instead of answering with the "Open with" picker for unknown file types.</summary>
-    public const uint ASSOCF_INIT_IGNOREUNKNOWN = 0x00000400;
-    public const int ASSOCSTR_EXECUTABLE = 2;
-
     public const int JobObjectExtendedLimitInformation = 9;
     public const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
 
@@ -53,10 +49,6 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern int GetSystemMetrics(int index);
-
-    [DllImport("shlwapi.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
-    public static extern int AssocQueryStringW(uint flags, int kind, string association, string? extra,
-        [Out] char[]? output, ref uint length);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern IntPtr OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint processId);

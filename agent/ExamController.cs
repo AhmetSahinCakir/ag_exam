@@ -8,10 +8,10 @@ public enum Phase
     /// <summary>Logged in, streaming, waiting for the teacher. The allowlist is NOT applied.</summary>
     Waiting,
 
-    /// <summary>The exam has started: warning + countdown before programs are closed.</summary>
+    /// <summary>The teacher shared the exam file: warning + countdown before programs are closed.</summary>
     Countdown,
 
-    /// <summary>Exam in progress: the allowlist is enforced.</summary>
+    /// <summary>Exam in progress: the allowlist is enforced and the exam file can be downloaded.</summary>
     Running,
 
     /// <summary>Submitted or exam ended: nothing runs any more.</summary>
@@ -30,6 +30,8 @@ public sealed record FinishInfo(string Title, string Message, bool Success);
 /// <summary>
 /// The exam session after login. Owns the heartbeat, the screen stream and the
 /// application control, and follows the server's exam state (WAITING → RUNNING → ENDED).
+/// The exam starts when the teacher shares the exam file; the student then downloads it to
+/// a place of their choice and that file is what gets submitted.
 /// All members must be used from the UI thread; events are raised on the UI thread.
 /// </summary>
 public sealed class ExamController : IDisposable
@@ -55,11 +57,12 @@ public sealed class ExamController : IDisposable
     private int _monitors = 1;
     private string _examStateSeen = "";
     private DateTime _offlineSinceUtc;
-    private double _clockOffset;
+    private string _examFilePath = "";
     private long _baselineTicks;
     private string _submittedSha = "";
     private bool _ending;
     private bool _submitting;
+    private bool _downloading;
     private bool _policyRefreshing;
     private bool _sessionProblemNotified;
     private int _restartCount;
@@ -69,9 +72,8 @@ public sealed class ExamController : IDisposable
     public bool Online { get; private set; } = true;
     public string ExamId { get; private set; } = "";
     public DateTime CountdownEndsUtc { get; private set; }
-    public bool ExamFileReady { get; private set; }
 
-    /// <summary>Short progress/problem text for the student ("Sınav dosyası indiriliyor…").</summary>
+    /// <summary>Short progress/problem text for the student.</summary>
     public string StatusNote { get; private set; } = "";
 
     /// <summary>Non-empty when the server refuses this session (e.g. same number elsewhere).</summary>
@@ -79,21 +81,14 @@ public sealed class ExamController : IDisposable
 
     public string Numara => _session.Student.Numara;
     public string FullName => $"{_session.Student.Ad} {_session.Student.Soyad}".Trim();
-    public string ExamFilePath => AgentPaths.ExamFile(Numara);
     public bool StreamAlive => _stream.IsAlive;
     public bool Submitting => _submitting;
+    public bool Downloading => _downloading;
 
-    /// <summary>Time left when the teacher set a duration; otherwise null.</summary>
-    public TimeSpan? Remaining
-    {
-        get
-        {
-            if (EndsAt <= 0) return null;
-            return TimeSpan.FromSeconds(EndsAt - (NetInfo.UnixNow() + _clockOffset));
-        }
-    }
+    /// <summary>Where the student saved the exam file; empty until it has been downloaded.</summary>
+    public string ExamFilePath => _examFilePath;
 
-    private double EndsAt { get; set; }
+    public bool ExamFileReady => _examFilePath.Length > 0;
 
     public event Action? Changed;
     public event Action<string>? Notice;
@@ -247,13 +242,7 @@ public sealed class ExamController : IDisposable
     private void ApplyStatus(ExamStatus status)
     {
         if (Phase == Phase.Finished) return;
-        _clockOffset = status.ServerTime - NetInfo.UnixNow();
         _examStateSeen = status.ExamState;
-        if (Math.Abs(EndsAt - status.EndsAt) > 0.5)
-        {
-            EndsAt = status.EndsAt;
-            Changed?.Invoke();
-        }
         if (!string.IsNullOrEmpty(status.AllowlistVersion) && status.AllowlistVersion != _policy.Version
                                                           && !_policyRefreshing)
         {
@@ -298,12 +287,9 @@ public sealed class ExamController : IDisposable
         Phase = Phase.Countdown;
         var seconds = Math.Clamp(_settings.KillCountdownS, 0, 120);
         CountdownEndsUtc = DateTime.UtcNow.AddSeconds(seconds);
-        StatusNote = "Sınav dosyası hazırlanıyor…";
         LocalLog.Write($"sınav başladı (kimlik {examId})");
+        RestoreDownloadedFile(examId);
         Changed?.Invoke();
-
-        // Download the exam file and open Packet Tracer while the countdown runs.
-        var prepare = PrepareExamFileAsync(examId);
 
         try
         {
@@ -318,111 +304,66 @@ public sealed class ExamController : IDisposable
         Phase = Phase.Running; // the enforcement loop picks this up within a second
         _events.Enqueue("enforcement_started");
         Changed?.Invoke();
-        await prepare;
     }
 
-    private async Task PrepareExamFileAsync(string examId)
+    /// <summary>
+    /// The agent was restarted during this exam: continue with the file the student already
+    /// downloaded (and worked on) instead of asking them to download it again.
+    /// </summary>
+    private void RestoreDownloadedFile(string examId)
     {
-        var token = _cts.Token;
-        var path = ExamFilePath;
+        if (ExamFileReady) return;
+        var meta = ExamFiles.ReadMeta(Numara);
+        if (meta == null || meta.ExamId != examId || meta.Path.Length == 0 || !File.Exists(meta.Path)) return;
+        _examFilePath = meta.Path;
+        _baselineTicks = meta.BaselineWriteTicks;
+        if (_submittedSha.Length == 0) _submittedSha = meta.SubmittedSha256;
+        _events.Enqueue("exam_file_kept");
+    }
+
+    /// <summary>
+    /// Downloads the exam file to the location the student picked. Returns null on success,
+    /// otherwise an error text for the student.
+    /// </summary>
+    public async Task<string?> DownloadExamFileAsync(string targetPath)
+    {
+        if (Phase != Phase.Running || _ending) return "Sınav dosyası şu anda indirilemez.";
+        if (_downloading) return "İndirme zaten sürüyor.";
+        _downloading = true;
+        Changed?.Invoke();
         try
         {
-            var meta = ExamFiles.ReadMeta(Numara);
-            var resumed = meta != null && meta.ExamId == examId && File.Exists(path);
-            if (resumed)
+            var bytes = await _api.DownloadExamFileAsync(_cts.Token);
+            await File.WriteAllBytesAsync(targetPath, bytes, _cts.Token);
+            _examFilePath = targetPath;
+            _baselineTicks = File.GetLastWriteTimeUtc(targetPath).Ticks;
+            ExamFiles.WriteMeta(Numara, new ExamFileMeta
             {
-                // The agent was restarted during this exam: keep the student's work.
-                _baselineTicks = meta!.BaselineWriteTicks;
-                if (_submittedSha.Length == 0) _submittedSha = meta.SubmittedSha256;
-                _events.Enqueue("exam_file_kept");
-            }
-            else
-            {
-                while (true)
-                {
-                    if (_ending || Phase == Phase.Finished) return;
-                    try
-                    {
-                        var bytes = await _api.DownloadExamFileAsync(token);
-                        Directory.CreateDirectory(AgentPaths.StudentDir(Numara));
-                        SetAsidePreviousFile(path);
-                        await File.WriteAllBytesAsync(path, bytes, token);
-                        _baselineTicks = File.GetLastWriteTimeUtc(path).Ticks;
-                        ExamFiles.WriteMeta(Numara, new ExamFileMeta { ExamId = examId, BaselineWriteTicks = _baselineTicks });
-                        _events.Enqueue("exam_file_ready", new Dictionary<string, object?> { ["size"] = bytes.Length });
-                        break;
-                    }
-                    catch (ApiException ex)
-                    {
-                        StatusNote = $"Sınav dosyası indirilemedi, yeniden deneniyor… ({ex.Message})";
-                        Changed?.Invoke();
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        StatusNote = $"Sınav dosyası diske yazılamadı, yeniden deneniyor… ({ex.Message})";
-                        Changed?.Invoke();
-                    }
-                    await Task.Delay(2000, token);
-                }
-            }
-
-            ExamFileReady = true;
-            StatusNote = "";
-            Changed?.Invoke();
-
-            if (resumed && PacketTracerLauncher.IsRunning(_policy))
-            {
-                LocalLog.Write("Packet Tracer zaten açık; yeniden başlatılmadı");
-            }
-            else
-            {
-                OpenExamFile();
-            }
+                ExamId = ExamId,
+                Path = targetPath,
+                BaselineWriteTicks = _baselineTicks,
+                SubmittedSha256 = _submittedSha,
+            });
+            LocalLog.Write($"sınav dosyası indirildi: {targetPath}");
+            _events.Enqueue("exam_file_ready", new Dictionary<string, object?> { ["size"] = bytes.Length });
+            return null;
+        }
+        catch (ApiException ex)
+        {
+            return ex.Message;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return $"Dosya bu konuma kaydedilemedi: {ex.Message}";
         }
         catch (OperationCanceledException)
         {
+            return "İşlem iptal edildi.";
         }
-    }
-
-    /// <summary>A leftover sinav.pka from an earlier exam is renamed, never overwritten.</summary>
-    private static void SetAsidePreviousFile(string path)
-    {
-        if (!File.Exists(path)) return;
-        var backup = Path.Combine(Path.GetDirectoryName(path)!, $"onceki_{DateTime.Now:yyyyMMdd_HHmmss}.pka");
-        File.Move(path, backup);
-    }
-
-    /// <summary>Opens the exam file in Packet Tracer (also used by the "Sınav dosyasını aç" button).</summary>
-    public void OpenExamFile()
-    {
-        if (!ExamFileReady || !File.Exists(ExamFilePath))
+        finally
         {
-            Notice?.Invoke("Sınav dosyası henüz hazır değil.");
-            return;
-        }
-        try
-        {
-            PacketTracerLauncher.Open(ExamFilePath, _policy);
-            _events.Enqueue("pt_started");
-            if (StatusNote.Length > 0)
-            {
-                StatusNote = "";
-                Changed?.Invoke();
-            }
-        }
-        catch (PacketTracerException ex)
-        {
-            LocalLog.Write($"Packet Tracer açılamadı: {ex.Message}");
-            _events.Enqueue("pt_launch_failed", new Dictionary<string, object?>
-            {
-                ["error"] = ex.Message,
-                ["problem"] = ex.Problem.ToString(),
-            });
-            StatusNote = ex.Problem == PacketTracerProblem.NotAllowed
-                ? $"{ex.Message}. Öğretmeninize haber verin; izin verildikten sonra “Sınav dosyasını aç”a basın."
-                : $"{ex.Message} Kuruluysa Packet Tracer'ı kendiniz açın ve File → Open ile şu dosyayı açın: {ExamFilePath}";
-            Notice?.Invoke(StatusNote);
-            Changed?.Invoke();
+            _downloading = false;
+            if (Phase != Phase.Finished) Changed?.Invoke();
         }
     }
 
@@ -498,17 +439,17 @@ public sealed class ExamController : IDisposable
     {
         if (Phase == Phase.Finished) return;
         _events.Enqueue("ffmpeg_missing", new Dictionary<string, object?> { ["reason"] = reason });
-        Notice?.Invoke("Ekran yayını başlatılamadı (ffmpeg.exe). ffmpeg.exe dosyası SinavAjan.exe ile aynı " +
-                       "klasörde olmalı. Öğretmeninize haber verin.");
+        Notice?.Invoke("Ekran aktarımı başlatılamadı. ffmpeg.exe dosyası SinavAjan.exe ile aynı klasörde " +
+                       "olmalı. Öğretmeninize haber verin.");
     }
 
     // ------------------------------------------------------------------- submit
 
-    /// <summary>Checks that there is a file and that it was saved after the exam started.</summary>
+    /// <summary>Checks that the file exists and was saved after it was downloaded.</summary>
     public SubmitCheck CheckBeforeSubmit()
     {
-        if (!ExamFileReady || !File.Exists(ExamFilePath)) return SubmitCheck.NoFile;
-        return File.GetLastWriteTimeUtc(ExamFilePath).Ticks > _baselineTicks ? SubmitCheck.Ok : SubmitCheck.NotSaved;
+        if (!ExamFileReady || !File.Exists(_examFilePath)) return SubmitCheck.NoFile;
+        return File.GetLastWriteTimeUtc(_examFilePath).Ticks > _baselineTicks ? SubmitCheck.Ok : SubmitCheck.NotSaved;
     }
 
     /// <summary>Uploads the exam file (student pressed "Teslim et"). Returns null on success, else an error text.</summary>
@@ -519,17 +460,16 @@ public sealed class ExamController : IDisposable
         Changed?.Invoke();
         try
         {
-            var bytes = await Task.Run(() => ExamFiles.ReadShared(ExamFilePath));
+            var path = _examFilePath;
+            var bytes = await Task.Run(() => ExamFiles.ReadShared(path));
             if (bytes.LongLength > MaxUploadBytes) return "Dosya çok büyük (en fazla 50 MB).";
             var response = await _api.SubmitAsync(bytes, auto: false, _cts.Token);
             RememberSubmitted(response.Sha256);
 
-            var message = "Dosyanız teslim alındı.\r\n\r\n" +
-                          $"Dosya: {response.Filename}\r\n" +
-                          $"SHA-256: {response.Sha256}";
+            var message = "Dosyanız teslim alındı.";
             if (!string.Equals(NetInfo.Sha256Hex(bytes), response.Sha256, StringComparison.OrdinalIgnoreCase))
             {
-                message += "\r\n\r\nUYARI: Sunucunun bildirdiği özet bu bilgisayardaki dosyayla eşleşmiyor. " +
+                message += "\r\n\r\nUYARI: Öğretmene ulaşan dosya bu bilgisayardakiyle aynı görünmüyor. " +
                            "Öğretmeninize haber verin.";
             }
             await FinishAsync(new FinishInfo("Teslim alındı", message, true));
@@ -574,27 +514,27 @@ public sealed class ExamController : IDisposable
         LocalLog.Write("sınav sona erdi");
         Changed?.Invoke();
 
-        // Do not collide with a manual upload that is in flight.
-        for (var i = 0; i < 100 && _submitting; i++) await Task.Delay(100);
+        // Do not collide with a manual upload or a download that is in flight.
+        for (var i = 0; i < 100 && (_submitting || _downloading); i++) await Task.Delay(100);
         if (Phase == Phase.Finished) return;
+
+        if (ExamId.Length == 0) ExamId = examId;
+        RestoreDownloadedFile(examId);
 
         var success = true;
         string outcome;
         try
         {
-            var path = ExamFilePath;
-            var meta = ExamFiles.ReadMeta(Numara);
-            var belongsToExam = meta != null && File.Exists(path)
-                                             && (meta.ExamId == examId || (ExamId.Length > 0 && meta.ExamId == ExamId));
-            if (!belongsToExam)
+            if (!ExamFileReady || !File.Exists(_examFilePath))
             {
-                outcome = "Bu sınava ait kaydedilmiş bir dosya bulunamadığı için teslim yapılmadı.";
+                outcome = "Sınav dosyasını indirmediğiniz için teslim yapılmadı.";
             }
             else
             {
+                var path = _examFilePath;
                 var bytes = await Task.Run(() => ExamFiles.ReadShared(path));
                 var sha = NetInfo.Sha256Hex(bytes);
-                if (sha == _submittedSha || sha == meta!.SubmittedSha256)
+                if (sha == _submittedSha)
                 {
                     outcome = "Dosyanız daha önce teslim edilmişti.";
                 }
@@ -609,10 +549,10 @@ public sealed class ExamController : IDisposable
         {
             success = false;
             outcome = $"Dosya okunamadığı için otomatik teslim yapılamadı ({ex.Message}).\r\n" +
-                      $"Dosyanız: {ExamFilePath}\r\nÖğretmeninize hemen haber verin.";
+                      $"Dosyanız: {_examFilePath}\r\nÖğretmeninize hemen haber verin.";
         }
 
-        await FinishAsync(new FinishInfo("Sınav sona erdi", "Sınav sona erdi.\r\n\r\n" + outcome, success));
+        await FinishAsync(new FinishInfo("Sınav sona erdi", outcome, success));
     }
 
     private async Task<string> AutoSubmitAsync(byte[] bytes, string path)
@@ -625,8 +565,7 @@ public sealed class ExamController : IDisposable
                 // Deliberately not tied to _cts: the upload must finish even while shutting down.
                 var response = await _api.SubmitAsync(bytes, auto: true);
                 RememberSubmitted(response.Sha256);
-                return "Son kaydettiğiniz dosya otomatik olarak teslim edildi.\r\n\r\n" +
-                       $"Dosya: {response.Filename}\r\nSHA-256: {response.Sha256}";
+                return "Son kaydettiğiniz dosya otomatik olarak teslim edildi.";
             }
             catch (ApiException ex)
             {

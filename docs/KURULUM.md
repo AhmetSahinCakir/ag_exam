@@ -116,19 +116,20 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
 2. Üstteki hazırlık satırında:
    - **1 Sınav dosyası → Dosya seç** — öğrencilere dağıtılacak `.pka` dosyası.
    - **2 Öğrenci listesi → Dosya seç** — isteğe bağlı Excel listesi (bkz. bölüm 6).
-   - **3 Süre** — isteğe bağlı, dakika.
 3. Öğrenciler modeme bağlanır, ajanı **yönetici olarak** çalıştırır, sınıf/öğretmen adını
    onaylar ve giriş yapar. Her öğrenci solda canlı ekranıyla bir kutu, sağda **Öğrenciler**
    listesinde bir satır olarak belirir. Kutuda yalnızca ekran, numara ve ad vardır; satırı
    okundan açınca o öğrencinin uyarıları ile **IP · bilgisayar adı · MAC** bilgisi görünür.
    - Bu aşamada izin listesi **uygulanmaz**. Öğrenciler Packet Tracer'ı açıp Cisco
      hesabıyla giriş yapsın (giriş tarayıcı açar; sınav başlayınca tarayıcı kapatılır).
-   - “Listede olup giriş yapmayanlar” bölümü kimin eksik olduğunu gösterir.
-4. Herkes hazır olunca **Sınavı başlat**'a basın. Öğrencide:
+   - “Giriş yapmayanlar” bölümü listede olup henüz girmeyenleri gösterir.
+4. Herkes hazır olunca **Sınav dosyasını paylaş**'a basın. **Dosyayı paylaşmak sınavı
+   başlatır.** Öğrencide:
    - “Sınav başlıyor. İzin verilmeyen programlar 10 saniye içinde kapatılacak.” uyarısı
      ve geri sayım görünür,
-   - sınav dosyası indirilir ve Packet Tracer ile açılır,
-   - geri sayım bitince uygulama denetimi başlar; ajan küçük bir panele dönüşür.
+   - geri sayım bitince uygulama denetimi başlar; ajan küçük bir panele dönüşür,
+   - panelde **Sınav dosyasını indir** düğmesi çıkar. Öğrenci dosyayı **kendi seçtiği
+     yere** kaydeder ve Packet Tracer'da kendisi açar (*File → Open*).
 5. Sınav boyunca paneli izleyin:
    - Renkli nokta ve kutu çerçevesi durumu gösterir: **yeşil** = bağlı, **sarı** =
      görülmemiş uyarı var, **kırmızı** = bağlantı yok (10 sn sinyal yok ya da ekran
@@ -141,12 +142,14 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
    - Kutuya tıklayınca öğrencinin ekranı büyür; yanında tüm **olay geçmişi** ve “Bilgisayar
      ve teslim bilgileri” bulunur.
    - Sesli uyarı isterseniz sağ üstteki **Diğer** menüsünden **Uyarılarda ses çal**'ı açın.
-   - Süre vermişseniz üstte kalan süre görünür. Süre dolunca sınav **kendiliğinden
-     bitmez**; bitirmek için düğmeye basmanız gerekir.
-6. Öğrenci **Teslim et**'e basınca dosyası yüklenir, kutusu griye döner, ajanı kapanır.
+   - **Süreyi siz tutarsınız.** Sistem süre saymaz ve öğrenciye süre göstermez; panelde
+     yalnızca sınavın başladığı saat yazar.
+6. Öğrenci **Teslim et**'e basınca indirdiği (ve üzerine kaydettiği) dosya yüklenir, kutusu
+   griye döner, ajanı kapanır.
 7. Süre bitince **Sınavı bitir**'e basın (onay ister). Teslim etmemiş öğrencilerin son
    kaydettiği dosya **otomatik** toplanır (olay kaydında “Otomatik teslim” yazar) ve
-   ajanlar kapanır. Teslim dosyası gelmeyenler kırmızı “Teslim yok” olarak kalır.
+   ajanlar kapanır. Dosyayı hiç indirmemiş ya da dosyası alınamamış öğrenciler kırmızı
+   “Teslim yok” olarak kalır.
 8. Sınav bitince üstte beliren **Olay kaydını indir** ile (ya da her zaman **Diğer →
    Olay kaydını indir (CSV)** ile) olay kaydını indirin; Excel'de açılır.
 
@@ -166,7 +169,6 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
 | **`… ile birebir aynı dosyayı teslim etti`** (kırmızı) | İki farklı öğrencinin dosyasının SHA-256 özeti aynı. |
 | `Teslim edilen dosya sınav dosyasıyla birebir aynı` | Öğrenci hiçbir şey kaydetmeden teslim etti (boş teslim). |
 | **`Ekran yayını farklı bir IP adresinden geliyor`** (kırmızı) | Yayın, giriş yapılan bilgisayardan gelmiyor. |
-| `Packet Tracer açılamadı` | Öğrencide Packet Tracer bulunamadı; öğrenci dosyayı elle açmalı. |
 
 Her öndeki pencere değişimi, yayın yeniden başlatmaları, girişler ve teslimler uyarı
 olarak değil **olay kaydına** yazılır (büyük pencerede ve CSV'de görünür).
@@ -355,10 +357,9 @@ fps/genişlik/bit hızını düşürün.
 ## 10. Gizlilik ve sınırlar
 
 - Ajan öğrenci bilgisayarında **kalıcı iz bırakmaz**: servis kurmaz, başlangıca
-  eklenmez, kayıt defterine yazmaz, zamanlanmış görev oluşturmaz. Yalnızca
-  `%LOCALAPPDATA%\SinavAjan\` altına sınav dosyasını ve günlük kaydını yazar; öğrenci
-  teslimden sonraki son pencerede “Sınav dosyalarını bu bilgisayardan sil ve kapat” ile
-  bunları siler. Ajan kapanınca ffmpeg dahil hiçbir şey
+  eklenmez, kayıt defterine yazmaz, zamanlanmış görev oluşturmaz. Kendi klasörüne
+  (`%LOCALAPPDATA%\SinavAjan\`) yalnızca küçük bir günlük ve not dosyası yazar. Sınav
+  dosyası öğrencinin seçtiği yere kaydedilir ve sınavdan sonra orada kalır. Ajan kapanınca ffmpeg dahil hiçbir şey
   çalışmaya devam etmez (ffmpeg bir Windows *Job Object* içinde çalışır; ajan Görev
   Yöneticisi'nden sonlandırılsa bile Windows ffmpeg'i kapatır).
 - Giriş anından teslime/kapanışa kadar öğretmene şunlar gider: ekranın tamamı (tüm

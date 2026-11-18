@@ -55,7 +55,6 @@ public class ExamStatus
     [JsonPropertyName("allowlist_version")] public string AllowlistVersion { get; set; } = "";
     [JsonPropertyName("server_time")] public double ServerTime { get; set; }
     [JsonPropertyName("started_at")] public double StartedAt { get; set; }
-    [JsonPropertyName("ends_at")] public double EndsAt { get; set; }
 }
 
 public sealed class LoginResponse : ExamStatus

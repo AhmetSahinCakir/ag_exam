@@ -37,19 +37,21 @@ MediaMTX v1.21.4, ffmpeg ve Chromium ile):
 - Yönetici olarak açılma, keşif, sınıf/öğretmen onayı, giriş; IP, bilgisayar adı ve MAC kaydı.
 - `ffmpeg gdigrab` ile ekranın yakalanıp MediaMTX'e yayınlanması ve kaydedilmesi; ffmpeg'in
   görünür bir pencere açmaması.
-- Bekleme aşamasında hiçbir programın kapatılmaması; sınav başlayınca geri sayım, sınav
-  dosyasının indirilmesi, sınav paneli (küçültülebilir), kalan süre.
+- Bekleme aşamasında hiçbir programın kapatılmaması; dosya paylaşılınca geri sayım, sınav
+  paneli (küçültülebilir, süre göstermez), “Sınav dosyasını indir” ile dosyanın öğrencinin
+  seçtiği yere kaydedilmesi.
 - Not Defteri ve Chrome'un kapatılması, öğrenciye bildirim, panelde uyarı.
 - Öndeki pencere toleransı: 2,5 sn'lik geçişte uyarı yok, 5 sn'den sonra uyarı var;
   `C:\Windows` altındaki programın kapatılmaması.
-- Kaydetmeden teslimde uyarı, onay, teslim, SHA-256, Türkçe karakterli dosya adı, ajanın
-  kapanması, ffmpeg'in kapanması, servis/başlangıç kaydı/zamanlanmış görev kalmaması.
+- Kaydetmeden teslimde uyarı, onay, teslim (öğrenciye SHA gösterilmez), sunucuda Türkçe
+  karakterleri çevrilmiş dosya adı, ajanın kapanması, ffmpeg'in kapanması,
+  servis/başlangıç kaydı/zamanlanmış görev kalmaması.
 - Ajan zorla sonlandırılınca ffmpeg'in de kapanması (Job Object) ve kutunun kırmızıya dönmesi.
 - `start-teacher.bat` güvenlik duvarı kurallarının eklenmesi; sunucu testleri (Windows, Python 3.11).
 
 **Otomatik sınanamayanlar** — bu provada asıl bakılacak yerler:
 
-- **Packet Tracer'ın kendisi:** bulunup sınav dosyasıyla açılması, CLI pencereleri, giriş.
+- **Packet Tracer'ın kendisi:** indirilen dosyanın açılması, CLI pencereleri, giriş.
   (Test ortamında Packet Tracer kurulu değildir.)
 - Gerçek Wi-Fi ve modem: keşif yayını, AP izolasyonu, 35 öğrencilik yük.
 - Windows 10 ve Windows 11 dizüstüleri: yüksek DPI ölçekleme, çoklu monitör, Microsoft
@@ -129,8 +131,8 @@ Her maddeyi deneyip işaretleyin.
       Görev Yöneticisi → Ayrıntılar'da **`ffmpeg.exe` de kalmamış** olmalı.
 - [ ] **12. Dosya adı.** Teslim `submissions\<numara>_<AdSoyad>.pka` olarak kaydediliyor;
       “Şükrü Çağrı Işık” gibi bir adla deneyin → `…_SukruCagriIsik.pka`.
-- [ ] **13. Otomatik toplama.** Bir öğrenci teslim etmeden “Sınavı bitir”e basın: dosyası
-      otomatik geliyor, olay kaydında “Otomatik teslim alındı” yazıyor, ajanı “Sınav sona
+- [ ] **13. Otomatik toplama.** Bir öğrenci dosyayı indirip kaydettikten sonra teslim
+      etmeden “Sınavı bitir”e basın: dosyası otomatik geliyor, olay kaydında “Otomatik teslim alındı” yazıyor, ajanı “Sınav sona
       erdi” deyip kapanıyor.
 - [ ] **14. Kayıtlar oynuyor.** `recordings\s\<numara>\` altındaki `.mp4` dosyaları VLC'de
       oynuyor.
@@ -141,14 +143,16 @@ Her maddeyi deneyip işaretleyin.
       `127.0.0.1:8889` adreslerine istek olmalı.
 - [ ] **16. İz kalmıyor.** Ajan kapandıktan sonra öğrenci bilgisayarında: Görev
       Yöneticisi'nde `SinavAjan.exe` / `ffmpeg.exe` yok; *Başlangıç uygulamaları*,
-      *Hizmetler* ve *Görev Zamanlayıcı*'da ajana ait kayıt yok. Son pencerede “Sınav
-      dosyalarını bu bilgisayardan sil ve kapat”tan sonra `%LOCALAPPDATA%\SinavAjan` klasörü yok.
+      *Hizmetler* ve *Görev Zamanlayıcı*'da ajana ait kayıt yok. (Öğrencinin indirdiği
+      sınav dosyası ve `%LOCALAPPDATA%\SinavAjan` içindeki küçük günlük dosyası yerinde kalır.)
 
 Ek denemeler (önerilir):
 
 - [ ] Aynı numarayla ikinci bir bilgisayardan giriş **reddediliyor**, panelde uyarı çıkıyor.
-- [ ] Sınav sırasında ajanı kapatıp yeniden açınca (aynı numara) kaydedilmiş `sinav.pka`
-      **korunuyor**, yeniden indirilmiyor.
+- [ ] Sınav sırasında ajanı kapatıp yeniden açınca (aynı numara) öğrenci daha önce
+      indirdiği dosyayla **devam ediyor**; yeniden indirmesi gerekmiyor, “Teslim et” hazır.
+- [ ] “Sınav dosyasını indir” kayıt yerini soruyor; dosya seçilen yere kaydediliyor ve
+      kendiliğinden açılmıyor. Öğrenci panelinde süre **görünmüyor**.
 - [ ] Hiç kaydetmeden “Teslim et” → “Önce Packet Tracer'da Ctrl+S ile kaydedin.”
 - [ ] İki öğrenci aynı dosyayı teslim edince kırmızı “birebir aynı dosya” uyarısı; hiç
       değiştirmeden teslimde “sınav dosyasıyla birebir aynı” uyarısı.
@@ -173,12 +177,12 @@ hâlde **Packet Tracer'ın kendisi kapatılır**.
 ### Risk 2 — Packet Tracer girişi
 
 Packet Tracer açılışta Cisco hesabıyla giriş ister ve bunun için tarayıcı açabilir. Giriş
-**bekleme aşamasında** yapılmalıdır (OGRENCI.md'de yazıyor). Provada şunu özellikle deneyin:
-öğrenci bekleme aşamasında giriş yapıp “Keep me logged in”i açtıktan sonra sınav
-başladığında ajanın açtığı **yeni** Packet Tracer penceresi yeniden giriş istiyor mu?
-İstiyorsa öğrencilere bekleme aşamasında Packet Tracer'ı **kapatmamalarını**, sınav
-başlayınca ajanın açtığı pencereyi kapatıp kendi açık pencerelerinde *File → Open* ile
-`%LOCALAPPDATA%\SinavAjan\<numara>\sinav.pka` dosyasını açmalarını söyleyin.
+**bekleme aşamasında** yapılmalıdır (OGRENCI.md'de yazıyor); sınav başladıktan sonra tarayıcı
+kapatılır. Ajan Packet Tracer'ı kendisi başlatmaz: öğrenci indirdiği dosyayı, bekleme
+aşamasında açıp giriş yaptığı Packet Tracer penceresinde *File → Open* ile açar. Provada
+bir öğrencinin Packet Tracer'ı kapatıp yeniden açtığında (ya da dosyaya çift tıkladığında)
+yeniden giriş istenip istenmediğini deneyin; isteniyorsa öğrencilere Packet Tracer'ı sınav
+boyunca **kapatmamalarını** söyleyin.
 
 ### Risk 3 — Panel performansı (35 WebRTC görüntüsü)
 

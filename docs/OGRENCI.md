@@ -1,7 +1,7 @@
 # Sınav Ajanı — Öğrenci Yönergesi
 
 Packet Tracer sınavına **Sınav Ajanı** programıyla girilir. Program sınav boyunca ekranınızı
-öğretmen bilgisayarına aktarır, sınav dosyasını Packet Tracer'da açar ve sonunda dosyanızı
+öğretmen bilgisayarına aktarır, sınav dosyasını indirmenizi sağlar ve sonunda dosyanızı
 teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakmaz.
 
 ## Sınavdan önce (evde, internet varken)
@@ -10,12 +10,12 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
 2. **Cisco Packet Tracer** kurulu olsun ve Cisco (NetAcad / Skills for All) hesabınızla
    **giriş yapabildiğinizi deneyin**. Giriş ekranında **“Keep me logged in”** seçeneğini
    açın. Sınav salonunda **internet yoktur**; ilk girişinizi orada yapamazsınız.
-3. Ajan paketini (`SinavAjan.zip`) öğretmeninizin söylediği yerden edinin. Sınav günü sınıf
+3. Program paketini (`SinavAjan.zip`) öğretmeninizin söylediği yerden edinin. Sınav günü sınıf
    ağına bağlandıktan sonra tarayıcıda `http://<öğretmenin söylediği adres>:8000/` adresinden
    de indirebilirsiniz.
 4. Zip dosyasına sağ tıklayın → **Tümünü ayıkla**. Açılan `SinavAjan` klasöründeki dosyaların
-   **hepsi birlikte durmalı** (`SinavAjan.exe`, `ffmpeg.exe`, `agent.json` ve `.dll` dosyaları).
-   Klasörü Masaüstü gibi kolay bulacağınız bir yere koyun. Zip'in içinden çalıştırmayın.
+   **hepsi birlikte durmalı**. Klasörü Masaüstü gibi kolay bulacağınız bir yere koyun. Zip'in
+   içinden çalıştırmayın.
 
 ## Sınav günü
 
@@ -26,7 +26,7 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
      **Evet**.
    - “Windows kişisel bilgisayarınızı korudu” çıkarsa **Ek bilgi → Yine de çalıştır**.
      (“SmartScreen'e şu anda ulaşılamıyor” yazarsa **Çalıştır**.)
-3. Program sınav sunucusunu kendisi bulur ve büyük harflerle gösterir:
+3. Program sınavı kendisi bulur ve büyük harflerle gösterir:
 
    > **Sınıf: B-102**
    > **Öğretmen: …**
@@ -37,18 +37,18 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
 5. **“Sınavın başlamasını bekleyin”** ekranı gelir. Bu andan itibaren ekranınız öğretmene
    aktarılır. Beklerken:
    - **Packet Tracer'ı açın ve giriş yapın** (giriş bir tarayıcı penceresi açabilir —
-     sınav başladıktan sonra tarayıcı açılamaz, o yüzden **şimdi** yapın).
+     sınav başladıktan sonra tarayıcı açılamaz, o yüzden **şimdi** yapın). Packet Tracer'ı
+     **açık bırakın**.
    - Başka programlarda kaydetmediğiniz işleriniz varsa **kaydedin ve kapatın**.
-   - Ajan penceresini kapatmayın.
-6. Öğretmen sınavı başlatınca:
+   - Program penceresini kapatmayın.
+6. Öğretmen sınav dosyasını paylaştığında sınav başlar:
    - “Sınav başlıyor. İzin verilmeyen programlar 10 saniye içinde kapatılacak.” uyarısı ve
      geri sayım görünür.
-   - Sınav dosyası (`sinav.pka`) Packet Tracer'da **kendiliğinden açılır**. (Daha önce
-     açtığınız boş Packet Tracer penceresini kapatabilirsiniz.)
-   - Program, ekranın sağında küçük bir panele dönüşür: kalan süre (öğretmen süre verdiyse),
-     bağlantı durumu, **Teslim et** ve **Sınav dosyasını aç** düğmeleri. Paneli başlığından
-     tutup taşıyabilir ya da simge durumuna küçültebilirsiniz; görev çubuğundaki simgesine
-     tıklayınca geri gelir (kalan süre simgenin üzerine gelince de görünür).
+   - Program ekranın sağında küçük bir panele dönüşür. Paneli başlığından tutup taşıyabilir
+     ya da simge durumuna küçültebilirsiniz; görev çubuğundaki simgesine tıklayınca geri gelir.
+7. Paneldeki **Sınav dosyasını indir** düğmesine basın, dosyayı **nereye kaydedeceğinizi
+   seçin** (ör. Masaüstü) ve **Kaydet** deyin.
+8. Packet Tracer'da **File → Open** ile indirdiğiniz dosyayı açın ve sınava başlayın.
 
 ## Sınav sırasında
 
@@ -59,38 +59,33 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
   uzun** önde kalırsa öğretmene uyarı gider. Başlat menüsüne yanlışlıkla basmak gibi kısa
   geçişler sorun olmaz.
 - **İkinci ekran takmayın;** takılı ekran ve ekran takıp çıkarma öğretmene bildirilir.
-- **Sık sık Ctrl+S ile kaydedin.** Teslim edilen şey, *kaydettiğiniz* dosyadır. Dosyayı
-  “Farklı Kaydet” ile başka yere kaydetmeyin; açılan dosyanın üzerine kaydedin.
+- **Sık sık Ctrl+S ile kaydedin** ve dosyayı **indirdiğiniz yerde, aynı adla** tutun. Teslim
+  edilen şey, o dosyanın *son kaydettiğiniz* hâlidir. “Farklı Kaydet” ile başka bir yere ya
+  da başka bir adla kaydederseniz o kopya teslim edilmez.
+- Süreyi öğretmeniniz tutar; panelde süre görünmez.
 - Wi-Fi koparsa panelde “Sunucuya ulaşılamıyor — yeniden deneniyor…” yazar; program
   kendiliğinden yeniden bağlanır, siz çalışmaya devam edin. Uzun sürerse öğretmeninize haber verin.
-- Packet Tracer'ı yanlışlıkla kapatırsanız paneldeki **Sınav dosyasını aç** düğmesine basın;
-  son kaydettiğiniz hâliyle açılır.
-- Ajan çökerse veya bilgisayar yeniden başlarsa ajanı yeniden çalıştırıp **aynı numarayla**
-  giriş yapın; kaydettiğiniz dosya yerinde durur ve kaldığınız yerden devam edersiniz.
-- Ajanı kapatmayın. Kapatırsanız öğretmene bildirilir ve dosyanız **teslim edilmez**.
+- Program çökerse veya bilgisayar yeniden başlarsa programı yeniden çalıştırıp **aynı
+  numarayla** giriş yapın; indirdiğiniz dosya yerinde durur, yeniden indirmeniz gerekmez.
+- Programı kapatmayın. Kapatırsanız öğretmene bildirilir ve dosyanız **teslim edilmez**.
 
 ## Teslim
 
 1. Packet Tracer'da **Ctrl+S** ile kaydedin.
-2. Paneldeki **Teslim et** düğmesine basın.
-   - “Önce Packet Tracer'da Ctrl+S ile kaydedin.” uyarısı çıkarsa dosyayı sınav başladıktan
-     sonra hiç kaydetmemişsiniz demektir; kaydedip yeniden deneyin.
+2. Paneldeki **Teslim et** düğmesine basın. (Bu düğme, dosyayı indirdikten sonra çıkar.)
+   - “Önce Packet Tracer'da Ctrl+S ile kaydedin.” uyarısı çıkarsa dosyayı indirdikten sonra
+     hiç kaydetmemişsiniz demektir; kaydedip yeniden deneyin.
 3. “Teslim etmek istediğinize emin misiniz? Teslimden sonra değişiklik yapamazsınız.” →
    **Evet**.
-4. **“Teslim alındı”** penceresinde dosyanızın adı ve **SHA-256** özeti görünür (bu, teslim
-   ettiğiniz dosyanın parmak izidir; isterseniz not alın). Ajan kapanır, ekran aktarımı biter.
+4. **“Teslim alındı”** penceresi çıkar; program kapanır ve ekran aktarımı biter.
 
-Teslim etmeden süre biterse öğretmen sınavı bitirdiğinde **son kaydettiğiniz dosya otomatik
-olarak** teslim edilir ve “Sınav sona erdi” penceresi çıkar.
+Teslim etmeden öğretmen sınavı bitirirse **son kaydettiğiniz dosya otomatik olarak** teslim
+edilir ve “Sınav sona erdi” penceresi çıkar.
 
 ## Sınavdan sonra
 
-- Son pencerede **Sınav dosyalarını bu bilgisayardan sil ve kapat** derseniz programın
-  bilgisayarınıza yazdığı her şey (sınav dosyası ve günlük) silinir. Daha sonra silmek
-  isterseniz `%LOCALAPPDATA%\SinavAjan` klasörünü elle silin (adres çubuğuna aynen
-  yapıştırabilirsiniz).
-- `SinavAjan` klasörünü de silebilirsiniz. Program kurulum yapmaz; kaldırılacak başka bir
-  şey yoktur.
+Program kurulum yapmaz; kaldırılacak bir şey yoktur. İndirdiğiniz sınav dosyası kaydettiğiniz
+yerde kalır. İsterseniz `SinavAjan` klasörünü silebilirsiniz.
 
 ## Sorun mu var?
 
@@ -103,25 +98,26 @@ Olmazsa öğretmeninizin söyleyeceği IP adresini alttaki kutuya yazıp **Bağl
 
 **“Ekran aktarımı başlatılıyor…” yazısı gitmiyor / antivirüs programı engelliyor**
 Antivirüsünüz `SinavAjan.exe` veya `ffmpeg.exe` dosyasını engellemiş olabilir.
-**Antivirüsü kapatmayın;** yalnızca ajan klasörünü istisna olarak ekleyin. Windows Güvenliği
-(Defender) için:
+**Antivirüsü kapatmayın;** yalnızca program klasörünü istisna olarak ekleyin. Windows
+Güvenliği (Defender) için:
 
 1. Başlat → **Windows Güvenliği** → **Virüs ve tehdit koruması**.
 2. “Virüs ve tehdit koruması ayarları” altında **Ayarları yönet**.
 3. En altta **Dışlamalar** → **Dışlama ekle veya kaldır** → **Dışlama ekle** → **Klasör**.
 4. `SinavAjan` klasörünü seçin.
-5. Antivirüs dosyayı silmişse zip'i yeniden ayıklayın ve ajanı yeniden başlatın.
+5. Antivirüs dosyayı silmişse zip'i yeniden ayıklayın ve programı yeniden başlatın.
 
 Başka bir antivirüs kullanıyorsanız onun “istisna / dışlama / exclusion” ayarına aynı klasörü
 ekleyin. Sınavdan sonra istisnayı kaldırabilirsiniz.
 
-**Sınav başladı ama Packet Tracer açılmadı**
-Packet Tracer'ı kendiniz açın, **File → Open** ile ajanın gösterdiği dosyayı açın:
-`%LOCALAPPDATA%\SinavAjan\<numaranız>\sinav.pka` (adres çubuğuna aynen yapıştırabilirsiniz).
+**İndirdiğim dosyayı bulamıyorum / yanlış yere kaydettim**
+Panelde dosyanızın adı ve klasörü yazar. Bulamıyorsanız **Sınav dosyasını yeniden indir**
+ile yeniden indirebilirsiniz; yeni indirilen dosya boş sınav dosyasıdır, önceki
+çalışmanızı içermez.
 
 **Packet Tracer giriş istiyor ve tarayıcı açılmıyor**
 Sınav başladıktan sonra tarayıcı açılamaz. Öğretmeninize haber verin. (Bu yüzden girişi
-bekleme ekranındayken yapın ve “Keep me logged in”i açın.)
+bekleme ekranındayken yapın, “Keep me logged in”i açın ve Packet Tracer'ı kapatmayın.)
 
 **“Bu numarayla başka bir bilgisayarda açık bir oturum var.”**
 Numaranızı yanlış yazmış olabilirsiniz. Doğruysa öğretmeninize haber verin.
@@ -134,7 +130,8 @@ Numaranızı yanlış yazmış olabilirsiniz. Doğruysa öğretmeninize haber ve
   - Öndeki pencerenin program adını ve başlığını, bilgisayar adınızı, ağ (IP/MAC) adresinizi
     ve monitör sayınızı öğretmene bildirir.
   - Sınav **başladıktan sonra** izin verilmeyen programları kapatır.
-  - Sınav dosyasını ve küçük bir günlük dosyasını `%LOCALAPPDATA%\SinavAjan\` klasörüne yazar.
+  - Sınav dosyasını sizin seçtiğiniz yere kaydeder; ayrıca `%LOCALAPPDATA%\SinavAjan\`
+    klasörüne küçük bir günlük dosyası yazar.
 - **Yapmadıkları:**
   - Kurulum yapmaz, Windows ile birlikte açılmaz, servis ya da zamanlanmış görev oluşturmaz,
     kayıt defterine yazmaz, sistem ayarlarınızı değiştirmez.
