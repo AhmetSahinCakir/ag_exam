@@ -642,7 +642,7 @@ def test_exam_cannot_start_without_the_exam_file(env: Env):
     assert env.store.state == WAITING
 
 
-def test_time_limit_is_optional_and_ends_the_exam(env: Env):
+def test_time_limit_is_a_countdown_and_never_ends_the_exam(env: Env):
     client, _ = env.login()
     prepare(env)
     for bad in ("abc", 0.5, -5, 601):
@@ -662,14 +662,31 @@ def test_time_limit_is_optional_and_ends_the_exam(env: Env):
     assert env.store.snapshot()["exam"]["duration_min"] == 45
 
     env.store.tick()
-    assert env.store.state == RUNNING  # not yet
+    assert not env.alerts("time_up")  # not yet
+
+    # The time is up: the exam goes on. Only the teacher is told, once.
+    env.store.ends_at = time.time() - 90
+    env.store.tick()
+    env.store.tick()
+    assert env.store.state == RUNNING
+    told = env.alerts("time_up")
+    assert len(told) == 1 and told[0]["numara"] == "" and told[0]["message"].startswith("Sınav süresi doldu")
+    hb = client.post("/api/heartbeat", json={}).json()
+    assert hb["exam_state"] == RUNNING and hb["ends_at"] == env.store.ends_at
+    assert client.get("/api/exam-file").status_code == 200       # nothing changes for the students ...
+    assert env.submit(client, EXAM_BYTES + b"-cozum").json()["late"] is False  # ... handing in is not late
+
+    # Extra time after the time was up counts from now, and the teacher is told again later.
+    before = time.time()
+    ends_at = env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 10}).json()["ends_at"]
+    assert 599 <= ends_at - before <= 602
     env.store.ends_at = time.time() - 1
     env.store.tick()
+    assert len(env.alerts("time_up")) == 2 and env.store.state == RUNNING
+
+    # Only the teacher ends the exam.
+    assert env.panel.post("/panel/api/end", headers=PANEL).status_code == 200
     assert env.store.state == ENDED
-    assert any(e.message == "Süre doldu; sınav bitirildi" for e in env.store.events)
-    hb = client.post("/api/heartbeat", json={}).json()
-    assert hb["exam_state"] == ENDED and hb["ends_at"] == 0
-    assert (env.exam_dir / "olay-kaydi.csv").exists()
 
 
 def test_extra_time_for_an_exam_without_a_time_limit(env: Env):
@@ -678,16 +695,16 @@ def test_extra_time_for_an_exam_without_a_time_limit(env: Env):
     assert env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 5}).status_code == 409  # not running
     start_with(env)
     env.store.tick()
-    assert env.store.state == RUNNING and env.store.ends_at == 0  # no limit: only the teacher ends it
+    assert env.store.state == RUNNING and env.store.ends_at == 0  # no time limit, no countdown
 
-    # "Ek süre ver" in the end-of-exam window: the exam now ends by itself in ten minutes.
+    # "Ek süre ver" in the end-of-exam window: the students now see a ten minute countdown.
     before = time.time()
     ends_at = env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 10}).json()["ends_at"]
     assert 599 <= ends_at - before <= 602
     assert client.post("/api/heartbeat", json={}).json()["ends_at"] == ends_at
     env.store.ends_at = time.time() - 1
     env.store.tick()
-    assert env.store.state == ENDED
+    assert env.store.state == RUNNING and len(env.alerts("time_up")) == 1
 
 
 def test_recording_is_a_choice_made_when_the_exam_starts(env: Env):

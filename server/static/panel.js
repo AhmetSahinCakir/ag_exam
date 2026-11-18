@@ -597,6 +597,7 @@ function renderTimer() {
   const exam = S.exam;
   const parts = [];
   let ending = false;
+  let over = false;
   if (exam.state === 'WAITING' && exam.scheduled) {
     parts.push(`başlangıç ${fmtClock(exam.scheduled.at)}`);
   } else if (exam.state === 'RUNNING' && exam.started_at) {
@@ -605,8 +606,14 @@ function renderTimer() {
       // Sunucunun saatine göre hesaplanır; tarayıcı saati yanlış olsa da doğru kalır.
       const serverNow = S.server_time + (Date.now() - receivedAt) / 1000;
       const remaining = exam.ends_at - serverNow;
-      parts.push(`kalan ${fmtRemaining(remaining)}`);
-      ending = remaining <= 300;
+      if (remaining > 0) {
+        parts.push(`kalan ${fmtRemaining(remaining)}`);
+        ending = remaining <= 300;
+      } else {
+        // Sınav kendiliğinden bitmez; süre dolduğu yalnızca burada görünür.
+        parts.push(`süre aşıldı (+${fmtRemaining(-remaining)})`);
+        over = true;
+      }
     }
     parts.push(exam.record ? 'kayıt açık' : 'kayıt kapalı');
   } else if (exam.state === 'ENDED' && exam.started_at) {
@@ -614,6 +621,7 @@ function renderTimer() {
   }
   setText($('timer'), parts.join(' · '));
   $('timer').classList.toggle('ending', ending);
+  $('timer').classList.toggle('over', over);
 }
 setInterval(renderTimer, 500);
 
@@ -1085,11 +1093,13 @@ function openEndDialog() {
   setText($('endSummary'), waiting === 0
     ? (total ? 'Giriş yapan bütün öğrenciler teslim etti.' : 'Giriş yapan öğrenci yok.')
     : `Henüz teslim etmeyen öğrenci: ${waiting} (toplam ${total}).`);
-  let hint = 'Sınav, yazdığınız süre sonunda kendiliğinden biter; öğrenciler kalan süreyi görür.';
+  let hint = 'Öğrenciler yazdığınız süreyi geri sayım olarak görür. Süre dolunca sınav kendiliğinden bitmez.';
   if (S.exam.ends_at) {
     const serverNow = S.server_time + (Date.now() - receivedAt) / 1000;
-    hint = `Bitiş saati (${fmtClock(S.exam.ends_at)}) yazdığınız süre kadar ileri alınır; `
-      + `şu an kalan süre ${fmtRemaining(S.exam.ends_at - serverNow)}.`;
+    const remaining = S.exam.ends_at - serverNow;
+    hint = remaining > 0
+      ? `Şu an kalan süre ${fmtRemaining(remaining)}; yazdığınız süre buna eklenir.`
+      : 'Süre aşıldı; öğrenciler yazdığınız süreyi şu andan başlayan yeni bir geri sayım olarak görür.';
   }
   setText($('extendHint'), hint);
   $('extendMinutes').value = '5';
@@ -1106,7 +1116,7 @@ async function extendExam() {
   try {
     const data = await api('/panel/api/extend', { json: { minutes } });
     closeDialogs();
-    toast(`${minutes} dakika ek süre verildi. Sınav ${fmtClock(data.ends_at)} saatinde bitecek.`);
+    toast(`${minutes} dakika ek süre verildi. Süre ${fmtClock(data.ends_at)} saatinde doluyor.`);
   } catch (error) {
     toast(error.message, true);
   }

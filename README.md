@@ -1,72 +1,26 @@
 # Sınav İzleme Sistemi
 
-Cisco Packet Tracer ile yapılan ağ sınavları için yerel ağda çalışan izleme sistemi.
-Öğrenci bilgisayarındaki küçük bir ajan ekranı öğretmen bilgisayarına aktarır, sınav
-sırasında Packet Tracer dışındaki programları kapatır ve sınav dosyasını teslim eder.
-Öğretmen tüm sınıfı tek bir web panelinden canlı izler. **İnternet gerektirmez.**
+Cisco Packet Tracer ile yapılan sınavlar için, internet gerektirmeyen bir izleme sistemi.
 
-| Belge | Kimin için |
+- Öğrencilerin ekranını canlı gösterir; isterseniz kaydeder.
+- Sınav sırasında Packet Tracer dışındaki programları kapatır ve bildirir.
+- Sınav dosyasını öğrencilere verir, teslim edilen dosyaları toplar.
+
+## Kılavuzlar
+
+| Kılavuz | Kimin için |
 |---|---|
-| [docs/KURULUM.md](docs/KURULUM.md) | Öğretmen: kurulum, sınav günü, ayarlar, sorun giderme |
-| [docs/OGRENCI.md](docs/OGRENCI.md) | Öğrenci: ajanı çalıştırma, teslim, gizlilik |
-| [docs/PROVA.md](docs/PROVA.md) | Sınavdan önce yapılacak prova ve test listesi |
+| [Kullanım kılavuzu](docs/KURULUM.md) | Sınavı yapan kişi: kurulum, sınav günü, sorunlar |
+| [Öğrenci kılavuzu](docs/OGRENCI.md) | Öğrenciler: programı çalıştırma ve teslim |
+| [Sınavdan önce deneme](docs/PROVA.md) | Sınavdan önce bir kez yapılacak deneme listesi |
 
-## Bileşenler
+## Kısaca
 
-```
-/agent        C# .NET 8 WinForms öğrenci ajanı (Windows 10/11, yönetici olarak çalışır)
-/server       Python 3.11+ FastAPI: öğrenci API'si, öğretmen paneli, teslimler, olay kaydı
-/mediamtx     mediamtx.yml — ekran yayınlarını alan, kaydeden ve panele veren MediaMTX ayarı
-/scripts      start-teacher.bat, fetch-mediamtx.ps1, fetch-ffmpeg.ps1
-/docs         KURULUM.md, OGRENCI.md, PROVA.md
-/.github/workflows/build-agent.yml   ajanı Windows'ta derleyip ffmpeg ile paketler
-```
+1. Python'u kurun, bu sayfadan sistemi indirin.
+2. `scripts\start-teacher.bat` dosyasını çalıştırın; panel açılır.
+3. Öğrenci programını (**Actions → build-agent → SinavAjan-win-x64**) indirip öğrencilere
+   dağıtın.
+4. Sınav günü: klasörü ve sınav dosyasını seçin, öğrenciler giriş yapsın, **Sınavı başlat**'a
+   basın.
 
-- Ajan `ffmpeg` ile ekranı H.264 olarak MediaMTX'e (RTSP/TCP) yayınlar; MediaMTX diske
-  kaydeder ve panele WebRTC ile verir. Python sunucusu video işlemez.
-- Öğretmen sınavdan önce panelde bir **sınav klasörü** seçer; içinde `Kayıtlar` (ekran
-  kayıtları), `Teslimler` (teslim edilen dosyalar) ve `Uyarılar` (öğrenci başına uyarı
-  dosyaları) klasörleri açılır. Öğrenci teslimde
-  dosyasını kendisi seçer; sistem dosyanın klasöre ulaştığını denetleyip yayını durdurur.
-- Ajan sunucuyu UDP yayınıyla kendisi bulur; sabit IP yoktur. Aynı ajan her sınıfta çalışır.
-- Ajan öğrenci bilgisayarında kalıcı iz bırakmaz (servis, başlangıç kaydı, kayıt defteri,
-  zamanlanmış görev yok).
-
-## Hızlı başlangıç (öğretmen bilgisayarı)
-
-1. Python 3.11+ kurun, depoyu indirin.
-2. `scripts\start-teacher.bat` dosyasını çalıştırın (ilk seferde internet gerekir: Python
-   paketlerini ve MediaMTX'i indirir, güvenlik duvarı kurallarını ekler).
-3. Açılan panelde sol üstteki **Düzenle** ile sınıf (salon) ve öğretmen adını yazın;
-   sınavdan önce **Sınav klasörü → Klasör seç** ile kayıtların ve teslimlerin duracağı
-   klasörü, ardından sınav dosyasını seçin. **Sınavı başlat** penceresinde başlangıç saati,
-   isteğe bağlı sınav süresi ve ekranların kaydedilip kaydedilmeyeceği seçilir.
-4. GitHub → Actions → **build-agent** → **SinavAjan-win-x64** artifact'ini indirip
-   öğrencilere dağıtın (ya da `dist\SinavAjan.zip` olarak koyun; öğrenciler sınıf ağından
-   `http://<öğretmen-ip>:8000/` adresinden indirir).
-
-Ayrıntılar: [docs/KURULUM.md](docs/KURULUM.md).
-
-## Geliştirme
-
-```bash
-# Sunucu testleri
-pip install -r server/requirements-dev.txt
-python -m pytest server/tests
-
-# Sunucuyu elle başlatma (MediaMTX ayrıca çalışmalı: mediamtx mediamtx/mediamtx.yml)
-python server/run.py
-
-# Windows olmadan sahte öğrenciler (keşif, giriş, test yayını, teslim)
-python server/tests/sim_agent.py --count 5 --stream
-
-# Ajanın platformdan bağımsız çekirdek testleri (.NET 8 SDK)
-dotnet run --project agent/tests/CoreSmoke            # yalnızca birim denetimleri
-dotnet run --project agent/tests/CoreSmoke -- discover # çalışan sunucuya karşı da dener
-
-# Ajanı derleme (Linux/macOS'ta da derlenir; yalnızca Windows'ta çalışır)
-dotnet publish agent/SinavAjan.csproj -c Release -o publish/SinavAjan
-```
-
-Ajanın Windows'a özgü bölümleri `agent/Win` ve `agent/UI` altındadır; kurallar ve ağ
-iletişimi `agent/Core` altında, Windows API'lerinden bağımsızdır.
+Ayrıntılar: [kullanım kılavuzu](docs/KURULUM.md).

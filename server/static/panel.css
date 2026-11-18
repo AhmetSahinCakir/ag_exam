@@ -78,6 +78,7 @@ button.icon { width: 34px; padding: 0; justify-content: center; border-color: tr
 .state { font-weight: 600; }
 .timer { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 6px; white-space: nowrap; }
 .timer.ending { color: var(--warn); }
+.timer.over { color: var(--lost); font-weight: 600; }
 .exam.running .dot { background: var(--ok); }
 .exam.ended .dot { background: var(--lost); }
 .top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }

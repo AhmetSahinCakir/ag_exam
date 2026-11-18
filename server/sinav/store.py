@@ -225,9 +225,11 @@ class Store:
         self.exam_id = ""
         self.started_at = 0.0
         self.ended_at = 0.0
-        # Optional time limit: when set, the exam ends by itself at ends_at.
+        # Optional time limit. Students see a countdown to ends_at. Nothing ends by itself:
+        # when the time is up the panel shows "süre aşıldı" and the teacher ends the exam.
         self.duration_min = 0
         self.ends_at = 0.0
+        self.time_up_noted = False
         # Chosen in the "Sınavı başlat" window. Students cannot tell: their screens are
         # streamed to the teacher either way; this only decides whether they are kept on disk.
         self.record_enabled = True
@@ -336,6 +338,7 @@ class Store:
             "ended_at": self.ended_at,
             "duration_min": self.duration_min,
             "ends_at": self.ends_at,
+            "time_up_noted": self.time_up_noted,
             "record_enabled": self.record_enabled,
             "scheduled": self.scheduled,
             "exam_file": self.exam_file,
@@ -371,6 +374,7 @@ class Store:
             self.ended_at = float(data.get("ended_at") or 0)
             self.duration_min = int(data.get("duration_min") or 0)
             self.ends_at = float(data.get("ends_at") or 0)
+            self.time_up_noted = bool(data.get("time_up_noted", False))
             self.record_enabled = bool(data.get("record_enabled", True))
             self.scheduled = data.get("scheduled") or None
             self.exam_file = data.get("exam_file")
@@ -624,7 +628,8 @@ class Store:
     def start_exam(self, duration_min: Any = None, record: Any = True, start_at: Any = None) -> None:
         """“Sınavı başlat”: the exam file becomes downloadable and the allowlist is enforced.
 
-        duration_min: optional time limit; the exam then ends by itself. None/0 = the teacher ends it.
+        duration_min: optional time limit, shown to the students as a countdown. The exam never
+                      ends by itself; the teacher ends it.
         record:       keep the screen streams on disk ("Kayıtlar").
         start_at:     unix time for a start later today; None = now.
         """
@@ -694,8 +699,8 @@ class Store:
     def extend_exam(self, minutes: Any) -> float:
         """Give extra time to a running exam.
 
-        With a time limit the deadline moves; without one the exam now ends by itself after
-        the given number of minutes.
+        The deadline moves by that many minutes; when the time was already up (or there was
+        no time limit) it is counted from now.
         """
         if self.state != RUNNING:
             raise ApiError(409, "Devam eden bir sınav yok.")
@@ -705,19 +710,20 @@ class Store:
             raise ApiError(422, "Ek süre dakika olarak bir sayı olmalı.") from exc
         if not 1 <= extra <= 120:
             raise ApiError(422, "Ek süre 1 ile 120 dakika arasında olmalı.")
-        self.ends_at = (self.ends_at or time.time()) + extra * 60
+        self.ends_at = max(self.ends_at, time.time()) + extra * 60
         self.duration_min = max(1, round((self.ends_at - self.started_at) / 60))
+        self.time_up_noted = False
         self.add_event("", "exam_extended", INFO,
-                       f"{extra} dakika ek süre verildi; sınav {datetime.fromtimestamp(self.ends_at).strftime('%H:%M')} "
-                       "saatinde bitecek")
+                       f"{extra} dakika ek süre verildi; süre {datetime.fromtimestamp(self.ends_at).strftime('%H:%M')} "
+                       "saatinde doluyor")
         return self.ends_at
 
-    def end_exam(self, timed_out: bool = False) -> None:
+    def end_exam(self) -> None:
         if self.state != RUNNING:
             raise ApiError(409, "Devam eden bir sınav yok.")
         self.state = ENDED
         self.ended_at = time.time()
-        self.add_event("", "exam_ended", INFO, "Süre doldu; sınav bitirildi" if timed_out else "Sınav bitirildi")
+        self.add_event("", "exam_ended", INFO, "Sınav bitirildi")
         self.write_events_csv()
 
     def check_clock(self) -> None:
@@ -730,8 +736,10 @@ class Store:
             except ApiError as exc:
                 self.scheduled = None
                 self.add_event("", "exam_start_failed", CRITICAL, f"Planlanan sınav başlatılamadı: {exc.message}")
-        elif self.state == RUNNING and self.ends_at and now >= self.ends_at:
-            self.end_exam(timed_out=True)
+        elif self.state == RUNNING and self.ends_at and now >= self.ends_at and not self.time_up_noted:
+            # The exam goes on; only the teacher is told.
+            self.time_up_noted = True
+            self.add_event("", "time_up", WARNING, "Sınav süresi doldu (sınav sürüyor; bitirmek için “Sınavı bitir”)")
 
     def write_events_csv(self) -> None:
         """Keep a copy of the event log next to the recordings and submissions."""
