@@ -761,7 +761,9 @@ klasorler:
     $chrome = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
     if (Test-Path $chrome) {
         Start-Process $chrome -ArgumentList @('--no-first-run', '--no-default-browser-check', 'about:blank') | Out-Null
-        $killed = Wait-Until { (Count-Events $numara 'process_killed' 'chrome') -ge 1 } 15
+        # Chrome can take a while to show its first window on a fresh machine; the agent
+        # closes it as soon as the window exists.
+        $killed = Wait-Until { (Count-Events $numara 'process_killed' 'chrome') -ge 1 } 60
         Check ([bool]$killed) 'Chrome açılınca kapatıldı ve olay düştü'
     } else { Write-Host '  (Chrome kurulu değil; atlandı)' }
 
