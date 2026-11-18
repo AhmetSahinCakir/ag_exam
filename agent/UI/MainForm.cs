@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.RegularExpressions;
 using SinavAjan.Core;
+using SinavAjan.Win;
 
 namespace SinavAjan.UI;
 
@@ -66,7 +67,11 @@ public sealed class MainForm : Form
         _frame.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         Controls.Add(_frame);
 
-        _uiTimer.Tick += (_, _) => UpdateDynamic();
+        _uiTimer.Tick += (_, _) =>
+        {
+            UpdateDynamic();
+            CheckVirtualDesktop();
+        };
     }
 
     protected override void OnShown(EventArgs e)
@@ -524,8 +529,8 @@ public sealed class MainForm : Form
 
             var path = controller.ExamFilePath;
             var folder = Path.GetFileName(Path.GetDirectoryName(path) ?? "");
-            AddNote($"Dosyanız: {Path.GetFileName(path)}" + (folder.Length > 0 ? $" ({folder})" : ""), 4);
-            AddNote("Bitirince Packet Tracer'da Ctrl+S ile kaydedip “Teslim et”e basın.", 10);
+            AddNote($"İndirilen dosya: {Path.GetFileName(path)}" + (folder.Length > 0 ? $" ({folder})" : ""), 4);
+            AddNote("Bitirince Packet Tracer'da Ctrl+S ile kaydedin, “Teslim et”e basıp dosyanızı seçin.", 10);
         }
         _downloadButton.Click += async (_, _) => await DownloadClickedAsync();
         _noteLabel = AddNote("", 0, Theme.Bad);
@@ -645,40 +650,94 @@ public sealed class MainForm : Form
         ToastForm.ShowNotice("Sınav dosyası indirildi. Packet Tracer'da File → Open ile açabilirsiniz.");
     }
 
+    /// <summary>
+    /// "Teslim et": the student picks the file to hand in. It is read and checked on this
+    /// computer first, so that a wrong or untouched file is noticed before it is uploaded.
+    /// </summary>
     private async Task SubmitClickedAsync()
     {
         var controller = _controller;
         if (controller == null || controller.Submitting) return;
 
-        switch (controller.CheckBeforeSubmit())
+        string path;
+        using (var dialog = new OpenFileDialog
+               {
+                   Title = "Teslim edilecek dosyayı seçin",
+                   Filter = "Packet Tracer etkinliği (*.pka)|*.pka",
+                   CheckFileExists = true,
+                   Multiselect = false,
+               })
         {
-            case SubmitCheck.NoFile:
-                MessageBox.Show(this, "Sınav dosyası indirdiğiniz yerde bulunamadı. Dosyayı taşıdıysanız geri " +
-                                      "koyun ya da yeniden indirin.", AppTitle, MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-                return;
-            case SubmitCheck.NotSaved:
-                MessageBox.Show(this, "Önce Packet Tracer'da Ctrl+S ile kaydedin.", AppTitle, MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-                return;
+            // Start where the exam file was saved, with that file already filled in.
+            var known = controller.ExamFilePath;
+            var folder = known.Length > 0 ? Path.GetDirectoryName(known) : null;
+            if (!string.IsNullOrEmpty(folder) && Directory.Exists(folder))
+            {
+                dialog.InitialDirectory = folder;
+                if (File.Exists(known)) dialog.FileName = Path.GetFileName(known);
+            }
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            path = dialog.FileName;
+        }
+        if (IsDisposed || controller.Phase != Phase.Running) return;
+
+        var candidate = await controller.InspectSubmissionAsync(path);
+        if (IsDisposed || controller.Phase != Phase.Running) return;
+
+        var name = Path.GetFileName(path);
+        var refusal = candidate.Error.Length > 0
+            ? candidate.Error
+            : candidate.Problem switch
+            {
+                SubmitProblem.NotPka => $"“{name}” bir Packet Tracer dosyası değil. Yalnızca .pka uzantılı dosya " +
+                                        "teslim edilebilir.",
+                SubmitProblem.Empty => $"“{name}” boş bir dosya. Doğru dosyayı seçtiğinizden emin olun.",
+                SubmitProblem.TooBig => $"“{name}” çok büyük (en fazla 50 MB). Doğru dosyayı seçtiğinizden emin olun.",
+                _ => "",
+            };
+        if (refusal.Length > 0)
+        {
+            MessageBox.Show(this, refusal, AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
         }
 
-        var answer = MessageBox.Show(this,
-            "Teslim etmek istediğinize emin misiniz? Teslimden sonra değişiklik yapamazsınız.",
-            AppTitle, MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
-        if (answer != DialogResult.Yes) return;
+        var saved = candidate.LastWriteLocal;
+        var (question, icon) = candidate.Problem switch
+        {
+            SubmitProblem.SameAsExamFile => (
+                $"“{name}” indirdiğiniz sınav dosyasının aynısı: içine hiçbir değişiklik kaydedilmemiş.\n\n" +
+                "Packet Tracer'da Ctrl+S ile kaydettiğinizden ve doğru dosyayı seçtiğinizden emin olun.\n\n" +
+                "Yine de bu dosya teslim edilsin mi?", MessageBoxIcon.Warning),
+            SubmitProblem.SavedBeforeDownload => (
+                $"“{name}” sınav dosyasını indirmenizden önce kaydedilmiş (son kayıt: {saved:dd.MM.yyyy HH:mm}). " +
+                "Yanlış dosyayı seçmiş olabilirsiniz.\n\nYine de bu dosya teslim edilsin mi?", MessageBoxIcon.Warning),
+            _ => (
+                $"“{name}” teslim edilsin mi?\n\nSon kayıt: {saved:HH:mm}\nKlasör: {Path.GetDirectoryName(path)}\n\n" +
+                "Teslimden sonra değişiklik yapamazsınız.", MessageBoxIcon.Question),
+        };
+        var answer = MessageBox.Show(this, question, AppTitle, MessageBoxButtons.YesNo, icon,
+            MessageBoxDefaultButton.Button2);
+        if (answer != DialogResult.Yes || IsDisposed || controller.Phase != Phase.Running) return;
 
         if (_submitButton != null)
         {
             _submitButton.Enabled = false;
             _submitButton.Text = "Yükleniyor…";
         }
-        var error = await controller.SubmitAsync();
+        var error = await controller.SubmitAsync(candidate);
         if (error != null && !IsDisposed && controller.Phase != Phase.Finished)
         {
             MessageBox.Show(this, $"Teslim yüklenemedi: {error}\n\nBağlantınızı kontrol edip tekrar deneyin.",
                 AppTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    /// <summary>Reports when the student switches to another virtual desktop during the exam.</summary>
+    private void CheckVirtualDesktop()
+    {
+        var controller = _controller;
+        if (controller == null || IsDisposed || !IsHandleCreated || controller.Phase != Phase.Running) return;
+        if (VirtualDesktop.IsOnCurrentDesktop(Handle) is { } onCurrent) controller.ReportDesktop(onCurrent);
     }
 
     // --------------------------------------------------------------------- ending

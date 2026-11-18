@@ -6,10 +6,12 @@
     MediaMTX'i ve Python sunucusunu başlatır, SinavAjan.exe'yi çalıştırır ve arayüzünü
     UI Automation ile bir öğrenci gibi kullanır:
 
-      keşif -> sınıf/öğretmen onayı -> giriş -> ekran yayını (ffmpeg/gdigrab -> MediaMTX)
-      -> sınav dosyasının paylaşılması (sınavın başlaması) -> dosyanın seçilen yere indirilmesi
-      -> izinsiz programların kapatılması -> öndeki pencere toleransı
-      -> kaydetmeden teslim uyarısı -> teslim -> ajanın kapanması ve iz bırakmaması
+      sınav klasörünün panelden seçilmesi (Kayıtlar + Teslimler) -> sınıf/öğretmen adının panelden
+      değiştirilmesi -> keşif -> sınıf/öğretmen onayı -> giriş -> ekran yayını (ffmpeg/gdigrab ->
+      MediaMTX) -> sınav dosyasının paylaşılması (sınavın başlaması) -> dosyanın seçilen yere
+      indirilmesi -> izinsiz programların kapatılması -> öndeki pencere toleransı -> başka
+      masaüstüne geçiş uyarısı -> teslimde dosya seçme ve dosya denetimleri -> teslim klasörü
+      denetimi -> elle konan dosyanın teslim sayılması -> ajanın kapanması ve iz bırakmaması
       -> ajan zorla sonlandırıldığında ffmpeg'in de kapanması (Job Object)
 
     Yönetici olarak ve etkileşimli bir masaüstü oturumunda çalıştırılmalıdır.
@@ -45,8 +47,37 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+
+// Windows' documented virtual desktop interface: is a window on the desktop shown right now?
+[ComImport, Guid("a5cd92ff-29be-454c-8d04-d82879fb3f1b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IVirtualDesktopManager
+{
+    [PreserveSig] int IsWindowOnCurrentVirtualDesktop(IntPtr topLevelWindow, [MarshalAs(UnmanagedType.Bool)] out bool onCurrentDesktop);
+    [PreserveSig] int GetWindowDesktopId(IntPtr topLevelWindow, out Guid desktopId);
+    [PreserveSig] int MoveWindowToDesktop(IntPtr topLevelWindow, ref Guid desktopId);
+}
+
+[ComImport, Guid("aa509086-5ca9-4c25-8f95-589d3c07b48a")]
+public class VirtualDesktopManagerClass { }
+
+public static class Desk
+{
+    // 1 = on the current desktop, 0 = on another desktop, -1 = Windows cannot tell.
+    public static int State(IntPtr hwnd)
+    {
+        try
+        {
+            var manager = (IVirtualDesktopManager)new VirtualDesktopManagerClass();
+            bool on;
+            return manager.IsWindowOnCurrentVirtualDesktop(hwnd, out on) == 0 ? (on ? 1 : 0) : -1;
+        }
+        catch (Exception) { return -1; }
+    }
+}
 
 public static class Native
 {
@@ -134,6 +165,38 @@ public static class Native
         GetWindowThreadProcessId(GetForegroundWindow(), out pid);
         return pid;
     }
+
+    public static uint PidOf(IntPtr hwnd)
+    {
+        uint pid;
+        GetWindowThreadProcessId(hwnd, out pid);
+        return pid;
+    }
+
+    // The first visible top-level window whose title matches the pattern, or zero.
+    public static IntPtr FindWindowByTitle(string pattern)
+    {
+        IntPtr found = IntPtr.Zero;
+        var regex = new Regex(pattern);
+        EnumWindows(delegate(IntPtr hwnd, IntPtr lParam)
+        {
+            if (!IsWindowVisible(hwnd)) return true;
+            var text = new StringBuilder(300);
+            GetWindowText(hwnd, text, 300);
+            if (!regex.IsMatch(text.ToString())) return true;
+            found = hwnd;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    // Presses the keys in order and releases them in reverse, like a hand on the keyboard
+    // (for shortcuts with the Windows key, which SendKeys cannot type).
+    public static void KeyCombo(byte[] keys)
+    {
+        foreach (var key in keys) { keybd_event(key, 0, 0, UIntPtr.Zero); Thread.Sleep(60); }
+        for (var i = keys.Length - 1; i >= 0; i--) { keybd_event(keys[i], 0, 2, UIntPtr.Zero); Thread.Sleep(60); }
+    }
 }
 "@
 
@@ -148,6 +211,11 @@ function Step([string]$title) { Write-Host ''; Write-Host "=== $title" }
 function Check([bool]$condition, [string]$what) {
     if ($condition) { Write-Host "  [OK]   $what" }
     else { Write-Host "  [FAIL] $what"; $script:failures.Add($what) }
+}
+
+# Reported, but never fails the run: for steps that depend on the test machine itself.
+function Note([bool]$condition, [string]$what) {
+    if ($condition) { Write-Host "  [OK]   $what" } else { Write-Host "  [BİLGİ] doğrulanamadı: $what" }
 }
 
 function Wait-Until([scriptblock]$condition, [double]$timeoutSec, [int]$intervalMs = 400) {
@@ -210,14 +278,44 @@ function Count-Events([string]$numara, [string]$type, [string]$namePattern = '')
 }
 
 # Not through curl.exe: Windows PowerShell strips the double quotes of a JSON argument.
+# The body is sent as UTF-8 bytes: as a string, Windows PowerShell would send Turkish letters as "?".
 function Panel-Post([string]$path, [string]$json = '{}') {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$base$path" -TimeoutSec 10 `
-            -Headers @{ 'X-Panel' = '1' } -ContentType 'application/json' -Body $json
-        return $response.Content
+            -Headers @{ 'X-Panel' = '1' } -ContentType 'application/json; charset=utf-8' `
+            -Body ([Text.Encoding]::UTF8.GetBytes($json))
+        return [Text.Encoding]::UTF8.GetString($response.RawContentStream.ToArray())
     } catch {
         return "HATA: $($_.Exception.Message)"
     }
+}
+
+# "Klasör seç" in the panel: the request stays open while the folder window is shown.
+function Start-FolderPick {
+    return Start-Job -ArgumentList "$base/panel/api/pick-folder" -ScriptBlock {
+        param($url)
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri $url -TimeoutSec 180 `
+                -Headers @{ 'X-Panel' = '1' } -ContentType 'application/json' -Body '{}'
+            [Text.Encoding]::UTF8.GetString($response.RawContentStream.ToArray())
+        } catch {
+            "HATA: $($_.Exception.Message)"
+        }
+    }
+}
+
+function Wait-FolderWindow {
+    return Wait-Until {
+        $h = [Native]::FindWindowByTitle('Sınav klasörünü seçin|Browse For Folder|Klasöre Gözat')
+        if ($h -ne [IntPtr]::Zero) { $h }
+    } 40
+}
+
+function Finish-Job($job, [int]$timeoutSec) {
+    $finished = Wait-Job $job -Timeout $timeoutSec
+    $output = if ($finished) { (Receive-Job $job) -join '' } else { '' }
+    Remove-Job $job -Force -ErrorAction SilentlyContinue
+    return $output
 }
 
 # ---- UI Automation over the agent's windows -------------------------------------------
@@ -284,7 +382,7 @@ function Click-Agent([string]$pattern, [double]$timeoutSec = 15) {
     Click-Element $button $pattern
 }
 
-# Answers the agent's message box with a dialog command (IDOK=1, IDCANCEL=2, IDYES=6).
+# Answers the agent's message box with a dialog command (IDOK=1, IDCANCEL=2, IDYES=6, IDNO=7).
 # Independent of the OS language and of how the buttons are exposed to UI Automation.
 function Answer-MessageBox([int[]]$commands, [double]$timeoutSec = 10) {
     $dialog = Wait-Until { $h = [Native]::FindMessageBox([uint32]$script:agent.Id); if ($h -ne [IntPtr]::Zero) { $h } } $timeoutSec
@@ -295,6 +393,23 @@ function Answer-MessageBox([int[]]$commands, [double]$timeoutSec = 10) {
         if ($closed) { return }
     }
     throw "İleti kutusu kapatılamadı (komutlar: $($commands -join ', '))."
+}
+
+# Types a path into the agent's open/save file window like a student would:
+# Alt+N = "File name" box, then the path, then Enter.
+function Pick-File([string]$path, [string]$shot = '') {
+    $dialog = Wait-Until { $h = [Native]::FindMessageBox([uint32]$script:agent.Id); if ($h -ne [IntPtr]::Zero) { $h } } 15
+    if (-not $dialog) { throw 'Dosya penceresi açılmadı.' }
+    Start-Sleep -Seconds 1
+    if ($shot) { Shot $shot }
+    Focus-Window $dialog $script:agent.Id
+    [System.Windows.Forms.SendKeys]::SendWait('%n')
+    Start-Sleep -Milliseconds 400
+    [System.Windows.Forms.SendKeys]::SendWait($path)
+    Start-Sleep -Milliseconds 600
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    $closed = Wait-Until { [Native]::FindMessageBox([uint32]$script:agent.Id) -ne $dialog } 10 200
+    if (-not $closed) { throw "Dosya penceresi kapanmadı (yazılan yol: $path)." }
 }
 
 function Focus-Window([IntPtr]$hwnd, [int]$processId) {
@@ -370,8 +485,9 @@ try {
 
     $config = Join-Path $OutDir 'config.yaml'
     $yaml = @"
-sinif_adi: "CI-101"
-ogretmen_adi: "E2E Öğretmen"
+# Sınıf ve öğretmen adı aşağıda PANELDEN değiştirilir; ajanın bunları görmesi beklenir.
+sinif_adi: "AYAR-DOSYASI"
+ogretmen_adi: "Ayar Dosyası Öğretmeni"
 yayin:
   kullanici: "sinavajan"
   sifre: "sinav-yayin-2026"
@@ -395,8 +511,6 @@ esikler:
   kopma_suresi_sn: 10
   kapatma_geri_sayim_sn: 4
 klasorler:
-  teslimler: '$OutDir\submissions'
-  kayitlar: '$root\recordings'
   veri: '$OutDir\data'
   dagitim: '$OutDir\dist'
 "@
@@ -411,11 +525,63 @@ klasorler:
         -WorkingDirectory $root -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $OutDir 'server.out.log') `
         -RedirectStandardError (Join-Path $OutDir 'server.err.log')
-    $ready = Wait-Until { (Curl-Text @('-m', '2', "$base/api/info")) -match 'CI-101' } 60
+    $ready = Wait-Until { (Curl-Text @('-m', '2', "$base/api/info")) -match 'AYAR-DOSYASI' } 60
     Check ([bool]$ready) 'sunucu yanıt veriyor (/api/info)'
     if (-not $ready) { throw 'Sunucu başlamadı.' }
     $healthy = Wait-Until { $s = Get-Snapshot; $s -and $s.health.mediamtx_ok -and -not $s.health.discovery_error } 20
     Check ([bool]$healthy) 'MediaMTX denetim API''si ve UDP keşif dinleyicisi çalışıyor'
+
+    # ------------------------------------------------------- panel: before the exam
+    Step 'Panel: sınıf ve öğretmen adı'
+    $identity = Panel-Post '/panel/api/identity' (@{ sinif_adi = 'CI-101'; ogretmen_adi = 'E2E Öğretmen' } | ConvertTo-Json -Compress)
+    Check ($identity -match 'CI-101' -and $identity -match 'E2E Öğretmen') "sınıf ve öğretmen adı panelden değiştirildi ($identity)"
+    Check ((Curl-Text @('-m', '2', "$base/api/info")) -match 'CI-101') 'öğrencilerin gördüğü ad güncellendi (/api/info)'
+
+    Step 'Panel: sınav klasörü'
+    $refused = Panel-Post '/panel/api/start'
+    Check ($refused -match 'HATA') 'klasör seçilmeden sınav dosyası paylaşılamıyor'
+
+    # "Klasör seç" opens the folder window of Windows on this (the teacher's) computer.
+    $pick = Start-FolderPick
+    $folderWindow = Wait-FolderWindow
+    Check ([bool]$folderWindow) '"Klasör seç": Windows''un klasör seçme penceresi açılıyor'
+    Start-Sleep -Seconds 1
+    Shot 'klasor-penceresi'
+    if ($folderWindow) { [Native]::PostMessage($folderWindow, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }   # WM_CLOSE
+    $picked = Finish-Job $pick 30
+    Check ($picked -match '"cancelled":\s*true') "pencere kapatılınca klasör seçilmiş sayılmıyor ($picked)"
+
+    # Choosing a folder in that window (typed like a user would). Depends on the dialog of this
+    # Windows version, so it is reported but does not fail the run.
+    $typedFolder = Join-Path $OutDir 'pencereden-secilen'
+    New-Item -ItemType Directory -Force -Path $typedFolder | Out-Null
+    $pick = Start-FolderPick
+    $folderWindow = Wait-FolderWindow
+    if ($folderWindow) {
+        Focus-Window $folderWindow ([int][Native]::PidOf($folderWindow))
+        [System.Windows.Forms.SendKeys]::SendWait($typedFolder)
+        Start-Sleep -Milliseconds 600
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        Start-Sleep -Seconds 2
+        if ([Native]::FindWindowByTitle('Sınav klasörünü seçin|Browse For Folder|Klasöre Gözat') -ne [IntPtr]::Zero) {
+            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        }
+    }
+    $picked = Finish-Job $pick 15
+    Note ($picked -match 'pencereden-secilen' -and (Test-Path (Join-Path $typedFolder 'Teslimler'))) "pencereden seçilen klasör kullanıldı ($picked)"
+    $leftover = [Native]::FindWindowByTitle('Sınav klasörünü seçin|Browse For Folder|Klasöre Gözat')
+    if ($leftover -ne [IntPtr]::Zero) { [Native]::PostMessage($leftover, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null; Start-Sleep -Seconds 1 }
+
+    # The folder used for the rest of the test: Turkish letters and a space in its name.
+    $examFolder = Join-Path $OutDir 'Sınav Klasörü'
+    $chosen = Panel-Post '/panel/api/exam-folder' (@{ path = $examFolder } | ConvertTo-Json -Compress)
+    Check ($chosen -match 'Sınav Klasörü') "sınav klasörü seçildi ($chosen)"
+    $recordingsDir = Join-Path $examFolder 'Kayıtlar'
+    $submissionsDir = Join-Path $examFolder 'Teslimler'
+    Check ((Test-Path $recordingsDir) -and (Test-Path $submissionsDir)) 'klasörün içinde "Kayıtlar" ve "Teslimler" klasörleri açıldı'
+    $recording = Wait-Until { $s = Get-Snapshot; if ($s -and $s.health.recording) { $s } } 10
+    Check ([bool]$recording) 'MediaMTX ekran kaydı sınav klasörüne yönlendirildi'
+    if ($recording) { Check ($recording.exam.folder -eq $examFolder) "panel sınav klasörünü gösteriyor ($($recording.exam.folder))" }
 
     # ------------------------------------------------------------- waiting phase
     Step 'Ajan: keşif, onay, giriş'
@@ -575,20 +741,74 @@ klasorler:
     if (-not $winver.HasExited) { $winver.Kill() }
     Check ((Count-Events $numara 'foreground_change') -ge 2) 'öndeki pencere değişimleri olay kaydına yazılıyor'
 
+    # --------------------------------------------------------- virtual desktops
+    Step 'Başka masaüstüne geçiş'
+    if ($agentWindow -and [Desk]::State($agentWindow) -eq 1) {
+        [Native]::KeyCombo([byte[]](0x5B, 0x11, 0x44))      # Win+Ctrl+D: new desktop, and switch to it
+        $away = Wait-Until { [Desk]::State($agentWindow) -eq 0 } 6 300
+        if (-not $away) {
+            Write-Host '  [ATLANDI] bu test makinesinde yeni sanal masaüstü açılamadı (Win+Ctrl+D etkisiz).'
+        } else {
+            $switched = Wait-Until { (Count-Events $numara 'desktop_switch') -ge 1 } 10
+            Check ([bool]$switched) 'başka masaüstüne geçince öğretmene "Başka bir masaüstüne geçti" uyarısı gidiyor'
+            Note ([bool](Wait-AgentText 'Başka bir masaüstüne geçtiniz' 4)) 'öğrenciye "Başka bir masaüstüne geçtiniz…" bildirimi gösterildi'
+            Shot 'baska-masaustu'
+            [Native]::KeyCombo([byte[]](0x5B, 0x11, 0x73))  # Win+Ctrl+F4: close that desktop, go back
+            $back = Wait-Until { [Desk]::State($agentWindow) -eq 1 } 6 300
+            if (-not $back) {
+                [Native]::KeyCombo([byte[]](0x5B, 0x11, 0x25))   # Win+Ctrl+Left
+                $back = Wait-Until { [Desk]::State($agentWindow) -eq 1 } 6 300
+            }
+            if (-not $back) { throw 'Sınav masaüstüne geri dönülemedi; kalan adımlar güvenilir olmaz.' }
+            Check ([bool](Wait-Until { (Count-Events $numara 'desktop_return') -ge 1 } 10)) 'sınav masaüstüne dönünce olay kaydı'
+            Check ((Get-Student $numara).status -eq 'warn') 'panelde kutu sarı'
+        }
+    } else {
+        Write-Host '  [ATLANDI] bu Windows sürümü sanal masaüstü bilgisini vermiyor.'
+    }
+
     # -------------------------------------------------------------------- submit
-    Step 'Teslim'
+    Step 'Teslim: öğrenci dosyayı açılan pencereden seçer'
+    # 1) The exam file exactly as it was downloaded: the student is warned before anything is sent.
     Click-Agent '^Teslim et$'
-    $notSaved = Wait-AgentText 'Ctrl\+S ile kaydedin' 8
-    Check ([bool]$notSaved) 'kaydedilmemiş dosyada "Önce Packet Tracer''da Ctrl+S ile kaydedin." uyarısı'
-    Shot 'kaydedilmedi'
-    Answer-MessageBox @(1, 2)   # OK
+    Pick-File $pka 'teslim-dosya-sec'
+    $same = Wait-AgentText 'sınav dosyasının aynısı' 10
+    Check ([bool]$same) 'değiştirilmemiş sınav dosyası seçilince uyarı: "… indirdiğiniz sınav dosyasının aynısı …"'
+    Shot 'teslim-ayni-dosya'
+    Answer-MessageBox @(7, 2)   # No
     Start-Sleep -Seconds 1
 
+    # 2) A file that was last saved before the exam file was downloaded: most likely a wrong file.
+    $oldFile = Join-Path $studentFolder 'eski-odev.pka'
+    [IO.File]::WriteAllText($oldFile, 'gecen haftanin odevi')
+    (Get-Item $oldFile).LastWriteTime = (Get-Date).AddDays(-2)
+    Click-Agent '^Teslim et$'
+    Pick-File $oldFile
+    $stale = Wait-AgentText 'indirmenizden önce kaydedilmiş' 10
+    Check ([bool]$stale) 'sınavdan önce kaydedilmiş dosya seçilince uyarı: "… indirmenizden önce kaydedilmiş …"'
+    Answer-MessageBox @(7, 2)   # No
+    Start-Sleep -Seconds 1
+
+    # 3) Not a Packet Tracer file at all (typed by name, past the *.pka filter).
+    $textFile = Join-Path $studentFolder 'notlar.txt'
+    [IO.File]::WriteAllText($textFile, 'bu bir sinav dosyasi degil')
+    Click-Agent '^Teslim et$'
+    Pick-File $textFile
+    $wrongType = Wait-AgentText 'bir Packet Tracer dosyası değil' 10
+    Check ([bool]$wrongType) '.pka olmayan dosya teslim edilemiyor'
+    Answer-MessageBox @(1, 2)   # OK
+    Start-Sleep -Seconds 1
+    Check (-not (Get-ChildItem $submissionsDir -Filter *.pka)) 'reddedilen seçimlerden hiçbiri öğretmene gönderilmedi'
+    Check ((Get-Student $numara).status -ne 'done') 'öğrenci hâlâ teslim etmemiş görünüyor'
+
+    # 4) The saved work.
     [IO.File]::AppendAllText($pka, "`ncozum-$numara")   # "Ctrl+S": the file changes on disk
     $localHash = (Get-FileHash $pka -Algorithm SHA256).Hash.ToLowerInvariant()
     Click-Agent '^Teslim et$'
-    $confirm = Wait-AgentText 'Teslim etmek istediğinize emin misiniz' 8
-    Check ([bool]$confirm) 'onay sorusu: "Teslim etmek istediğinize emin misiniz? …"'
+    Pick-File $pka
+    $confirm = Wait-AgentText 'benim-sinavim\.pka. teslim edilsin mi' 10
+    Check ([bool]$confirm) 'onay sorusu seçilen dosyanın adını gösteriyor: "“benim-sinavim.pka” teslim edilsin mi? …"'
+    Shot 'teslim-onay'
     Answer-MessageBox @(6)      # Yes
 
     $done = Wait-AgentText 'Teslim alındı' 20
@@ -603,12 +823,49 @@ klasorler:
     Check $exited 'ajan teslimden sonra kapandı'
     Start-Sleep -Seconds 2
     Check (-not (Get-Process ffmpeg -ErrorAction SilentlyContinue)) 'ajan kapanınca ffmpeg.exe de kapandı'
-    $submitted = Join-Path $OutDir 'submissions\2021001_SukruCagriIsik.pka'
-    Check (Test-Path $submitted) 'teslim dosyası sunucuda Türkçe karakterler çevrilerek kaydedildi (2021001_SukruCagriIsik.pka)'
+    $submitted = Join-Path $submissionsDir '2021001_SukruCagriIsik.pka'
+    Check (Test-Path $submitted) 'teslim dosyası sınav klasöründeki "Teslimler"e Türkçe karakterler çevrilerek kaydedildi (2021001_SukruCagriIsik.pka)'
     if (Test-Path $submitted) {
-        Check ((Get-FileHash $submitted -Algorithm SHA256).Hash.ToLowerInvariant() -eq $localHash) 'sunucudaki dosya öğrencinin kaydettiğiyle birebir aynı'
+        Check ((Get-FileHash $submitted -Algorithm SHA256).Hash.ToLowerInvariant() -eq $localHash) 'klasördeki dosya öğrencinin kaydettiğiyle birebir aynı'
     }
     Check ((Get-Student $numara).status -eq 'done') 'panelde kutu gri (teslim etti)'
+    $original = Get-Events $numara | Where-Object { $_.type -eq 'submit' } | Select-Object -First 1
+    Check ($original -and $original.details.original -eq 'benim-sinavim.pka') 'olay kaydında öğrencinin seçtiği dosyanın adı var'
+    Check (-not (Get-Events $numara | Where-Object { $_.type -in @('unchanged_submission', 'stale_submission') })) 'doğru dosya için dosya uyarısı yok'
+    $stopped = Wait-Until { $s = Get-Student $numara; if ($s -and -not $s.stream_ready) { $s } } 10
+    Check ([bool]$stopped) 'teslim eden öğrencinin ekran yayını durdu'
+
+    Step 'Teslim klasörü denetimi'
+    # The student counts as "teslim etti" only while the file is really in the folder.
+    $aside = Join-Path $OutDir 'kenarda.pka'
+    Move-Item $submitted $aside
+    $missing = Wait-Until { $s = Get-Student $numara; if ($s -and $s.status -eq 'nofile') { $s } } 10
+    Check ([bool]$missing) 'dosya klasörden kaldırılınca öğrenci artık "teslim etti" görünmüyor'
+    Check ((Count-Events $numara 'submission_missing') -eq 1) 'öğretmene "Teslim dosyası klasörde bulunamıyor" uyarısı'
+    Move-Item $aside $submitted
+    $present = Wait-Until { $s = Get-Student $numara; if ($s -and $s.status -eq 'done') { $s } } 10
+    Check ([bool]$present) 'dosya geri konunca yeniden "teslim etti"'
+
+    Step 'Klasöre elle konan dosya teslim sayılıyor ve yayın duruyor'
+    $third = '2021003'
+    Start-Agent
+    Login-Agent $third 'Elden' 'Teslim'
+    Check ([bool](Wait-AgentText '^Sınav sürüyor$' 40)) 'üçüncü öğrenci sınavda'
+    $streaming = Wait-Until { $s = Get-Student $third; if ($s -and $s.stream_ready) { $s } } 40
+    Check ([bool]$streaming) 'üçüncü öğrencinin yayını geldi'
+    $byHand = Join-Path $submissionsDir "${third}_usbden.pka"
+    [IO.File]::WriteAllBytes($byHand, [Text.Encoding]::ASCII.GetBytes(('PKA-E2E-SINAV-DOSYASI ' * 400) + 'usb'))
+    (Get-Item $byHand).LastWriteTime = (Get-Date).AddMinutes(-1)
+    $taken = Wait-Until { $s = Get-Student $third; if ($s -and $s.status -eq 'done') { $s } } 15
+    Check ([bool]$taken) 'klasöre konan dosya öğrencinin teslimi olarak görüldü'
+    if ($taken) { Check ($taken.submission.filename -eq "${third}_usbden.pka") "panelde teslim dosyası: $($taken.submission.filename)" }
+    Check ([bool](Wait-AgentText 'Teslim alındı' 15)) 'ajan kendiliğinden "Teslim alındı" diyor'
+    Click-Agent '^Kapat'
+    Check ($script:agent.WaitForExit(20000)) 'ajan kapandı'
+    Start-Sleep -Seconds 2
+    Check (-not (Get-Process ffmpeg -ErrorAction SilentlyContinue)) 'ffmpeg.exe kapandı (yayın durdu)'
+    $stopped = Wait-Until { $s = Get-Student $third; if ($s -and -not $s.stream_ready) { $s } } 10
+    Check ([bool]$stopped) 'MediaMTX''te bu öğrencinin yayını kalmadı'
 
     Step 'İz bırakmama'
     $run = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue | Out-String
@@ -639,8 +896,12 @@ klasorler:
     Step 'Sınavı bitir ve kayıtlar'
     $end = Panel-Post '/panel/api/end'
     Check ($end -match 'ENDED') 'sınav bitirildi'
-    $recordings = @(Get-ChildItem (Join-Path $root "recordings\s\$numara") -Filter *.mp4 -ErrorAction SilentlyContinue)
-    Check ($recordings.Count -ge 1 -and ($recordings | Measure-Object Length -Sum).Sum -gt 20000) "ekran kaydı oluştu: recordings\s\$numara ($($recordings.Count) dosya)"
+    $recordings = @(Get-ChildItem (Join-Path $recordingsDir $numara) -Filter *.mp4 -ErrorAction SilentlyContinue)
+    Check ($recordings.Count -ge 1 -and ($recordings | Measure-Object Length -Sum).Sum -gt 20000) "ekran kaydı sınav klasöründe: Kayıtlar\$numara ($($recordings.Count) dosya)"
+    Check (Test-Path (Join-Path $examFolder 'olay-kaydi.csv')) 'olay kaydı sınav klasörüne yazıldı (olay-kaydi.csv)'
+    Check (Test-Path (Join-Path $submissionsDir 'index.csv')) 'teslim dökümü: Teslimler\index.csv'
+    Write-Host '  sınav klasörü:'
+    Get-ChildItem -Recurse -File $examFolder | ForEach-Object { Write-Host "    $($_.FullName.Substring($examFolder.Length + 1))  ($($_.Length) bayt)" }
 }
 catch {
     Write-Host ''
@@ -653,7 +914,7 @@ catch {
 finally {
     Step 'Tanılama'
     try {
-        foreach ($n in @('2021001', '2021002', '')) {
+        foreach ($n in @('2021001', '2021002', '2021003', '')) {
             Write-Host "  olaylar ($n):"
             Get-Events $n | ForEach-Object { Write-Host "    [$($_.severity)] $($_.type): $($_.message)" }
         }
@@ -671,8 +932,6 @@ finally {
     if (Test-Path $agentLog) { Copy-Item $agentLog (Join-Path $OutDir 'ajan.log') -Force }
     $mediaLog = Join-Path $root 'data\mediamtx.log'
     if (Test-Path $mediaLog) { Copy-Item $mediaLog (Join-Path $OutDir 'mediamtx.log') -Force }
-    $recordingDir = Join-Path $root 'recordings'
-    if (Test-Path $recordingDir) { Copy-Item $recordingDir (Join-Path $OutDir 'recordings') -Recurse -Force }
     foreach ($log in @('ajan.log', 'server.err.log', 'server.out.log', 'mediamtx.log')) {
         $path = Join-Path $OutDir $log
         if (Test-Path $path) {

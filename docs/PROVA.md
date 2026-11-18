@@ -17,35 +17,49 @@ Bölümler:
 **Geliştirme sırasında gerçekten çalıştırılarak sınananlar** (Linux üzerinde, gerçek
 MediaMTX v1.21.4, ffmpeg ve Chromium ile):
 
-- Sunucu: giriş, liste kuralları, durum makinesi, teslim adlandırma, `_v2` sürümleri,
-  `index.csv`, aynı SHA-256 ve boş teslim uyarıları, MAC/ikinci oturum uyarıları, kopma
-  tespiti, yeniden başlatmada durumun geri yüklenmesi, arşivleme, panelin yalnızca
-  `localhost`'tan erişilebilmesi → `server/tests` (42 test).
-- `mediamtx.yml`: yayın yetkisi (yanlış şifre ve `s/` dışı yollar reddediliyor), fMP4 kayıt,
-  denetim API'si, yalnızca yerel WebRTC.
-- Panel: gerçek tarayıcıda 35 eşzamanlı WebRTC görüntüsü, uyarı akışı, büyütme, dosya/liste
-  yükleme, başlat/bitir, CSV, yeni sınav; sayfanın **hiçbir dış adrese istek yapmadığı**.
+- Sunucu: giriş, liste kuralları, durum makinesi, sınav klasörü (`Kayıtlar` + `Teslimler`),
+  teslim adlandırma, `_v2` sürümleri, `index.csv`, yüklemenin özetle ve klasörden geri
+  okunarak doğrulanması, teslim klasörü denetimi (dosya kaybolursa / elle konursa), aynı
+  SHA-256, boş teslim, şüpheli boyut ve eski dosya uyarıları, MAC/ikinci oturum uyarıları,
+  kopma tespiti, başka masaüstü uyarısı, sınıf/öğretmen adının panelden değiştirilmesi,
+  yeniden başlatmada durumun geri yüklenmesi, panelin yalnızca `localhost`'tan
+  erişilebilmesi → `server/tests` (50 test).
+- `mediamtx.yml`: yayın yetkisi (yanlış şifre ve numara dışı yollar reddediliyor), kaydın
+  sınav klasörü seçilince çalışırken açılması ve `Kayıtlar\<numara>\` altına yazılması
+  (Türkçe harfli ve boşluklu klasör adıyla), teslim edenin yayınının durdurulması, denetim
+  API'si, yalnızca yerel WebRTC.
+- Panel: gerçek tarayıcıda canlı WebRTC görüntüleri, sınıf/öğretmen adını düzenleme, sınav
+  klasörü, tek satırlık öğrenci listesi ve düz uyarı listesi, ekran boyutu denetimi, büyütme,
+  dosya/liste yükleme, başlat/bitir, yeni sınav; sayfanın **hiçbir dış adrese istek yapmadığı**.
 - Ajanın platformdan bağımsız çekirdeği (`agent/Core`): UDP keşif, API istemcisi (giriş,
-  heartbeat, olay, dosya indirme, teslim), izin listesi eşleştirme (Türkçe Windows'taki
-  I/İ sorunu dahil), 5 saniye toleransı ve kapatma kuralları, ffmpeg komut satırı →
-  `agent/tests/CoreSmoke`.
+  heartbeat, olay, dosya indirme, teslim), teslim öncesi dosya denetimi kuralları, izin
+  listesi eşleştirme (Türkçe Windows'taki I/İ sorunu dahil), 5 saniye toleransı ve kapatma
+  kuralları, ffmpeg komut satırı → `agent/tests/CoreSmoke`.
 
 **Gerçek Windows üzerinde otomatik sınananlar** (GitHub Actions, Windows Server 2025;
 `agent/tests/E2E/windows-e2e.ps1` her derlemede `SinavAjan.exe`'yi çalıştırıp arayüzünü bir
 öğrenci gibi kullanır):
 
+- Panelden değiştirilen sınıf/öğretmen adının ajanda görünmesi; “Klasör seç”in Windows'un
+  klasör penceresini açması; sınav klasöründe `Kayıtlar` ve `Teslimler`in oluşması.
 - Yönetici olarak açılma, keşif, sınıf/öğretmen onayı, giriş; IP, bilgisayar adı ve MAC kaydı.
-- `ffmpeg gdigrab` ile ekranın yakalanıp MediaMTX'e yayınlanması ve kaydedilmesi; ffmpeg'in
-  görünür bir pencere açmaması.
+- `ffmpeg gdigrab` ile ekranın yakalanıp MediaMTX'e yayınlanması ve sınav klasörüne
+  kaydedilmesi; ffmpeg'in görünür bir pencere açmaması.
 - Bekleme aşamasında hiçbir programın kapatılmaması; dosya paylaşılınca geri sayım, sınav
   paneli (küçültülebilir, süre göstermez), “Sınav dosyasını indir” ile dosyanın öğrencinin
   seçtiği yere kaydedilmesi.
 - Not Defteri ve Chrome'un kapatılması, öğrenciye bildirim, panelde uyarı.
 - Öndeki pencere toleransı: 2,5 sn'lik geçişte uyarı yok, 5 sn'den sonra uyarı var;
   `C:\Windows` altındaki programın kapatılmaması.
-- Kaydetmeden teslimde uyarı, onay, teslim (öğrenciye SHA gösterilmez), sunucuda Türkçe
-  karakterleri çevrilmiş dosya adı, ajanın kapanması, ffmpeg'in kapanması,
-  servis/başlangıç kaydı/zamanlanmış görev kalmaması.
+- Başka bir sanal masaüstüne geçince uyarı (test makinesi sanal masaüstü açabiliyorsa).
+- Teslimde dosya seçme penceresi; değiştirilmemiş sınav dosyası, sınavdan önce kaydedilmiş
+  dosya ve `.pka` olmayan dosya için uyarılar; doğru dosyada onay ve teslim (öğrenciye SHA
+  gösterilmez), `Teslimler` klasöründe Türkçe karakterleri çevrilmiş dosya adı, yayının
+  durması, ajanın kapanması, ffmpeg'in kapanması, servis/başlangıç kaydı/zamanlanmış görev
+  kalmaması.
+- Teslim klasörü denetimi: dosya klasörden alınınca “Dosya klasörde yok”, geri konunca
+  “Teslim etti”; klasöre elle konan dosyanın teslim sayılması ve o öğrencinin ajanının
+  kendiliğinden “Teslim alındı” deyip kapanması.
 - Ajan zorla sonlandırılınca ffmpeg'in de kapanması (Job Object) ve kutunun kırmızıya dönmesi.
 - `start-teacher.bat` güvenlik duvarı kurallarının eklenmesi; sunucu testleri (Windows, Python 3.11).
 
@@ -97,10 +111,11 @@ Her maddeyi deneyip işaretleyin.
       tık → Yönetici olarak çalıştır.” mesajı çıkmalı, program kapanmalı, **panelde kimse
       görünmemeli**. (Normal çift tıklamada Windows zaten yönetici izni ister; “Hayır”
       derseniz program hiç başlamaz.)
-- [ ] **2. Otomatik keşif.** Ajan IP girmeden sunucuyu buluyor ve `config.yaml`'daki sınıf /
-      öğretmen adını büyük harflerle gösteriyor.
+- [ ] **2. Otomatik keşif.** Ajan IP girmeden sunucuyu buluyor ve panelde yazdığınız sınıf /
+      öğretmen adını büyük harflerle gösteriyor. (Panelde **Düzenle** ile adı değiştirip
+      ajanı yeniden açınca yeni ad görünmeli.)
 - [ ] **3. İki modem, iki sunucu.** İki sınıfın modemi ve öğretmen bilgisayarı açıkken
-      (`sinif_adi` farklı) her ajan **yalnızca kendi modemindeki** sunucuyu görüyor. Bir
+      (sınıf adları farklı) her ajan **yalnızca kendi modemindeki** sunucuyu görüyor. Bir
       öğrenci bilgisayarını diğer modeme bağlayıp ajanı yeniden açınca diğer sınıfın adı
       çıkmalı.
 - [ ] **4. Güvenlik duvarı açıkken çalışıyor.** Öğretmen bilgisayarında Windows Güvenlik
@@ -126,18 +141,16 @@ Her maddeyi deneyip işaretleyin.
       önde: explorer.exe” uyarısı çıkıyor.
 - [ ] **10. Wi-Fi kesintisi.** Öğrencide Wi-Fi'yı kapatın: yaklaşık 10 saniyede kutu
       kırmızıya dönüyor. Wi-Fi'yı açın: kutu yeşile dönüyor, görüntü geri geliyor ve
-      `recordings\s\<numara>\` altında yeni bir kayıt dosyası başlıyor.
+      sınav klasöründe `Kayıtlar\<numara>\` altında yeni bir kayıt dosyası başlıyor.
 - [ ] **11. Ajanı Görev Yöneticisi'nden sonlandırma.** Kutu kırmızıya dönüyor; öğrencide
       Görev Yöneticisi → Ayrıntılar'da **`ffmpeg.exe` de kalmamış** olmalı.
-- [ ] **12. Dosya adı.** Teslim `submissions\<numara>_<AdSoyad>.pka` olarak kaydediliyor;
+- [ ] **12. Dosya adı.** Teslim, sınav klasöründe `Teslimler\<numara>_<AdSoyad>.pka` olarak kaydediliyor;
       “Şükrü Çağrı Işık” gibi bir adla deneyin → `…_SukruCagriIsik.pka`.
 - [ ] **13. Otomatik toplama.** Bir öğrenci dosyayı indirip kaydettikten sonra teslim
       etmeden “Sınavı bitir”e basın: dosyası otomatik geliyor, olay kaydında “Otomatik teslim alındı” yazıyor, ajanı “Sınav sona
       erdi” deyip kapanıyor.
-- [ ] **14. Kayıtlar oynuyor.** `recordings\s\<numara>\` altındaki `.mp4` dosyaları VLC'de
-      oynuyor.
-      *(Not: tanımda `recordings\<numara>\` yazıyordu; MediaMTX kayıt yolunda yayın yolunun
-      tamamını — `s/<numara>` — zorunlu tuttuğu için klasör `recordings\s\<numara>\` oldu.)*
+- [ ] **14. Kayıtlar oynuyor.** Sınav klasöründe `Kayıtlar\<numara>\` altındaki `.mp4`
+      dosyaları VLC'de oynuyor.
 - [ ] **15. İnternetsiz çalışma.** Modemin internet kablosu çıkarılmışken tüm akış
       çalışıyor. Panelde F12 → Ağ (Network) sekmesinde yalnızca `localhost:8000` ve
       `127.0.0.1:8889` adreslerine istek olmalı.
@@ -153,9 +166,28 @@ Ek denemeler (önerilir):
       indirdiği dosyayla **devam ediyor**; yeniden indirmesi gerekmiyor, “Teslim et” hazır.
 - [ ] “Sınav dosyasını indir” kayıt yerini soruyor; dosya seçilen yere kaydediliyor ve
       kendiliğinden açılmıyor. Öğrenci panelinde süre **görünmüyor**.
-- [ ] Hiç kaydetmeden “Teslim et” → “Önce Packet Tracer'da Ctrl+S ile kaydedin.”
+- [ ] **Klasör seçme.** Panelde **Sınav klasörü → Klasör seç** Windows'un klasör penceresini
+      açıyor (pencere tarayıcının önünde mi?); seçilen klasörde `Kayıtlar` ve `Teslimler`
+      oluşuyor. Klasör seçilmeden “Sınav dosyasını paylaş” basılamıyor.
+- [ ] **Teslimde dosya seçme.** “Teslim et” dosya seçme penceresini açıyor; pencere
+      indirilen dosyanın klasöründe açılıyor. **Packet Tracer'da gerçekten kaydedilmiş**
+      dosya seçilince ad, klasör ve son kayıt saatiyle onay soruluyor; “Evet” → “Teslim
+      alındı”, panelde “Teslim etti”, görüntüsü duruyor.
+- [ ] Hiç kaydetmeden indirilen dosyayı seçince “… indirdiğiniz sınav dosyasının aynısı …”
+      uyarısı. (Packet Tracer dosyayı *hiçbir değişiklik yapmadan* Ctrl+S ile kaydedince
+      içeriği değişiyor mu? Değişmiyorsa bu uyarı o durumda da çıkar — öğrencilere söyleyin.)
+- [ ] Eski bir `.pka` dosyası seçince “… indirmenizden önce kaydedilmiş …” uyarısı.
+- [ ] **Teslim klasörü.** Teslim edilmiş bir dosyayı `Teslimler` klasöründen başka yere
+      taşıyın: birkaç saniyede öğrenci kırmızı “Dosya klasörde yok” oluyor; geri koyunca
+      yeniden “Teslim etti”. Henüz teslim etmemiş bir öğrenci için klasöre
+      `<numarası>_deneme.pka` adlı bir dosya kopyalayın: öğrenci “Teslim etti” oluyor, ajanı
+      “Teslim alındı” deyip kapanıyor.
+- [ ] **Başka masaüstü.** Öğrencide Win+Ctrl+D ile yeni masaüstü açın: panelde “Başka bir
+      masaüstüne geçti” uyarısı, öğrencide bildirim çıkıyor. Win+Ctrl+F4 ile kapatın.
+- [ ] **Ekran boyutu.** Ekranların üstündeki − / + / kaydırıcı ile kutular büyüyüp
+      küçülüyor; **Sığdır** hepsini ekrana sığdırıyor.
 - [ ] İki öğrenci aynı dosyayı teslim edince kırmızı “birebir aynı dosya” uyarısı; hiç
-      değiştirmeden teslimde “sınav dosyasıyla birebir aynı” uyarısı.
+      değiştirmeden teslimde “sınav dosyasının kendisi” uyarısı.
 - [ ] İkinci monitör takınca “Monitör sayısı: 2” uyarısı.
 - [ ] Sınav sırasında `start-teacher.bat` penceresini kapatıp yeniden açın: sınav
       **SÜRÜYOR** olarak geri geliyor, öğrenciler birkaç saniyede yeniden yeşil oluyor.
@@ -190,7 +222,7 @@ Geliştirme ortamında 35 yayın tek tarayıcıda oynatıldı (toplam ~175 kare/
 ancak bu ölçüm sizin bilgisayarınızı temsil etmez. Öğretmen bilgisayarında
 `sim_agent.py --count 35 --stream` ile (ya da gerçek sınıfla) deneyin; Görev Yöneticisi'nde
 tarayıcının işlemci kullanımına ve görüntülerin akıcılığına bakın. Zorlanıyorsa **Diğer**
-menüsünden **Görünmeyen kutuları duraklat**'ı açın, gerekirse `yayin.genislik: 960` yapın.
+menüsünden **Görünmeyen ekranları duraklat**'ı açın, gerekirse `yayin.genislik: 960` yapın.
 
 ### Risk 4 — Ağ kapasitesi
 

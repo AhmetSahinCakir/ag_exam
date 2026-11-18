@@ -70,10 +70,20 @@ public sealed class ApiClient : IDisposable
         return await ReadBytesAsync(response, ct).ConfigureAwait(false);
     }
 
-    public async Task<SubmitResponse> SubmitAsync(byte[] content, bool auto, CancellationToken ct = default)
+    /// <summary>
+    /// Uploads a file as this student's submission. <paramref name="sha256"/> is the hash of the
+    /// bytes as read on this computer; the server refuses the upload if what arrives differs.
+    /// </summary>
+    public async Task<SubmitResponse> SubmitAsync(byte[] content, bool auto, string sha256,
+        string originalName = "", bool stale = false, CancellationToken ct = default)
     {
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent(auto ? "true" : "false"), "auto");
+        form.Add(new StringContent(sha256), "sha256");
+        // Sent as a text field: file names with Turkish letters do not survive every
+        // multipart "filename" encoding.
+        if (originalName.Length > 0) form.Add(new StringContent(originalName), "original_name");
+        if (stale) form.Add(new StringContent("true"), "stale");
         var file = new ByteArrayContent(content);
         file.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         form.Add(file, "file", "sinav.pka");

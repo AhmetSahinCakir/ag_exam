@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using SinavAjan.Core;
 
 namespace SinavAjan.Tests;
@@ -34,6 +35,7 @@ internal static class Program
         EnforcementTests();
         FfmpegTests();
         DiscoveryParseTests();
+        SubmissionRuleTests();
 
         string? server = null;
         var discover = false;
@@ -209,7 +211,7 @@ internal static class Program
         Console.WriteLine("ffmpeg komutu");
         var settings = StreamSettings.From(
             new StreamConfig { User = "yerel", Pass = "yerel", Fps = 5, Width = 1280, BitrateKbps = 500 },
-            new StreamDto { Url = "rtsp://192.168.1.10:8554/s/2021001", User = "sinavajan", Pass = "p@ss:1/2", Fps = 3 });
+            new StreamDto { Url = "rtsp://192.168.1.10:8554/2021001", User = "sinavajan", Pass = "p@ss:1/2", Fps = 3 });
         Equal("sinavajan", settings.User, "sunucunun kullanıcısı öncelikli");
         Equal(3, settings.Fps, "sunucunun fps değeri öncelikli");
         Equal(1280, settings.Width, "genişlik agent.json'dan");
@@ -218,11 +220,47 @@ internal static class Program
         Check(joined.Contains("-vf scale=1280:-2"), "ölçekleme");
         Check(joined.Contains("-c:v libx264 -preset ultrafast -tune zerolatency"), "kodlayıcı");
         Check(joined.Contains("-b:v 500k -maxrate 500k -bufsize 1000k -g 6 -pix_fmt yuv420p"), "bit hızı ve GOP");
-        Check(joined.EndsWith("-f rtsp -rtsp_transport tcp rtsp://sinavajan:p%40ss%3A1%2F2@192.168.1.10:8554/s/2021001"), "RTSP hedefi ve kodlanmış şifre");
+        Check(joined.EndsWith("-f rtsp -rtsp_transport tcp rtsp://sinavajan:p%40ss%3A1%2F2@192.168.1.10:8554/2021001"), "RTSP hedefi ve kodlanmış şifre");
         Check(!FfmpegCommand.ForLog(FfmpegCommand.Build(settings), settings.Pass).Contains("p%40ss"), "günlükte şifre gizli");
-        var fallback = StreamSettings.From(new StreamConfig(), new StreamDto { Url = "rtsp://h:8554/s/1" });
+        var fallback = StreamSettings.From(new StreamConfig(), new StreamDto { Url = "rtsp://h:8554/1" });
         Equal("sinavajan", fallback.User, "sunucu vermezse agent.json kullanıcısı");
-        Equal("rtsp://a:b@h:8554/s/1", FfmpegCommand.UrlWithCredentials("rtsp://x:y@h:8554/s/1", "a", "b"), "var olan kimlik değiştirilir");
+        Equal("rtsp://a:b@h:8554/1", FfmpegCommand.UrlWithCredentials("rtsp://x:y@h:8554/1", "a", "b"), "var olan kimlik değiştirilir");
+    }
+
+    /// <summary>What the agent checks on the file a student picks in "Teslim et".</summary>
+    private static void SubmissionRuleTests()
+    {
+        Console.WriteLine("Teslim öncesi dosya denetimi");
+        const string examSha = "aa11";
+        const long downloaded = 1_000_000;
+        SubmitProblem Check2(string name, long length, string sha, long saved) =>
+            SubmissionRules.Check(name, length, sha, saved, examSha, downloaded);
+
+        Equal(SubmitProblem.None, Check2("sinav.pka", 5000, "bb22", downloaded + 50), "kaydedilmiş çalışma kabul edilir");
+        Equal(SubmitProblem.None, Check2("ÇÖZÜM.PKA", 5000, "bb22", downloaded + 50), "uzantıda büyük/küçük harf fark etmez");
+        Equal(SubmitProblem.SameAsExamFile, Check2("sinav.pka", 5000, "AA11", downloaded), "indirilen dosyanın aynısı fark edilir");
+        Equal(SubmitProblem.SameAsExamFile, Check2("kopya.pka", 5000, "aa11", downloaded + 999), "aynı içerik, başka adla da fark edilir");
+        Equal(SubmitProblem.SavedBeforeDownload, Check2("eski.pka", 5000, "cc33", downloaded - 1), "sınavdan önce kaydedilmiş dosya fark edilir");
+        Equal(SubmitProblem.NotPka, Check2("odev.pkt", 5000, "bb22", downloaded + 50), ".pka olmayan dosya reddedilir");
+        Equal(SubmitProblem.NotPka, Check2("sinav.pka.zip", 5000, "bb22", downloaded + 50), "çift uzantı reddedilir");
+        Equal(SubmitProblem.Empty, Check2("sinav.pka", 0, "", downloaded + 50), "boş dosya reddedilir");
+        Equal(SubmitProblem.TooBig, Check2("sinav.pka", SubmissionRules.MaxUploadBytes + 1, "bb22", downloaded + 50), "50 MB üstü reddedilir");
+        Equal(SubmitProblem.None, SubmissionRules.Check("sinav.pka", 10, "bb22", 5, "", 0), "indirme bilgisi yoksa uyarı verilmez");
+
+        Check(SubmissionRules.Blocks(SubmitProblem.NotPka) && SubmissionRules.Blocks(SubmitProblem.Empty)
+              && SubmissionRules.Blocks(SubmitProblem.TooBig), "yanlış türde / boş / çok büyük dosya yüklenmez");
+        Check(!SubmissionRules.Blocks(SubmitProblem.SameAsExamFile) && !SubmissionRules.Blocks(SubmitProblem.SavedBeforeDownload)
+              && !SubmissionRules.Blocks(SubmitProblem.None), "şüpheli dosyada öğrenciye sorulur, engellenmez");
+
+        // The note about the downloaded file survives a restart of the agent.
+        var meta = JsonSerializer.Deserialize<ExamFileMeta>(JsonSerializer.Serialize(new ExamFileMeta
+        {
+            ExamId = "e1", Path = @"C:\Users\a\Desktop\sinav.pka", BaselineWriteTicks = 42, ExamSha256 = examSha,
+        }))!;
+        Check(meta.ExamSha256 == examSha && meta.BaselineWriteTicks == 42 && meta.ExamId == "e1", "sinav.json alanları");
+        var status = JsonSerializer.Deserialize<ExamStatus>("{\"exam_state\":\"RUNNING\",\"submitted\":true}")!;
+        Check(status.Submitted && status.ExamState == "RUNNING", "heartbeat 'submitted' alanı okunuyor");
+        Check(!JsonSerializer.Deserialize<ExamStatus>("{\"exam_state\":\"RUNNING\"}")!.Submitted, "'submitted' yoksa false");
     }
 
     private static void DiscoveryParseTests()
@@ -285,7 +323,7 @@ internal static class Program
         Check(session.Token.Length > 20, "token");
         Check(session.Allowlist.Patterns.Count > 0, "izin listesi desenleri");
         Check(session.Allowlist.Version == session.AllowlistVersion, "izin listesi sürümü tutarlı");
-        Check(session.Stream.Url.EndsWith("/s/" + numara), $"yayın adresi ({session.Stream.Url})");
+        Check(session.Stream.Url.EndsWith(":8554/" + numara), $"yayın adresi ({session.Stream.Url})");
         Check(session.Settings.ForegroundToleranceS > 0, "ön pencere toleransı");
         Equal("Çağrı", session.Student.Ad, "Türkçe karakterli ad gidip geliyor");
         var policy = new Policy(session.Allowlist, @"C:\Windows", Array.Empty<string?>());
@@ -325,8 +363,21 @@ internal static class Program
             var file = await api.DownloadExamFileAsync();
             Check(file.Length > 0, "sınav dosyası indirildi");
             var work = file.Concat(Encoding.UTF8.GetBytes("\ncore-smoke " + numara)).ToArray();
-            var submit = await api.SubmitAsync(work, auto: false);
+            Check(!status.Submitted, "teslimden önce heartbeat 'submitted' değil");
+            try
+            {
+                await api.SubmitAsync(work, auto: false, NetInfo.Sha256Hex(file), "bozuk.pka");
+                Check(false, "özeti tutmayan yükleme reddedilmeli");
+            }
+            catch (ApiException ex)
+            {
+                Equal(400, ex.Status, "özeti tutmayan yükleme -> 400");
+            }
+            var submit = await api.SubmitAsync(work, auto: false, NetInfo.Sha256Hex(work), "Ağ çözümüm.pka");
             Equal(NetInfo.Sha256Hex(work), submit.Sha256, "sunucunun SHA-256 değeri yerelle aynı");
+            Check(submit.Verified, "sunucu dosyayı teslim klasöründen okuyup doğruladı");
+            var after = await api.HeartbeatAsync(new HeartbeatRequest { ExamStateSeen = "RUNNING" });
+            Check(after.Submitted, "teslimden sonra heartbeat 'submitted' bildiriyor");
             Equal($"{numara}_CagriIsik.pka", submit.Filename, "teslim dosya adı");
             Console.WriteLine($"  teslim: {submit.Filename} {submit.Sha256[..16]}…");
         }

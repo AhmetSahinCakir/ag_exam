@@ -4,11 +4,16 @@
 # Bu dosyayı her sınıfın öğretmen bilgisayarında ayrı ayrı düzenleyin.
 # Değişiklikten sonra start-teacher.bat'ı yeniden başlatın. (İzin listesi
 # bölümleri sunucu çalışırken de yeniden okunur ve ajanlara iletilir.)
+#
+# Sınav klasörü (ekran kayıtları + teslim edilen dosyalar) burada DEĞİL,
+# panelde seçilir.
 # =============================================================================
 
 # Öğrencinin ajanında büyük harflerle gösterilir:
 #   "Sınıf: B-102 — Öğretmen: Ad Soyad"
 # Öğrenci doğru modeme bağlandığını buradan anlar; her sınıfta FARKLI olmalı.
+# Bunlar yalnızca BAŞLANGIÇ değerleridir: panelde "Sınıf ve öğretmen → Düzenle"
+# ile değiştirdiğinizde panelde yazdığınız geçerli olur (data/settings.json).
 sinif_adi: "B-102"
 ogretmen_adi: "Öğretmen Adı Soyadı"
 
@@ -104,12 +109,9 @@ esikler:
 # Klasörler (bu dosyanın bulunduğu klasöre göre)
 # -----------------------------------------------------------------------------
 klasorler:
-  # Teslim edilen .pka dosyaları ve index.csv
-  teslimler: ../submissions
-  # MediaMTX ekran kayıtları. Yalnızca panelde gösterilir; kayıt yolunu
-  # değiştirmek için mediamtx/mediamtx.yml içindeki recordPath'i düzenleyin.
-  kayitlar: ../recordings
-  # Sınav durumu, olay kaydı, yüklenen sınav dosyası, arşiv
+  # Sunucunun kendi çalışma dosyaları: sınav durumu, ham olay kaydı, yüklenen
+  # sınav dosyası. (Kayıtlar ve teslimler burada değil, panelde seçtiğiniz
+  # sınav klasöründedir.)
   veri: ../data
   # Buraya SinavAjan.zip koyarsanız öğrenciler tarayıcıdan
   # http://<öğretmen-ip>:8000/ adresinden indirebilir.
@@ -118,9 +120,9 @@ klasorler:
 # -----------------------------------------------------------------------------
 # Kayıt saklama notu
 # -----------------------------------------------------------------------------
-# Ekran kayıtları otomatik SİLİNMEZ (recordings/ klasörü). Bu metin öğrenciye
-# giriş ekranında, öğretmene panelin altında gösterilir. Kurumunuzun kuralına
-# göre düzenleyin ve süre dolunca recordings/ klasörünü elle silin.
+# Ekran kayıtları otomatik SİLİNMEZ (sınav klasöründeki "Kayıtlar"). Bu metin
+# öğrenciye giriş ekranında gösterilir. Kurumunuzun kuralına göre düzenleyin ve
+# süre dolunca kayıtları elle silin.
 kayit_saklama_notu: >-
   Ekran kayıtları yalnızca sınav güvenliği için tutulur, sınav itiraz süresi
   bitene kadar öğretmen bilgisayarında saklanır ve ardından silinir.

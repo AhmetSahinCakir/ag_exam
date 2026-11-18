@@ -6,7 +6,8 @@
 # sürümü yükseltirseniz yeni sürümle gelen örnek mediamtx.yml ile karşılaştırın.
 #
 # MediaMTX, start-teacher.bat tarafından depo kök klasöründen başlatılır;
-# aşağıdaki göreli yollar (./recordings, ./data) o klasöre göredir.
+# aşağıdaki göreli yol (./data) o klasöre göredir. Ekran kayıtları panelde
+# seçilen sınav klasörüne yazılır.
 #
 # Dışarıya (sınıf ağına) açık tek port: TCP 8554 (RTSP, öğrenci yayınları).
 # Diğer her şey yalnızca 127.0.0.1'i dinler; böylece Windows Güvenlik Duvarı
@@ -31,7 +32,7 @@ authInternalUsers:
     ips: []
     permissions:
       - action: publish
-        path: "~^s/[A-Za-z0-9]{1,20}$"
+        path: "~^[A-Za-z0-9]{1,20}$"
 
   - user: any
     pass:
@@ -81,29 +82,29 @@ webrtcAdditionalHosts: ["127.0.0.1"]
 webrtcICEServers2: []
 
 ###############################################################################
-# Yollar
+# Yollar ve kayıt
+#
+# Kayıt başlangıçta KAPALIDIR. Öğretmen panelde sınav klasörünü seçtiğinde Python
+# sunucusu, MediaMTX denetim API'si üzerinden kaydı açar ve kayıt yolunu
+#   <sınav klasörü>\Kayıtlar\<numara>\<tarih-saat>.mp4
+# olarak ayarlar. Bu yüzden recordPath burada elle değiştirilmez.
 pathDefaults:
   source: publisher
   # Bağlantısı kopan ajan yeniden bağlandığında eski (asılı kalmış) yayının
   # yerini hemen alabilsin.
   overridePublisher: true
   record: false
+  recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S_%z
+  recordFormat: fmp4
+  # Çökme anında en fazla bu kadar görüntü kaybolur.
+  recordPartDuration: 1s
+  # Her dosya en fazla 10 dakikalık bölüm içerir. Bağlantı kopup yeniden
+  # kurulduğunda yeni bir dosya başlaması normaldir.
+  recordSegmentDuration: 10m
+  # Kayıtlar otomatik silinmez.
+  recordDeleteAfter: 0s
 
 paths:
-  # Öğrenci yayınları: rtsp://<öğretmen>:8554/s/<numara>
+  # Öğrenci yayınları: rtsp://<öğretmen>:8554/<numara>
   # Bu desene uymayan hiçbir yol kabul edilmez.
-  "~^s/[A-Za-z0-9]{1,20}$":
-    # Kayıt: recordings/s/<numara>/<tarih-saat>.mp4
-    # (MediaMTX kayıt yolunda %path değişkenini zorunlu tutar; %path = "s/<numara>"
-    #  olduğu için klasör recordings/s/<numara>/ olur.)
-    record: true
-    recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S_%z
-    recordFormat: fmp4
-    # Çökme anında en fazla bu kadar görüntü kaybolur.
-    recordPartDuration: 1s
-    # Her dosya en fazla 10 dakikalık bölüm içerir. Bağlantı kopup yeniden
-    # kurulduğunda yeni bir dosya başlaması normaldir.
-    recordSegmentDuration: 10m
-    # Kayıtlar otomatik silinmez; saklama süresi için server/config.yaml
-    # içindeki "kayit_saklama_notu" açıklamasına bakın.
-    recordDeleteAfter: 0s
+  "~^[A-Za-z0-9]{1,20}$":

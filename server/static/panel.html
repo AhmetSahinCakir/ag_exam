@@ -9,7 +9,10 @@
 <body>
   <header id="top">
     <div class="identity">
-      <div id="className" class="class-name">—</div>
+      <div class="class-line">
+        <span id="className" class="class-name">—</span>
+        <button id="btnIdentity" type="button" class="link small" title="Sınıf (salon) ve öğretmen adını değiştir">Düzenle</button>
+      </div>
       <div id="teacherName" class="teacher-name"></div>
     </div>
 
@@ -21,22 +24,19 @@
 
     <div class="top-actions">
       <button id="btnEnd" type="button" class="danger" hidden>Sınavı bitir</button>
-      <a id="btnExportTop" class="button" href="/panel/api/export.csv" hidden>Olay kaydını indir</a>
+      <button id="btnOpenFolderTop" type="button" hidden>Sınav klasörünü aç</button>
       <button id="btnResetTop" type="button" class="primary" hidden>Yeni sınav</button>
       <div class="menu-wrap">
         <button id="btnMenu" type="button" aria-haspopup="true" aria-expanded="false">Diğer</button>
         <div id="menu" class="menu" hidden>
+          <button id="btnOpenFolder" type="button" class="menu-item">Sınav klasörünü aç</button>
           <button id="btnRosterMenu" type="button" class="menu-item">Öğrenci listesi yükle (Excel)</button>
           <a id="btnExport" class="menu-item" href="/panel/api/export.csv">Olay kaydını indir (CSV)</a>
           <button id="btnReset" type="button" class="menu-item">Yeni sınav hazırla</button>
           <div class="menu-sep"></div>
           <label class="menu-check"><input id="sound" type="checkbox"> Uyarılarda ses çal</label>
-          <label class="menu-check"><input id="fit" type="checkbox" checked> Kutuları ekrana sığdır</label>
-          <label class="menu-range">Kutu boyutu
-            <input id="tileSize" type="range" min="150" max="520" step="10" value="230">
-          </label>
           <label class="menu-check" title="Ekranda görünmeyen kutuların görüntüsü durdurulur; bilgisayar zorlanıyorsa açın">
-            <input id="pauseHidden" type="checkbox"> Görünmeyen kutuları duraklat
+            <input id="pauseHidden" type="checkbox"> Görünmeyen ekranları duraklat
           </label>
           <div class="menu-sep"></div>
           <div id="menuInfo" class="menu-info"></div>
@@ -50,13 +50,21 @@
     <div class="step">
       <span class="step-n">1</span>
       <div class="step-text">
+        <div class="step-title">Sınav klasörü</div>
+        <div id="folderInfo" class="step-sub path"><bdi>Kayıtlar ve teslimler buraya gelir</bdi></div>
+      </div>
+      <button id="btnFolder" type="button">Klasör seç</button>
+    </div>
+    <div class="step">
+      <span class="step-n">2</span>
+      <div class="step-text">
         <div class="step-title">Sınav dosyası</div>
         <div id="examFileInfo" class="step-sub">Henüz seçilmedi</div>
       </div>
       <button id="btnExamFile" type="button">Dosya seç</button>
     </div>
     <div class="step">
-      <span class="step-n">2</span>
+      <span class="step-n">3</span>
       <div class="step-text">
         <div class="step-title">Öğrenci listesi <span class="optional">isteğe bağlı</span></div>
         <div id="rosterInfo" class="step-sub">Yüklenmedi</div>
@@ -71,11 +79,21 @@
   <div id="banners"></div>
 
   <main>
-    <section id="gridWrap">
-      <div id="grid"></div>
-      <div id="empty" class="empty">
-        <div class="empty-title">Henüz giriş yapan öğrenci yok</div>
-        <div class="empty-sub">Öğrenciler ajanı açıp giriş yaptığında ekranları burada görünür.</div>
+    <section id="gridArea">
+      <div id="gridBar">
+        <span class="bar-label">Ekran boyutu</span>
+        <button id="sizeDown" type="button" class="icon" aria-label="Ekranları küçült" title="Küçült">−</button>
+        <input id="tileSize" type="range" min="140" max="900" step="20" value="260" aria-label="Ekran boyutu">
+        <button id="sizeUp" type="button" class="icon" aria-label="Ekranları büyüt" title="Büyüt">+</button>
+        <button id="fit" type="button" class="toggle" aria-pressed="true"
+                title="Bütün ekranlar kaydırmadan görünecek şekilde boyutlandırılır">Sığdır</button>
+      </div>
+      <div id="gridWrap">
+        <div id="grid"></div>
+        <div id="empty" class="empty">
+          <div class="empty-title">Henüz giriş yapan öğrenci yok</div>
+          <div class="empty-sub">Öğrenciler programı açıp giriş yaptığında ekranları burada görünür.</div>
+        </div>
       </div>
     </section>
 
@@ -86,10 +104,11 @@
         <div class="filters" role="tablist">
           <button id="filterAll" type="button" class="filter active" role="tab">Tümü <span id="countAll">0</span></button>
           <button id="filterAlerts" type="button" class="filter" role="tab">Uyarılar <span id="countAlerts">0</span></button>
+          <button id="ackAll" type="button" class="link small" hidden>Tümünü görüldü yap</button>
         </div>
       </div>
-      <div id="general" class="general" hidden></div>
       <ul id="studentList"></ul>
+      <ul id="alertList" hidden></ul>
       <div id="listEmpty" class="list-empty" hidden></div>
       <details id="missing" hidden>
         <summary>Giriş yapmayanlar <span id="missingCount">0</span></summary>
@@ -124,6 +143,37 @@
         </details>
       </div>
     </div>
+  </div>
+
+  <!-- Sınıf (salon) ve öğretmen adı -->
+  <div id="identityDialog" class="modal" hidden>
+    <form id="identityForm" class="dialog" role="dialog" aria-modal="true" aria-labelledby="identityTitle">
+      <h2 id="identityTitle">Sınıf ve öğretmen</h2>
+      <p class="dialog-note">Öğrenciler programı açtığında bu adları görür; doğru sınıfa bağlandıklarını buradan anlarlar.</p>
+      <label for="identityClass">Sınıf / salon adı</label>
+      <input id="identityClass" type="text" maxlength="60" required autocomplete="off">
+      <label for="identityTeacher">Öğretmen adı</label>
+      <input id="identityTeacher" type="text" maxlength="60" required autocomplete="off">
+      <div class="dialog-actions">
+        <button id="identityCancel" type="button">Vazgeç</button>
+        <button type="submit" class="primary">Kaydet</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Klasör penceresi açılamazsa: yolu elle yazma -->
+  <div id="folderDialog" class="modal" hidden>
+    <form id="folderForm" class="dialog" role="dialog" aria-modal="true" aria-labelledby="folderTitle">
+      <h2 id="folderTitle">Sınav klasörü</h2>
+      <p class="dialog-note">Klasör seçme penceresi açılamadı. Klasörün tam yolunu yazın; yoksa oluşturulur.
+        İçinde “Kayıtlar” ve “Teslimler” klasörleri açılır.</p>
+      <label for="folderPath">Klasör yolu</label>
+      <input id="folderPath" type="text" required autocomplete="off" spellcheck="false" placeholder="D:\Sınavlar\Ağ Temelleri Vize">
+      <div class="dialog-actions">
+        <button id="folderCancel" type="button">Vazgeç</button>
+        <button type="submit" class="primary">Kullan</button>
+      </div>
+    </form>
   </div>
 
   <div id="toasts"></div>

@@ -55,6 +55,12 @@ public class ExamStatus
     [JsonPropertyName("allowlist_version")] public string AllowlistVersion { get; set; } = "";
     [JsonPropertyName("server_time")] public double ServerTime { get; set; }
     [JsonPropertyName("started_at")] public double StartedAt { get; set; }
+
+    /// <summary>
+    /// True (heartbeat only) once the teacher's computer has this student's file in its
+    /// submissions folder — also when the file got there without this program.
+    /// </summary>
+    [JsonPropertyName("submitted")] public bool Submitted { get; set; }
 }
 
 public sealed class LoginResponse : ExamStatus
@@ -130,6 +136,9 @@ public sealed class SubmitResponse
     [JsonPropertyName("filename")] public string Filename { get; set; } = "";
     [JsonPropertyName("version")] public int Version { get; set; }
     [JsonPropertyName("size")] public long Size { get; set; }
+
+    /// <summary>The server read the stored file back from its submissions folder and it matched.</summary>
+    [JsonPropertyName("verified")] public bool Verified { get; set; }
 }
 
 public sealed class ErrorResponse

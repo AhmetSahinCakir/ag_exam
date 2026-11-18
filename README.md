@@ -24,6 +24,9 @@ sırasında Packet Tracer dışındaki programları kapatır ve sınav dosyasın
 
 - Ajan `ffmpeg` ile ekranı H.264 olarak MediaMTX'e (RTSP/TCP) yayınlar; MediaMTX diske
   kaydeder ve panele WebRTC ile verir. Python sunucusu video işlemez.
+- Öğretmen sınavdan önce panelde bir **sınav klasörü** seçer; içinde `Kayıtlar` (ekran
+  kayıtları) ve `Teslimler` (teslim edilen dosyalar) klasörleri açılır. Öğrenci teslimde
+  dosyasını kendisi seçer; sistem dosyanın klasöre ulaştığını denetleyip yayını durdurur.
 - Ajan sunucuyu UDP yayınıyla kendisi bulur; sabit IP yoktur. Aynı ajan her sınıfta çalışır.
 - Ajan öğrenci bilgisayarında kalıcı iz bırakmaz (servis, başlangıç kaydı, kayıt defteri,
   zamanlanmış görev yok).
@@ -33,7 +36,9 @@ sırasında Packet Tracer dışındaki programları kapatır ve sınav dosyasın
 1. Python 3.11+ kurun, depoyu indirin.
 2. `scripts\start-teacher.bat` dosyasını çalıştırın (ilk seferde internet gerekir: Python
    paketlerini ve MediaMTX'i indirir, güvenlik duvarı kurallarını ekler).
-3. `server\config.yaml` içinde `sinif_adi` ve `ogretmen_adi` değerlerini yazın.
+3. Açılan panelde sol üstteki **Düzenle** ile sınıf (salon) ve öğretmen adını yazın;
+   sınavdan önce **Sınav klasörü → Klasör seç** ile kayıtların ve teslimlerin duracağı
+   klasörü seçin.
 4. GitHub → Actions → **build-agent** → **SinavAjan-win-x64** artifact'ini indirip
    öğrencilere dağıtın (ya da `dist\SinavAjan.zip` olarak koyun; öğrenciler sınıf ağından
    `http://<öğretmen-ip>:8000/` adresinden indirir).

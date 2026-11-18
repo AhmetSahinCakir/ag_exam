@@ -11,6 +11,7 @@ const STATUS_TEXT = {
   lost: 'Bağlantı yok',
   done: 'Teslim etti',
   nosubmit: 'Teslim yok',
+  nofile: 'Dosya klasörde yok',
 };
 const STATE_TEXT = { WAITING: 'Sınav başlamadı', RUNNING: 'Sınav sürüyor', ENDED: 'Sınav bitti' };
 const ROSTER_TEXT = {
@@ -20,10 +21,17 @@ const ROSTER_TEXT = {
   not_in_list: 'Listede yok',
 };
 const ROW_EVENT_LIMIT = 6;
+const ALERT_LIST_LIMIT = 200;
+const SIZE_MIN = 140;
+const SIZE_MAX = 900;
+const SIZE_STEP = 40;
 
 let S = null;                    // sunucudan gelen son durum
 let lastAlertId = null;          // sesli uyarı için
-let filter = 'all';              // 'all' | 'alerts'
+let filter = 'all';              // 'all' (öğrenciler) | 'alerts' (uyarı listesi)
+let fitTiles = true;             // ekranları kaydırmadan sığdır
+let folderBusy = false;          // klasör seçme penceresi açık
+let byNumara = new Map();        // numara -> öğrenci (son durum)
 let modalNumara = null;
 let modalEvCount = -1;
 const tiles = new Map();         // numara -> kutu
@@ -87,7 +95,11 @@ async function api(path, options) {
   }
   let data = {};
   try { data = await response.json(); } catch (_) { /* gövde yok */ }
-  if (!response.ok) throw new Error(data.error || `Hata (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(data.error || `Hata (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
@@ -221,7 +233,7 @@ class Player {
     try {
       await pc.setLocalDescription(await pc.createOffer());
       await waitIceGathering(pc, 1500);
-      const url = `${S.webrtc_base}/s/${encodeURIComponent(this.numara)}/whep`;
+      const url = `${S.webrtc_base}/${encodeURIComponent(this.numara)}/whep`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/sdp' },
@@ -288,27 +300,37 @@ function fullName(st) {
 
 function statusText(st) {
   if (st.status === 'lost') return st.lost_reason ? `Bağlantı yok — ${st.lost_reason}` : 'Bağlantı yok';
+  if (st.status === 'nofile') return 'Teslim dosyası klasörde yok';
   return STATUS_TEXT[st.status] || st.status;
 }
 
 function noVideoText(st) {
   if (st.status === 'done') return 'Teslim etti';
   if (st.status === 'nosubmit') return 'Teslim yok';
+  if (st.status === 'nofile') return 'Dosya klasörde yok';
   if (st.status === 'lost') return 'Bağlantı yok';
   return st.stream_ready ? 'Görüntü bağlanıyor…' : 'Ekran bekleniyor…';
 }
 
-/* Her öğrencinin en son uyarısı (S.alerts en yeni üstte gelir). */
-function latestAlerts() {
-  const latest = new Map();
-  for (const alert of S.alerts) {
-    if (alert.numara && alert.severity !== 'info' && !latest.has(alert.numara)) latest.set(alert.numara, alert);
-  }
-  return latest;
+/* Uyarı listesinde gösterilecek olaylar (en yeni üstte). */
+function warningAlerts() {
+  return S.alerts.filter((alert) => alert.severity !== 'info');
 }
 
-function needsAttention(st) {
-  return st.warn_count > 0 || st.status === 'lost' || st.status === 'nosubmit';
+/* Öğretmen "görüldü" dedikten sonra gelen uyarılar görülmemiş sayılır. */
+function isUnseen(alert) {
+  if (!alert.numara) return alert.id > (S.general_ack_id || 0);
+  const st = byNumara.get(alert.numara);
+  return alert.id > (st ? st.ack_id || 0 : 0);
+}
+
+/* Her öğrencinin en son görülmemiş uyarısı (S.alerts en yeni üstte gelir). */
+function latestAlerts() {
+  const latest = new Map();
+  for (const alert of warningAlerts()) {
+    if (alert.numara && !latest.has(alert.numara) && isUnseen(alert)) latest.set(alert.numara, alert);
+  }
+  return latest;
 }
 
 /* ----------------------------------------------------------------- ekran kutuları */
@@ -388,32 +410,50 @@ function renderTiles() {
   layoutGrid();
 }
 
-/* Kutuları ekrana sığdır: kaydırma gerekmeyecek en büyük kutu genişliğini bulur. */
+/* Ekran boyutu: "Sığdır" açıkken kaydırma gerekmeyecek en büyük genişlik bulunur;
+ * kapalıyken her ekran, kaydırıcıda seçilen genişlikte çizilir. */
 function layoutGrid() {
   const grid = $('grid');
+  const wrap = $('gridWrap');
   const count = tiles.size;
-  if (!$('fit').checked || count === 0) {
-    grid.style.gridTemplateColumns = `repeat(auto-fill, minmax(${$('tileSize').value}px, 1fr))`;
+  const gap = 12;
+  const width = wrap.clientWidth - 32;
+  if (!fitTiles || count === 0) {
+    const size = Math.max(SIZE_MIN, Math.min(Number($('tileSize').value), width));
+    grid.style.gridTemplateColumns = `repeat(auto-fill, ${Math.floor(size)}px)`;
     return;
   }
-  const wrap = $('gridWrap');
-  const gap = 12;
   const caption = 36;
-  const width = wrap.clientWidth - 32;
-  const height = wrap.clientHeight - 32;
+  const height = wrap.clientHeight - 28;
   let best = 1;
   for (let cols = 1; cols <= count; cols += 1) {
     const tileWidth = (width - (cols - 1) * gap) / cols;
-    if (tileWidth < 150) break;
+    if (tileWidth < SIZE_MIN) break;
     const rowsNeeded = Math.ceil(count / cols);
     const total = rowsNeeded * (tileWidth * 9 / 16 + caption) + (rowsNeeded - 1) * gap;
     best = cols;
     if (total <= height) break;       // ilk sığan sütun sayısı = en büyük kutu
   }
-  const tileWidth = Math.min(560, (width - (best - 1) * gap) / best);
+  const tileWidth = Math.min(640, (width - (best - 1) * gap) / best);
   grid.style.gridTemplateColumns = `repeat(${best}, minmax(0, ${Math.floor(tileWidth)}px))`;
+  // Kaydırıcı, "Sığdır"ın bulduğu boyutu göstersin: − / + oradan devam eder.
+  if (document.activeElement !== $('tileSize')) $('tileSize').value = String(Math.round(tileWidth));
 }
 window.addEventListener('resize', layoutGrid);
+
+function setFit(on) {
+  fitTiles = on;
+  $('fit').setAttribute('aria-pressed', on ? 'true' : 'false');
+  setPref('fit', on ? '1' : '0');
+  layoutGrid();
+}
+
+function setTileSize(value) {
+  const size = Math.max(SIZE_MIN, Math.min(SIZE_MAX, Math.round(value)));
+  $('tileSize').value = String(size);
+  setPref('tileSize', size);
+  setFit(false);
+}
 
 /* ----------------------------------------------------------------- üst bölüm */
 
@@ -430,9 +470,22 @@ function renderHeader() {
 
   $('setup').hidden = state !== 'WAITING';
   $('btnEnd').hidden = state !== 'RUNNING';
-  $('btnExportTop').hidden = state !== 'ENDED';
   $('btnResetTop').hidden = state !== 'ENDED';
   $('btnReset').disabled = state === 'RUNNING';
+  // Sınav sürerken ad değiştirilemez: öğrenciler bu adla bağlandı.
+  $('btnIdentity').hidden = state === 'RUNNING';
+
+  const folder = S.exam.folder;
+  $('btnOpenFolderTop').hidden = state !== 'ENDED' || !folder;
+  $('btnOpenFolder').disabled = !folder;
+  const folderInfo = $('folderInfo').firstElementChild;
+  setText(folderInfo, folder || 'Kayıtlar ve teslimler buraya gelir');
+  $('folderInfo').title = folder
+    ? `${folder}\nİçinde “Kayıtlar” (ekran kayıtları) ve “Teslimler” (teslim edilen dosyalar) klasörleri açıldı.`
+    : 'Seçtiğiniz klasörün içinde “Kayıtlar” ve “Teslimler” klasörleri açılır.';
+  $('btnFolder').parentElement.classList.toggle('done', Boolean(folder));
+  $('btnFolder').disabled = folderBusy;
+  setText($('btnFolder'), folderBusy ? 'Pencere açık…' : (folder ? 'Değiştir' : 'Klasör seç'));
 
   const file = S.exam.file;
   setText($('examFileInfo'), file ? file.name : 'Henüz seçilmedi');
@@ -442,8 +495,11 @@ function renderHeader() {
   setText($('rosterInfo'), S.roster.count ? `${S.roster.count} öğrenci — ${S.roster.name}` : 'Yüklenmedi');
   $('btnRoster').parentElement.classList.toggle('done', S.roster.count > 0);
   setText($('btnRoster'), S.roster.count ? 'Değiştir' : 'Dosya seç');
-  $('btnStart').disabled = !file;
-  $('btnStart').title = file ? 'Dosyayı paylaşmak sınavı başlatır' : 'Önce sınav dosyasını seçin';
+  $('btnStart').disabled = !file || !folder;
+  let startHint = 'Dosyayı paylaşmak sınavı başlatır';
+  if (!folder) startHint = 'Önce sınav klasörünü seçin';
+  else if (!file) startHint = 'Önce sınav dosyasını seçin';
+  $('btnStart').title = startHint;
 
   renderMenuInfo();
   renderBanners();
@@ -456,8 +512,11 @@ function renderMenuInfo() {
   if (ips.length) {
     lines.push(`Ajan sunucuyu kendisi bulamazsa öğrenci şu adresi yazabilir: ${ips.join(' veya ')}`);
   }
-  lines.push(`Teslim dosyaları: ${S.paths.submissions}`);
-  lines.push(`Ekran kayıtları: ${S.paths.recordings}`);
+  if (S.exam.folder) {
+    lines.push(`Sınav klasörü: ${S.exam.folder}`);
+  } else {
+    lines.push('Sınav klasörü seçilmedi: ekranlar henüz kaydedilmiyor.');
+  }
   const box = $('menuInfo');
   const signature = lines.join('\n');
   if (box.dataset.signature === signature) return;
@@ -471,6 +530,10 @@ function renderBanners() {
   if (!health.mediamtx_ok) {
     messages.push('Ekran görüntüleri alınamıyor ve kayıt yapılmıyor. Başlatma penceresini kapatıp '
       + 'start-teacher.bat dosyasını yeniden çalıştırın.');
+  }
+  if (health.folder_error) {
+    messages.push(`${health.folder_error}. Teslimler alınamıyor ve kayıt yapılamıyor; klasörün bulunduğu `
+      + 'disk takılı mı?');
   }
   if (health.discovery_error) messages.push(health.discovery_error);
   if (health.config_error) messages.push(health.config_error);
@@ -520,26 +583,27 @@ function renderSummary() {
       summaryItem('var(--done)', sum.submitted, 'teslim etti'),
     );
   }
-  const attention = S.students.filter(needsAttention).length;
+  const unseen = warningAlerts().filter(isUnseen).length;
   setText($('countAll'), String(S.students.length));
-  setText($('countAlerts'), String(attention));
-  $('filterAlerts').classList.toggle('attention', attention > 0);
+  setText($('countAlerts'), unseen > 99 ? '99+' : String(unseen));
+  $('filterAlerts').classList.toggle('attention', unseen > 0);
+  $('ackAll').hidden = filter !== 'alerts' || unseen === 0;
 }
 
 function createRow(numara) {
   const root = el('li', 'row');
   root.dataset.numara = numara;
 
+  // Tek satır: durum noktası, numara + ad, sağda (varsa) son uyarı ya da durum.
   const head = el('button', 'row-head');
   head.type = 'button';
   const who = el('span', 'who');
   const name = el('span', 'name');
   who.append(el('span', 'num', numara), name);
-  const status = el('span', 'status');
-  head.append(el('span', 'dot'), who, status, el('span', 'chev'));
-
-  const alert = el('div', 'row-alert');
-  alert.hidden = true;
+  const note = el('span', 'note');
+  const count = el('span', 'count');
+  count.hidden = true;
+  head.append(el('span', 'dot'), who, note, count, el('span', 'chev'));
 
   const body = el('div', 'row-body');
   body.hidden = true;
@@ -552,7 +616,7 @@ function createRow(numara) {
   ack.type = 'button';
   actions.append(zoom, ack);
   body.append(events, meta, actions);
-  root.append(head, alert, body);
+  root.append(head, body);
 
   head.addEventListener('click', () => toggleRow(numara));
   zoom.addEventListener('click', () => openModal(numara));
@@ -560,7 +624,7 @@ function createRow(numara) {
     try { await api('/panel/api/ack', { json: { numara } }); } catch (error) { toast(error.message, true); }
   });
 
-  return { root, head, name, status, alert, body, events, meta, ack, statusClass: '', signature: '', eventSignature: '' };
+  return { root, head, name, note, count, body, events, meta, ack, statusClass: '', metaSignature: '', eventSignature: '' };
 }
 
 function toggleRow(numara) {
@@ -569,30 +633,39 @@ function toggleRow(numara) {
   renderList();
 }
 
-function rowStatusText(st) {
-  const warnings = st.warn_count > 0 ? `${st.warn_count} uyarı` : '';
-  if (st.status === 'ok') return '';
-  if (st.status === 'warn') return warnings;
-  const base = STATUS_TEXT[st.status] || st.status;
-  return warnings ? `${base} · ${warnings}` : base;
+/* Satırın sağındaki tek satırlık not: görülmemiş son uyarı, yoksa durum. */
+function rowNote(st, alert) {
+  if (st.status === 'lost' || st.status === 'nofile' || st.status === 'nosubmit') return statusText(st);
+  if (alert) return alert.message;
+  if (st.status === 'done') return STATUS_TEXT.done;
+  return '';
 }
 
 function renderList() {
   renderSummary();
-  const latest = latestAlerts();
-  let students = S.students;
-  if (filter === 'alerts') {
-    students = students.filter(needsAttention).sort((a, b) => {
-      const ta = latest.has(a.numara) ? latest.get(a.numara).ts : 0;
-      const tb = latest.has(b.numara) ? latest.get(b.numara).ts : 0;
-      return tb - ta;                       // en yeni uyarı üstte
-    });
-  }
+  const showAlerts = filter === 'alerts';
+  $('studentList').hidden = showAlerts;
+  $('alertList').hidden = !showAlerts;
+  if (showAlerts) renderAlertList();
+  else renderStudentList();
 
+  const missing = S.roster.missing;
+  $('missing').hidden = missing.length === 0 || showAlerts;
+  setText($('missingCount'), String(missing.length));
+  const missingSignature = missing.map((m) => m.numara).join(',');
+  const missingList = $('missingList');
+  if (missingList.dataset.signature !== missingSignature) {
+    missingList.dataset.signature = missingSignature;
+    missingList.replaceChildren(...missing.map((m) => el('div', '', `${m.numara} ${m.ad} ${m.soyad}`.trim())));
+  }
+}
+
+function renderStudentList() {
+  const latest = latestAlerts();
   const list = $('studentList');
   const seen = new Set();
   let previous = null;
-  for (const st of students) {
+  for (const st of S.students) {
     seen.add(st.numara);
     let row = rows.get(st.numara);
     if (!row) {
@@ -610,31 +683,37 @@ function renderList() {
       rows.delete(numara);
     }
   }
-
   const emptyBox = $('listEmpty');
-  emptyBox.hidden = students.length > 0;
-  if (students.length === 0) {
-    setText(emptyBox, filter === 'alerts' ? 'Dikkat gerektiren öğrenci yok.' : 'Henüz giriş yapan öğrenci yok.');
-  }
+  emptyBox.hidden = S.students.length > 0;
+  setText(emptyBox, 'Henüz giriş yapan öğrenci yok.');
+}
 
-  const general = S.alerts.filter((a) => !a.numara && a.severity !== 'info').slice(0, 3);
-  const generalBox = $('general');
-  generalBox.hidden = general.length === 0;
-  const generalSignature = general.map((a) => a.id).join(',');
-  if (generalBox.dataset.signature !== generalSignature) {
-    generalBox.dataset.signature = generalSignature;
-    generalBox.replaceChildren(...general.map((a) => el('div', '', `${a.message} (${fmtClock(a.ts)})`)));
+/* "Uyarılar": bütün uyarılar tek satırlık, en yenisi üstte olan düz bir liste. */
+function renderAlertList() {
+  const alerts = warningAlerts().slice(0, ALERT_LIST_LIMIT);
+  const list = $('alertList');
+  const signature = alerts.map((a) => `${a.id}${isUnseen(a) ? '!' : ''}${tiles.has(a.numara) ? '' : '-'}`).join(',');
+  if (list.dataset.signature !== signature) {
+    list.dataset.signature = signature;
+    list.replaceChildren(...alerts.map(alertItem));
   }
+  const emptyBox = $('listEmpty');
+  emptyBox.hidden = alerts.length > 0;
+  setText(emptyBox, 'Henüz uyarı yok.');
+}
 
-  const missing = S.roster.missing;
-  $('missing').hidden = missing.length === 0;
-  setText($('missingCount'), String(missing.length));
-  const missingSignature = missing.map((m) => m.numara).join(',');
-  const missingList = $('missingList');
-  if (missingList.dataset.signature !== missingSignature) {
-    missingList.dataset.signature = missingSignature;
-    missingList.replaceChildren(...missing.map((m) => el('div', '', `${m.numara} ${m.ad} ${m.soyad}`.trim())));
-  }
+function alertItem(alert) {
+  const item = el('li', `alert sev-${alert.severity}${isUnseen(alert) ? '' : ' seen'}`);
+  const line = el('button', 'alert-line');
+  line.type = 'button';
+  const who = alert.numara ? `${alert.numara} ${alert.name}`.trim() : 'Genel';
+  line.append(el('span', 'dot'), el('span', 'when', fmtClock(alert.ts)), el('span', 'who', who),
+    el('span', 'msg', alert.message));
+  line.title = `${fmtClockSeconds(alert.ts)} — ${who}: ${alert.message}`;
+  if (alert.numara && tiles.has(alert.numara)) line.addEventListener('click', () => openModal(alert.numara));
+  else line.disabled = true;
+  item.append(line);
+  return item;
 }
 
 function updateRow(row, st, alert) {
@@ -648,35 +727,38 @@ function updateRow(row, st, alert) {
   row.root.classList.toggle('open', open);
   row.head.setAttribute('aria-expanded', open ? 'true' : 'false');
   setText(row.name, fullName(st));
-  setText(row.status, rowStatusText(st));
-
-  // Satırdaki uyarı: en son görülmemiş uyarı ya da bağlantı durumu.
-  let alertText = '';
-  let alertTime = '';
-  if (st.status === 'lost') {
-    alertText = statusText(st);
-  } else if (st.warn_count > 0 && alert) {
-    alertText = alert.message;
-    alertTime = fmtClock(alert.ts);
-  }
-  const signature = `${alertText}|${alertTime}`;
-  if (row.signature !== signature) {
-    row.signature = signature;
-    row.alert.replaceChildren(document.createTextNode(alertText));
-    if (alertTime) row.alert.append(el('span', 'when', alertTime));
-  }
-  row.alert.hidden = alertText === '' || open;
+  const note = rowNote(st, alert);
+  setText(row.note, note);
+  row.head.title = note ? `${st.numara} ${fullName(st)} — ${note}` : '';
+  row.count.hidden = st.warn_count < 2;
+  setText(row.count, String(st.warn_count));
 
   row.body.hidden = !open;
   if (!open) return;
 
   row.ack.hidden = st.warn_count === 0;
-  setText(row.meta, [st.ip, st.hostname, st.mac].filter(Boolean).join(' · '));
-  row.meta.title = 'IP adresi · bilgisayar adı · ağ (MAC) adresi';
+  const metaLines = [[st.ip, st.hostname, st.mac].filter(Boolean).join(' · ')];
+  let fileMissing = false;
+  if (st.submission) {
+    fileMissing = st.status === 'nofile';
+    metaLines.push(`Teslim: ${st.submission.filename}, ${fmtClock(st.submission.ts)}`
+      + (fileMissing ? ' — klasörde yok' : ''));
+  }
+  const metaSignature = metaLines.join('|');
+  if (row.metaSignature !== metaSignature) {
+    row.metaSignature = metaSignature;
+    row.meta.replaceChildren(...metaLines.map((text, index) => {
+      const line = el('div', index === 1 && fileMissing ? 'bad' : '', text);
+      line.title = index === 0 ? `IP adresi · bilgisayar adı · ağ (MAC) adresi\n${text}` : text;
+      return line;
+    }));
+  }
 
   const cached = eventCache.get(st.numara);
   if (!cached || cached.count !== st.ev_count) loadEvents(st.numara, st.ev_count);
-  const events = cached ? cached.events.filter((e) => e.alert).slice(-ROW_EVENT_LIMIT).reverse() : null;
+  const events = cached
+    ? cached.events.filter((e) => e.alert && e.severity !== 'info').slice(-ROW_EVENT_LIMIT).reverse()
+    : null;
   const eventSignature = events ? events.map((e) => e.id).join(',') : 'loading';
   if (row.eventSignature !== eventSignature) {
     row.eventSignature = eventSignature;
@@ -687,7 +769,8 @@ function updateRow(row, st, alert) {
     } else {
       row.events.replaceChildren(...events.map((event) => {
         const li = el('li');
-        li.append(el('span', 'when', fmtClock(event.ts)), document.createTextNode(event.message));
+        li.title = `${fmtClockSeconds(event.ts)} — ${event.message}`;
+        li.append(el('span', 'when', fmtClock(event.ts)), el('span', 'msg', event.message));
         return li;
       }));
     }
@@ -803,8 +886,11 @@ function renderModal() {
     infoRow(info, 'Teslim', `${sub.filename}${sub.auto ? ' (otomatik)' : ''}, ${fmtClockSeconds(sub.ts)}`);
     infoRow(info, 'Dosya özeti', sub.sha256);
   }
-  const sep = S.paths.recordings.includes('\\') ? '\\' : '/';
-  infoRow(info, 'Kayıt klasörü', `${S.paths.recordings}${sep}s${sep}${st.numara}`);
+  if (st.status === 'nofile') infoRow(info, 'Uyarı', 'Teslim dosyası Teslimler klasöründe bulunamıyor');
+  if (S.paths.recordings) {
+    const sep = S.paths.recordings.includes('\\') ? '\\' : '/';
+    infoRow(info, 'Kayıt klasörü', `${S.paths.recordings}${sep}${st.numara}`);
+  }
   $('modalInfo').replaceChildren(info);
 
   const cached = eventCache.get(st.numara);
@@ -823,6 +909,7 @@ function renderModal() {
 /* ----------------------------------------------------------------- ana çizim + canlı bağlantı */
 
 function render() {
+  byNumara = new Map(S.students.map((st) => [st.numara, st]));
   renderHeader();
   renderTiles();
   renderList();
@@ -872,8 +959,8 @@ function closeMenu() {
 async function resetExam() {
   closeMenu();
   const question = 'Yeni sınav hazırlansın mı?\n\n'
-    + 'Bu sınavın teslim dosyaları ve olay kaydı silinmez; tarihli bir arşiv klasörüne taşınır. '
-    + 'Öğrenci listesi korunur.';
+    + 'Bu sınavın ekran kayıtları ve teslim dosyaları sınav klasöründe kalır; hiçbir şey silinmez. '
+    + 'Yeni sınav için yeniden klasör seçersiniz. Öğrenci listesi korunur.';
   if (!confirm(question)) return;
   try {
     await api('/panel/api/reset');
@@ -883,7 +970,89 @@ async function resetExam() {
   }
 }
 
+/* Sınav klasörü: sunucu, bu bilgisayarda Windows'un klasör seçme penceresini açar. */
+async function chooseFolder() {
+  if (folderBusy) return;
+  folderBusy = true;
+  if (S) renderHeader();
+  try {
+    const data = await api('/panel/api/pick-folder');
+    if (data.folder) toast(`Sınav klasörü seçildi: ${data.folder}`);
+  } catch (error) {
+    if (error.status === 501) openDialog('folderDialog', 'folderPath', S && S.exam.folder ? S.exam.folder : '');
+    else toast(error.message, true);
+  } finally {
+    folderBusy = false;
+    if (S) renderHeader();
+  }
+}
+
+async function openExamFolder() {
+  closeMenu();
+  try {
+    await api('/panel/api/open-folder');
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+function openDialog(id, focusId, value) {
+  closeMenu();
+  $(id).hidden = false;
+  const input = $(focusId);
+  if (value !== undefined) input.value = value;
+  input.focus();
+  input.select();
+}
+
+function closeDialogs() {
+  $('identityDialog').hidden = true;
+  $('folderDialog').hidden = true;
+}
+
+function bindDialogs() {
+  $('btnIdentity').addEventListener('click', () => {
+    $('identityTeacher').value = S ? S.class.ogretmen_adi : '';
+    openDialog('identityDialog', 'identityClass', S ? S.class.sinif_adi : '');
+  });
+  $('identityCancel').addEventListener('click', closeDialogs);
+  $('identityForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await api('/panel/api/identity', {
+        json: { sinif_adi: $('identityClass').value, ogretmen_adi: $('identityTeacher').value },
+      });
+      closeDialogs();
+      toast('Sınıf ve öğretmen adı güncellendi.');
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
+
+  $('folderCancel').addEventListener('click', closeDialogs);
+  $('folderForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      const data = await api('/panel/api/exam-folder', { json: { path: $('folderPath').value } });
+      closeDialogs();
+      toast(`Sınav klasörü seçildi: ${data.folder}`);
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
+  for (const id of ['identityDialog', 'folderDialog']) {
+    $(id).addEventListener('mousedown', (event) => { if (event.target === $(id)) closeDialogs(); });
+  }
+}
+
 function bindControls() {
+  bindDialogs();
+  $('btnFolder').addEventListener('click', chooseFolder);
+  $('btnOpenFolder').addEventListener('click', openExamFolder);
+  $('btnOpenFolderTop').addEventListener('click', openExamFolder);
+  $('ackAll').addEventListener('click', async () => {
+    try { await api('/panel/api/ack', { json: {} }); } catch (error) { toast(error.message, true); }
+  });
   $('btnExamFile').addEventListener('click', () => $('fileExam').click());
   $('fileExam').addEventListener('change', () => uploadFile(
     $('fileExam'), '/panel/api/exam-file', (file) => `Sınav dosyası yüklendi: ${file.name}`));
@@ -943,7 +1112,8 @@ function bindControls() {
   $('modal').addEventListener('click', (event) => { if (event.target === $('modal')) closeModal(); });
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
-    if (modalNumara) closeModal();
+    if (!$('identityDialog').hidden || !$('folderDialog').hidden) closeDialogs();
+    else if (modalNumara) closeModal();
     else closeMenu();
   });
 
@@ -961,17 +1131,21 @@ function bindControls() {
     tiles.forEach(updatePlayback);
   });
 
-  const fit = $('fit');
+  // Ekran boyutu: − / kaydırıcı / + elle boyut verir, "Sığdır" otomatik boyuta döner.
   const size = $('tileSize');
-  fit.checked = pref('fit', '1') === '1';
-  size.value = pref('tileSize', '230');
-  size.disabled = fit.checked;
-  fit.addEventListener('change', () => {
-    setPref('fit', fit.checked ? '1' : '0');
-    size.disabled = fit.checked;
-    layoutGrid();
-  });
-  size.addEventListener('input', () => { setPref('tileSize', size.value); layoutGrid(); });
+  size.value = pref('tileSize', '260');
+  fitTiles = pref('fit', '1') === '1';
+  $('fit').setAttribute('aria-pressed', fitTiles ? 'true' : 'false');
+  $('fit').addEventListener('click', () => setFit(!fitTiles));
+  size.addEventListener('input', () => setTileSize(Number(size.value)));
+  $('sizeDown').addEventListener('click', () => setTileSize(Number(size.value) - SIZE_STEP));
+  $('sizeUp').addEventListener('click', () => setTileSize(Number(size.value) + SIZE_STEP));
+  // Ctrl + fare tekerleği de ekranları büyütür / küçültür.
+  $('gridWrap').addEventListener('wheel', (event) => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    setTileSize(Number(size.value) + (event.deltaY < 0 ? SIZE_STEP : -SIZE_STEP));
+  }, { passive: false });
 }
 
 bindControls();

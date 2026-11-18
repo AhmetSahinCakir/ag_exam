@@ -18,26 +18,22 @@ public enum Phase
     Finished,
 }
 
-public enum SubmitCheck
-{
-    Ok,
-    NoFile,
-    NotSaved,
-}
-
 public sealed record FinishInfo(string Title, string Message, bool Success);
+
+/// <summary>A file the student picked for submission, already read and checked.</summary>
+/// <param name="Error">Non-empty when the file could not be read at all.</param>
+public sealed record SubmitCandidate(string Path, byte[] Bytes, string Sha256, DateTime LastWriteLocal,
+    SubmitProblem Problem, string Error = "");
 
 /// <summary>
 /// The exam session after login. Owns the heartbeat, the screen stream and the
 /// application control, and follows the server's exam state (WAITING → RUNNING → ENDED).
 /// The exam starts when the teacher shares the exam file; the student then downloads it to
-/// a place of their choice and that file is what gets submitted.
+/// a place of their choice, and at the end picks the file to submit.
 /// All members must be used from the UI thread; events are raised on the UI thread.
 /// </summary>
 public sealed class ExamController : IDisposable
 {
-    private const long MaxUploadBytes = 50L * 1024 * 1024;
-
     private readonly ApiClient _api;
     private readonly AgentConfig _config;
     private readonly LoginRequest _login;
@@ -59,7 +55,10 @@ public sealed class ExamController : IDisposable
     private DateTime _offlineSinceUtc;
     private string _examFilePath = "";
     private long _baselineTicks;
+    private string _examSha = "";
     private string _submittedSha = "";
+    private DateTime? _otherDesktopSinceUtc;
+    private int _otherDesktopReadings;
     private bool _ending;
     private bool _submitting;
     private bool _downloading;
@@ -253,6 +252,12 @@ public sealed class ExamController : IDisposable
         {
             _ = BeginExamAsync(status.ExamId);
         }
+        else if (status.Submitted && Phase == Phase.Running && !_submitting && !_ending)
+        {
+            // The teacher's computer has this student's file in its submissions folder
+            // (it checks the folder itself): nothing is left to do here.
+            _ = FinishAsync(new FinishInfo("Teslim alındı", "Dosyanız öğretmen bilgisayarında teslim alındı.", true));
+        }
         else if (status.ExamState == "ENDED" && !_ending)
         {
             _ = EndExamAsync(status.ExamId);
@@ -317,6 +322,7 @@ public sealed class ExamController : IDisposable
         if (meta == null || meta.ExamId != examId || meta.Path.Length == 0 || !File.Exists(meta.Path)) return;
         _examFilePath = meta.Path;
         _baselineTicks = meta.BaselineWriteTicks;
+        _examSha = meta.ExamSha256;
         if (_submittedSha.Length == 0) _submittedSha = meta.SubmittedSha256;
         _events.Enqueue("exam_file_kept");
     }
@@ -337,12 +343,14 @@ public sealed class ExamController : IDisposable
             await File.WriteAllBytesAsync(targetPath, bytes, _cts.Token);
             _examFilePath = targetPath;
             _baselineTicks = File.GetLastWriteTimeUtc(targetPath).Ticks;
+            _examSha = NetInfo.Sha256Hex(bytes);
             ExamFiles.WriteMeta(Numara, new ExamFileMeta
             {
                 ExamId = ExamId,
                 Path = targetPath,
                 BaselineWriteTicks = _baselineTicks,
                 SubmittedSha256 = _submittedSha,
+                ExamSha256 = _examSha,
             });
             LocalLog.Write($"sınav dosyası indirildi: {targetPath}");
             _events.Enqueue("exam_file_ready", new Dictionary<string, object?> { ["size"] = bytes.Length });
@@ -445,29 +453,49 @@ public sealed class ExamController : IDisposable
 
     // ------------------------------------------------------------------- submit
 
-    /// <summary>Checks that the file exists and was saved after it was downloaded.</summary>
-    public SubmitCheck CheckBeforeSubmit()
+    /// <summary>
+    /// Reads the file the student picked in the "Teslim et" dialog and checks it: is it a
+    /// Packet Tracer file, is it the untouched exam file, was it saved before this exam?
+    /// </summary>
+    public async Task<SubmitCandidate> InspectSubmissionAsync(string path)
     {
-        if (!ExamFileReady || !File.Exists(_examFilePath)) return SubmitCheck.NoFile;
-        return File.GetLastWriteTimeUtc(_examFilePath).Ticks > _baselineTicks ? SubmitCheck.Ok : SubmitCheck.NotSaved;
+        try
+        {
+            var info = new FileInfo(path);
+            var early = SubmissionRules.Check(info.Name, info.Length, "", info.LastWriteTimeUtc.Ticks, "", 0);
+            if (SubmissionRules.Blocks(early))
+            {
+                return new SubmitCandidate(path, Array.Empty<byte>(), "", info.LastWriteTime, early);
+            }
+            var bytes = await Task.Run(() => ExamFiles.ReadShared(path));
+            var sha = NetInfo.Sha256Hex(bytes);
+            var problem = SubmissionRules.Check(info.Name, bytes.LongLength, sha, info.LastWriteTimeUtc.Ticks,
+                _examSha, _baselineTicks);
+            return new SubmitCandidate(path, bytes, sha, info.LastWriteTime, problem);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException
+                                       or ArgumentException)
+        {
+            return new SubmitCandidate(path, Array.Empty<byte>(), "", DateTime.MinValue, SubmitProblem.None,
+                $"Dosya okunamadı: {ex.Message}");
+        }
     }
 
-    /// <summary>Uploads the exam file (student pressed "Teslim et"). Returns null on success, else an error text.</summary>
-    public async Task<string?> SubmitAsync()
+    /// <summary>Uploads the file the student picked. Returns null on success, else an error text.</summary>
+    public async Task<string?> SubmitAsync(SubmitCandidate candidate)
     {
         if (_submitting || _ending || Phase == Phase.Finished) return "Teslim zaten sürüyor.";
         _submitting = true;
         Changed?.Invoke();
         try
         {
-            var path = _examFilePath;
-            var bytes = await Task.Run(() => ExamFiles.ReadShared(path));
-            if (bytes.LongLength > MaxUploadBytes) return "Dosya çok büyük (en fazla 50 MB).";
-            var response = await _api.SubmitAsync(bytes, auto: false, _cts.Token);
+            var response = await _api.SubmitAsync(candidate.Bytes, auto: false, candidate.Sha256,
+                Path.GetFileName(candidate.Path), candidate.Problem == SubmitProblem.SavedBeforeDownload, _cts.Token);
             RememberSubmitted(response.Sha256);
+            LocalLog.Write($"teslim edildi: {candidate.Path} -> {response.Filename}");
 
             var message = "Dosyanız teslim alındı.";
-            if (!string.Equals(NetInfo.Sha256Hex(bytes), response.Sha256, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(candidate.Sha256, response.Sha256, StringComparison.OrdinalIgnoreCase))
             {
                 message += "\r\n\r\nUYARI: Öğretmene ulaşan dosya bu bilgisayardakiyle aynı görünmüyor. " +
                            "Öğretmeninize haber verin.";
@@ -480,10 +508,6 @@ public sealed class ExamController : IDisposable
             _events.Enqueue("submit_failed", new Dictionary<string, object?> { ["error"] = ex.Message });
             return ex.Message;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return $"Dosya okunamadı: {ex.Message}";
-        }
         catch (OperationCanceledException)
         {
             return "İşlem iptal edildi.";
@@ -493,6 +517,35 @@ public sealed class ExamController : IDisposable
             _submitting = false;
             if (Phase != Phase.Finished) Changed?.Invoke();
         }
+    }
+
+    // ---------------------------------------------------------- virtual desktops
+
+    /// <summary>
+    /// Called by the window twice a second: is the exam panel on the virtual desktop the
+    /// student is looking at? Switching to another desktop (Win+Ctrl+→) is reported.
+    /// </summary>
+    public void ReportDesktop(bool panelOnCurrentDesktop)
+    {
+        if (Phase != Phase.Running || _ending) return;
+        if (!panelOnCurrentDesktop)
+        {
+            // Two readings in a row, so that a switch animation never counts.
+            if (_otherDesktopSinceUtc != null || ++_otherDesktopReadings < 2) return;
+            _otherDesktopSinceUtc = DateTime.UtcNow;
+            LocalLog.Write("başka bir sanal masaüstüne geçildi");
+            _events.Enqueue("desktop_switch");
+            Notice?.Invoke("Başka bir masaüstüne geçtiniz; bu durum öğretmeninize bildirildi. " +
+                           "Sınav masaüstüne geri dönün.");
+            return;
+        }
+        _otherDesktopReadings = 0;
+        if (_otherDesktopSinceUtc is not { } since) return;
+        _otherDesktopSinceUtc = null;
+        _events.Enqueue("desktop_return", new Dictionary<string, object?>
+        {
+            ["seconds"] = Math.Round((DateTime.UtcNow - since).TotalSeconds),
+        });
     }
 
     private void RememberSubmitted(string sha)
@@ -563,7 +616,8 @@ public sealed class ExamController : IDisposable
             try
             {
                 // Deliberately not tied to _cts: the upload must finish even while shutting down.
-                var response = await _api.SubmitAsync(bytes, auto: true);
+                var response = await _api.SubmitAsync(bytes, auto: true, NetInfo.Sha256Hex(bytes),
+                    Path.GetFileName(path));
                 RememberSubmitted(response.Sha256);
                 return "Son kaydettiğiniz dosya otomatik olarak teslim edildi.";
             }

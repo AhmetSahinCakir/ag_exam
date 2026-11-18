@@ -51,8 +51,9 @@ jobs:
           path: publish/
           if-no-files-found: error
 
-  # Ajanı gerçek Windows üzerinde çalıştırır: keşif, giriş, ekran yayını, izinsiz programların
-  # kapatılması, öndeki pencere toleransı, teslim, ajan kapanınca ffmpeg'in de kapanması.
+  # Ajanı gerçek Windows üzerinde çalıştırır: sınav klasörü, keşif, giriş, ekran yayını ve kaydı,
+  # izinsiz programların kapatılması, öndeki pencere toleransı, başka masaüstüne geçiş, dosya
+  # seçerek teslim ve teslim klasörü denetimi, ajan kapanınca ffmpeg'in de kapanması.
   windows-e2e:
     needs: build
     runs-on: windows-latest

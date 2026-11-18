@@ -59,6 +59,8 @@ button.big { height: 40px; padding: 0 22px; }
 button.link { border: 0; background: none; color: var(--text); padding: 0; height: auto; text-decoration: underline; text-underline-offset: 3px; }
 button.link:hover:not(:disabled) { background: none; color: #ffffff; }
 button.link:disabled { color: #5c5c5c; text-decoration: none; }
+button.link.small { font-size: 12px; color: var(--muted); }
+button.toggle[aria-pressed="true"] { background: #1e1e1e; border-color: #4a4a4a; color: #ffffff; font-weight: 600; }
 button.icon { width: 34px; padding: 0; justify-content: center; border-color: transparent; color: var(--muted); }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--done); flex: none; display: inline-block; }
@@ -69,6 +71,7 @@ button.icon { width: 34px; padding: 0; justify-content: center; border-color: tr
   padding: 10px 20px;
   border-bottom: 1px solid var(--line);
 }
+.class-line { display: flex; align-items: baseline; gap: 10px; }
 .class-name { font-size: 17px; font-weight: 600; line-height: 1.2; }
 .teacher-name { color: var(--muted); font-size: 13px; }
 .exam { display: flex; align-items: center; gap: 8px; }
@@ -90,10 +93,8 @@ button.icon { width: 34px; padding: 0; justify-content: center; border-color: tr
 }
 .menu-item:hover:not(:disabled) { background: var(--hover); }
 .menu-sep { height: 1px; background: var(--line); margin: 6px 4px; }
-.menu-check, .menu-range { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; }
-.menu-range { justify-content: space-between; }
-.menu-range input { width: 150px; }
-.menu-check input, .menu-range input { accent-color: #d0d0d0; }
+.menu-check { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; }
+.menu-check input, #tileSize { accent-color: #d0d0d0; }
 .menu-info { padding: 6px 10px 8px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .menu-info div + div { margin-top: 6px; }
 
@@ -106,7 +107,7 @@ button.icon { width: 34px; padding: 0; justify-content: center; border-color: tr
 .step {
   display: flex; align-items: center; gap: 12px;
   padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius);
-  min-width: 250px; flex: 1 1 250px; max-width: 400px;
+  min-width: 240px; flex: 1 1 240px; max-width: 400px;
 }
 .step-n {
   width: 24px; height: 24px; border-radius: 50%; flex: none;
@@ -118,6 +119,8 @@ button.icon { width: 34px; padding: 0; justify-content: center; border-color: tr
 .step-title { font-weight: 600; }
 .optional { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 4px; }
 .step-sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Uzun klasör yolunun SONU görünsün: taşan kısım soldan kesilir. */
+.step-sub.path { direction: rtl; text-align: left; }
 #btnStart { margin-left: auto; }
 
 /* ---------- problem banners ---------- */
@@ -126,8 +129,15 @@ button.icon { width: 34px; padding: 0; justify-content: center; border-color: tr
 
 /* ---------- layout ---------- */
 main { flex: 1; min-height: 0; display: flex; }
-#gridWrap { flex: 1; min-width: 0; overflow: auto; padding: 16px; }
-#grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+#gridArea { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#gridBar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 8px 16px 0; color: var(--muted); font-size: 13px; }
+#gridBar .bar-label { margin-right: 4px; }
+#gridBar button { height: 28px; }
+#gridBar button.icon { width: 28px; font-size: 17px; line-height: 1; color: var(--text); border-color: var(--line-strong); }
+#gridBar button.toggle { padding: 0 12px; margin-left: 6px; }
+#tileSize { width: 170px; }
+#gridWrap { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 16px; }
+#grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; justify-content: start; }
 .empty { text-align: center; padding: 12vh 24px; color: var(--muted); }
 .empty-title { font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
 
@@ -160,15 +170,15 @@ main { flex: 1; min-height: 0; display: flex; }
 
 .st-ok .dot { background: var(--ok); }
 .st-warn .dot { background: var(--warn); }
-.st-lost .dot, .st-nosubmit .dot { background: var(--lost); }
+.st-lost .dot, .st-nosubmit .dot, .st-nofile .dot { background: var(--lost); }
 .st-done .dot { background: var(--done); }
 .tile.st-warn { border-color: var(--warn); }
-.tile.st-lost, .tile.st-nosubmit { border-color: var(--lost); }
+.tile.st-lost, .tile.st-nosubmit, .tile.st-nofile { border-color: var(--lost); }
 .tile.st-done .novideo { color: #9a9a9a; }
 
 /* ---------- student list (right) ---------- */
 #side {
-  width: 348px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  width: 380px; flex: none; display: flex; flex-direction: column; min-height: 0;
   border-left: 1px solid var(--line);
 }
 .side-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
@@ -176,44 +186,66 @@ main { flex: 1; min-height: 0; display: flex; }
 .summary span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .summary b { color: var(--text); font-weight: 600; }
 .summary .dot { width: 7px; height: 7px; }
-.filters { display: flex; gap: 6px; margin-top: 10px; }
+.filters { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+#ackAll { margin-left: auto; }
 .filter { height: 30px; padding: 0 12px; border-radius: 15px; color: var(--muted); border-color: var(--line); }
 .filter span { margin-left: 6px; font-variant-numeric: tabular-nums; }
 .filter.active { background: #1e1e1e; border-color: #3d3d3d; color: #ffffff; font-weight: 600; }
 .filter.attention:not(.active) { color: var(--warn); border-color: #4d3a10; }
 
-.general { padding: 8px 16px; background: #171104; color: #edd28a; border-bottom: 1px solid var(--line); font-size: 13px; }
-.general div + div { margin-top: 4px; }
-
-#studentList { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; min-height: 0; }
+/* Her öğrenci ve her uyarı TEK satırdır; sığmayan metin "…" ile kesilir, tamamı ipucunda görünür. */
+#studentList, #alertList { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; min-height: 0; }
 .row { border-bottom: 1px solid var(--line); }
 .row-head {
-  display: flex; align-items: center; gap: 9px; width: 100%; height: 42px; padding: 0 12px 0 16px;
+  display: flex; align-items: center; gap: 9px; width: 100%; height: 38px; padding: 0 12px 0 16px;
   border: 0; border-radius: 0; background: none; text-align: left;
 }
 .row-head:hover { background: var(--raised); }
-.row .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .who { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .num { font-weight: 600; font-variant-numeric: tabular-nums; }
 .row .name { margin-left: 6px; }
-.row .status { color: var(--muted); font-size: 12px; white-space: nowrap; }
-.row.st-warn .status { color: var(--warn); font-weight: 600; }
-.row.st-lost .status, .row.st-nosubmit .status { color: var(--lost); font-weight: 600; }
+.row .note { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--muted); font-size: 13px; }
+.row.st-warn .note { color: var(--warn); }
+.row.st-lost .note, .row.st-nosubmit .note, .row.st-nofile .note { color: var(--lost); }
+.row .count {
+  flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
+  background: var(--warn); color: #000; font-size: 12px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
 .row .chev { width: 8px; height: 8px; border-right: 2px solid #6b6b6b; border-bottom: 2px solid #6b6b6b; transform: rotate(-45deg); flex: none; transition: transform .12s; }
 .row.open .chev { transform: rotate(45deg); }
-/* Dikkat gerektiren satır: yalnızca soldaki ince şerit ve durum yazısı renklenir. */
+/* Dikkat gerektiren satır: yalnızca soldaki ince şerit ve sağdaki yazı renklenir. */
 .row.st-warn { box-shadow: inset 3px 0 0 var(--warn); }
-.row.st-lost, .row.st-nosubmit { box-shadow: inset 3px 0 0 var(--lost); }
-.row-alert { padding: 0 16px 10px 34px; margin-top: -4px; font-size: 13px; color: #c4c4c4; overflow-wrap: anywhere; }
-.row-alert .when { color: var(--muted); margin-left: 6px; font-size: 12px; white-space: nowrap; }
+.row.st-lost, .row.st-nosubmit, .row.st-nofile { box-shadow: inset 3px 0 0 var(--lost); }
 .row-body { padding: 0 16px 12px 34px; }
-.row-events { list-style: none; margin: 6px 0 8px; padding: 0; }
-.row-events li { padding: 4px 0; font-size: 13px; overflow-wrap: anywhere; }
-.row-events .when { color: var(--muted); font-size: 12px; margin-right: 8px; font-variant-numeric: tabular-nums; }
+.row-events { list-style: none; margin: 2px 0 8px; padding: 0; }
+.row-events li { display: flex; gap: 8px; height: 26px; align-items: center; font-size: 13px; min-width: 0; }
+.row-events .msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-events .when { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
 .row-events .none { color: var(--muted); }
-.row-meta { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; margin-bottom: 10px; }
+.row-meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+.row-meta div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-meta .bad { color: var(--lost); }
 .row-actions { display: flex; gap: 8px; }
 .row-actions button { height: 30px; padding: 0 12px; }
 .list-empty { padding: 28px 16px; color: var(--muted); text-align: center; }
+
+.alert { border-bottom: 1px solid var(--line); }
+.alert-line {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 14px 0 16px;
+  border: 0; border-radius: 0; background: none; text-align: left; font-size: 13px;
+}
+.alert-line:hover:not(:disabled) { background: var(--raised); }
+.alert-line:disabled { color: var(--text); cursor: default; }
+.alert .dot { width: 7px; height: 7px; background: var(--warn); }
+.alert.sev-critical .dot { background: var(--lost); }
+.alert .when { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
+.alert .who { flex: 0 1 auto; max-width: 42%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.alert .msg { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c9c9c9; }
+/* Görüldü işaretlenmiş uyarılar listede kalır ama soluklaşır. */
+.alert.seen .dot { background: #3a3a3a; }
+.alert.seen .who { font-weight: 400; }
+.alert.seen .who, .alert.seen .msg { color: #6f6f6f; }
 
 #missing { border-top: 1px solid var(--line); padding: 10px 16px; color: var(--muted); max-height: 30%; overflow: auto; }
 #missing summary { cursor: pointer; }
@@ -246,6 +278,21 @@ main { flex: 1; min-height: 0; display: flex; }
 #modalInfo dt { color: var(--muted); white-space: nowrap; }
 #modalInfo dd { margin: 0; overflow-wrap: anywhere; }
 
+/* ---------- small dialogs ---------- */
+.dialog {
+  width: min(440px, 92vw); padding: 20px 22px; display: flex; flex-direction: column;
+  background: var(--raised); border: 1px solid var(--line-strong); border-radius: 10px;
+}
+.dialog h2 { font-size: 16px; }
+.dialog-note { color: var(--muted); font-size: 13px; margin: 6px 0 4px; }
+.dialog label { margin-top: 12px; font-size: 13px; color: var(--muted); }
+.dialog input {
+  margin-top: 5px; height: 36px; padding: 0 10px; font: inherit; color: var(--text);
+  background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px;
+}
+.dialog input::placeholder { color: #555; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
 /* ---------- messages ---------- */
 #toasts { position: fixed; left: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 30; }
 .toast {
@@ -255,7 +302,8 @@ main { flex: 1; min-height: 0; display: flex; }
 .toast.error { background: #2a0f0d; border-color: #5a2320; color: #ffd0cb; }
 
 @media (max-width: 1100px) {
-  #side { width: 280px; }
+  #side { width: 300px; }
+  #gridBar .bar-label { display: none; }
   .modal-box { flex-direction: column; }
   .modal-side { width: auto; height: 46%; border-left: 0; border-top: 1px solid var(--line); }
 }

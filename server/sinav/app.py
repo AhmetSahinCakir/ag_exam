@@ -18,7 +18,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from . import __version__
 from .config import Config, ConfigError, reload_policy
 from .discovery import DiscoveryResponder, lan_ips
-from .mediamtx import fetch_streams
+from .folderdialog import DialogUnavailable, open_folder, pick_folder
+from .mediamtx import fetch_streams, kick_publishers, set_recording
 from .roster import RosterError, parse_roster
 from .store import MAX_UPLOAD_BYTES, RUNNING, WAITING, ApiError, Store, Student
 
@@ -40,9 +41,11 @@ def is_local(request: Request) -> bool:
 def create_app(cfg: Config) -> FastAPI:
     store = Store(cfg)
     store.load()
+    store.load_settings()
     # Lets an agent recognise the same server when it answers on several network adapters.
     instance_id = secrets.token_hex(8)
     cached_ips: list[str] = lan_ips()
+    dialog_open = False
 
     # ------------------------------------------------------------ background
 
@@ -55,6 +58,8 @@ def create_app(cfg: Config) -> FastAPI:
             try:
                 store.tick()
                 if count % 2 == 0:
+                    # A student counts as "teslim etti" only while the file is really in the folder.
+                    store.check_submission_folder()
                     store.save_if_dirty()
                 if count % 3 == 0:
                     try:
@@ -79,8 +84,22 @@ def create_app(cfg: Config) -> FastAPI:
             try:
                 ready, publishers = await asyncio.to_thread(fetch_streams, cfg.mediamtx_api)
                 store.apply_streams(ready, publishers)
+                # Recordings go into the exam folder the teacher chose (off until one is chosen).
+                wanted = store.record_path
+                if wanted != store.recording_applied:
+                    await asyncio.to_thread(set_recording, cfg.mediamtx_api, wanted)
+                    store.recording_applied = wanted
+                    log.info("Ekran kaydı: %s", wanted or "kapalı (sınav klasörü seçilmedi)")
             except Exception:  # noqa: BLE001 - MediaMTX not running / restarting
                 store.mediamtx_down()
+                store.recording_applied = None  # a restarted MediaMTX has forgotten the folder
+            else:
+                done = store.streams_to_stop()
+                if done:
+                    try:
+                        await asyncio.to_thread(kick_publishers, cfg.mediamtx_api, done)
+                    except Exception:  # noqa: BLE001 - tried again on the next pass
+                        log.warning("Teslim eden öğrencinin yayını durdurulamadı: %s", ", ".join(done))
             await asyncio.sleep(2)
 
     @asynccontextmanager
@@ -214,7 +233,9 @@ def create_app(cfg: Config) -> FastAPI:
     async def api_submit(request: Request, st: Student = Depends(current_student)) -> dict[str, Any]:
         filename, data, form = await read_upload(request)
         auto = str(form.get("auto") or "").strip().lower() in ("1", "true", "evet", "yes")
-        return store.submit(st, filename, data, auto)
+        stale = str(form.get("stale") or "").strip().lower() in ("1", "true")
+        return store.submit(st, filename, data, auto, str(form.get("sha256") or ""), stale,
+                            str(form.get("original_name") or ""))
 
     # ============================================================ panel pages
 
@@ -285,6 +306,48 @@ def create_app(cfg: Config) -> FastAPI:
         return Response(store.export_csv(), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="{name}"', **NO_STORE})
 
+    @app.post("/panel/api/identity", dependencies=[Depends(local_only)])
+    async def panel_identity(request: Request) -> dict[str, Any]:
+        """Class (exam room) and teacher name, as shown to the students."""
+        body = await json_body(request)
+        store.set_identity(body.get("sinif_adi"), body.get("ogretmen_adi"))
+        return {"sinif_adi": cfg.sinif_adi, "ogretmen_adi": cfg.ogretmen_adi}
+
+    @app.post("/panel/api/pick-folder", dependencies=[Depends(local_only)])
+    async def panel_pick_folder() -> dict[str, Any]:
+        """Open the folder window of the operating system on this (the teacher's) computer."""
+        nonlocal dialog_open
+        if store.state != WAITING:
+            raise ApiError(409, "Sınav klasörü yalnızca sınav başlamadan önce seçilebilir.")
+        if dialog_open:
+            raise ApiError(409, "Klasör seçme penceresi zaten açık (görev çubuğuna bakın).")
+        dialog_open = True
+        try:
+            chosen = await asyncio.to_thread(pick_folder, str(store.exam_dir or ""))
+        except DialogUnavailable as exc:
+            raise ApiError(501, "Klasör seçme penceresi açılamadı. Klasörün yolunu elle yazın.") from exc
+        finally:
+            dialog_open = False
+        if not chosen:
+            return {"folder": "", "cancelled": True}
+        return {"folder": str(store.set_exam_dir(chosen))}
+
+    @app.post("/panel/api/exam-folder", dependencies=[Depends(local_only)])
+    async def panel_exam_folder(request: Request) -> dict[str, Any]:
+        body = await json_body(request)
+        return {"folder": str(store.set_exam_dir(body.get("path")))}
+
+    @app.post("/panel/api/open-folder", dependencies=[Depends(local_only)])
+    async def panel_open_folder() -> dict[str, Any]:
+        """Show the exam folder in the file manager of this (the teacher's) computer."""
+        if store.exam_dir is None:
+            raise ApiError(409, "Sınav klasörü seçilmedi.")
+        try:
+            open_folder(str(store.exam_dir))
+        except OSError as exc:
+            raise ApiError(501, f"Klasör açılamadı. Elle açın: {store.exam_dir}") from exc
+        return {"folder": str(store.exam_dir)}
+
     @app.post("/panel/api/exam-file", dependencies=[Depends(local_only)])
     async def panel_exam_file(request: Request) -> dict[str, Any]:
         filename, data, _ = await read_upload(request)
@@ -312,7 +375,8 @@ def create_app(cfg: Config) -> FastAPI:
 
     @app.post("/panel/api/reset", dependencies=[Depends(local_only)])
     async def panel_reset() -> dict[str, Any]:
-        return {"archive": store.reset(), "state": store.state}
+        store.reset()
+        return {"state": store.state}
 
     @app.post("/panel/api/ack", dependencies=[Depends(local_only)])
     async def panel_ack(request: Request) -> dict[str, Any]:

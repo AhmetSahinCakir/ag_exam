@@ -85,8 +85,6 @@ class Config:
     mediamtx_webrtc: str = "http://127.0.0.1:8889"
     policy: Policy = field(default_factory=Policy)
     disconnect_s: float = 10.0
-    dir_submissions: Path = Path("../submissions")
-    dir_recordings: Path = Path("../recordings")
     dir_data: Path = Path("../data")
     dir_dist: Path = Path("../dist")
     retention_note: str = ""
@@ -190,8 +188,6 @@ def load_config(path: str | Path) -> Config:
         mediamtx_webrtc=str(mediamtx.get("webrtc") or "http://127.0.0.1:8889").rstrip("/"),
         policy=parse_policy(raw),
         disconnect_s=_number(thresholds, "kopma_suresi_sn", 10, 4, 300),
-        dir_submissions=folder("teslimler", "../submissions"),
-        dir_recordings=folder("kayitlar", "../recordings"),
         dir_data=folder("veri", "../data"),
         dir_dist=folder("dagitim", "../dist"),
         retention_note=" ".join(str(raw.get("kayit_saklama_notu") or "").split()),

@@ -59,9 +59,12 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
   uzun** önde kalırsa öğretmene uyarı gider. Başlat menüsüne yanlışlıkla basmak gibi kısa
   geçişler sorun olmaz.
 - **İkinci ekran takmayın;** takılı ekran ve ekran takıp çıkarma öğretmene bildirilir.
-- **Sık sık Ctrl+S ile kaydedin** ve dosyayı **indirdiğiniz yerde, aynı adla** tutun. Teslim
-  edilen şey, o dosyanın *son kaydettiğiniz* hâlidir. “Farklı Kaydet” ile başka bir yere ya
-  da başka bir adla kaydederseniz o kopya teslim edilmez.
+- **Başka bir masaüstüne geçmeyin** (Görev Görünümü, Win+Ctrl+→). Geçerseniz “Başka bir
+  masaüstüne geçtiniz” bildirimi çıkar ve öğretmene bildirilir.
+- **Sık sık Ctrl+S ile kaydedin** ve dosyayı **indirdiğiniz yerde, aynı adla** tutun.
+  Teslimde bu dosyayı seçeceksiniz. Öğretmen sınavı siz teslim etmeden bitirirse de
+  **bu dosyanın** son kaydettiğiniz hâli otomatik gönderilir; “Farklı Kaydet” ile başka bir
+  yere ya da başka bir adla kaydettiğiniz kopya otomatik gönderilmez.
 - Süreyi öğretmeniniz tutar; panelde süre görünmez.
 - Wi-Fi koparsa panelde “Sunucuya ulaşılamıyor — yeniden deneniyor…” yazar; program
   kendiliğinden yeniden bağlanır, siz çalışmaya devam edin. Uzun sürerse öğretmeninize haber verin.
@@ -73,14 +76,22 @@ teslim eder. Sınavdan sonra bilgisayarınızda çalışan hiçbir şey bırakma
 
 1. Packet Tracer'da **Ctrl+S** ile kaydedin.
 2. Paneldeki **Teslim et** düğmesine basın. (Bu düğme, dosyayı indirdikten sonra çıkar.)
-   - “Önce Packet Tracer'da Ctrl+S ile kaydedin.” uyarısı çıkarsa dosyayı indirdikten sonra
-     hiç kaydetmemişsiniz demektir; kaydedip yeniden deneyin.
-3. “Teslim etmek istediğinize emin misiniz? Teslimden sonra değişiklik yapamazsınız.” →
-   **Evet**.
-4. **“Teslim alındı”** penceresi çıkar; program kapanır ve ekran aktarımı biter.
+3. Açılan pencerede **teslim edeceğiniz dosyayı seçin** ve **Aç**'a basın. Pencere,
+   sınav dosyasını indirdiğiniz klasörde açılır ve o dosyanın adı hazır yazılıdır;
+   dosyanızı başka bir yere kaydettiyseniz oradan seçin. Yalnızca `.pka` dosyası seçilebilir.
+4. Program seçtiğiniz dosyayı göndermeden önce denetler:
+   - **“… indirdiğiniz sınav dosyasının aynısı: içine hiçbir değişiklik kaydedilmemiş.”**
+     Dosyayı indirdikten sonra hiç kaydetmemişsiniz ya da yanlış dosyayı seçtiniz.
+     **Hayır** deyin, Packet Tracer'da **Ctrl+S** ile kaydedip yeniden deneyin.
+   - **“… sınav dosyasını indirmenizden önce kaydedilmiş. Yanlış dosyayı seçmiş
+     olabilirsiniz.”** Eski bir dosya seçtiniz. **Hayır** deyip doğru dosyayı seçin.
+   - Sorun yoksa dosyanın **adı, klasörü ve son kayıt saati** gösterilir: “… teslim edilsin
+     mi?” Bilgiler doğruysa **Evet** deyin. Teslimden sonra değişiklik yapamazsınız.
+5. **“Teslim alındı”** penceresi çıkar; program kapanır ve ekran aktarımı biter. Bu pencere,
+   dosyanızın öğretmen bilgisayarına **eksiksiz ulaştığı doğrulandıktan sonra** çıkar.
 
-Teslim etmeden öğretmen sınavı bitirirse **son kaydettiğiniz dosya otomatik olarak** teslim
-edilir ve “Sınav sona erdi” penceresi çıkar.
+Teslim etmeden öğretmen sınavı bitirirse, indirdiğiniz dosyanın **son kaydettiğiniz hâli
+otomatik olarak** teslim edilir ve “Sınav sona erdi” penceresi çıkar.
 
 ## Sınavdan sonra
 
@@ -132,6 +143,8 @@ Numaranızı yanlış yazmış olabilirsiniz. Doğruysa öğretmeninize haber ve
   - Sınav **başladıktan sonra** izin verilmeyen programları kapatır.
   - Sınav dosyasını sizin seçtiğiniz yere kaydeder; ayrıca `%LOCALAPPDATA%\SinavAjan\`
     klasörüne küçük bir günlük dosyası yazar.
+  - Teslimde **sizin seçtiğiniz** dosyayı öğretmen bilgisayarına gönderir. Başka bir
+    masaüstüne geçerseniz bunu öğretmene bildirir.
 - **Yapmadıkları:**
   - Kurulum yapmaz, Windows ile birlikte açılmaz, servis ya da zamanlanmış görev oluşturmaz,
     kayıt defterine yazmaz, sistem ayarlarınızı değiştirmez.

@@ -34,6 +34,15 @@ ENDED = "ENDED"
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 MAX_ALERTS_IN_SNAPSHOT = 300
 
+# Created inside the exam folder the teacher chooses in the panel.
+RECORDINGS_DIRNAME = "Kayıtlar"
+SUBMISSIONS_DIRNAME = "Teslimler"
+EVENTS_CSV_NAME = "olay-kaydi.csv"
+
+# A submitted file whose size is outside exam-file-size x [MIN, MAX] is reported as suspicious.
+SIZE_RATIO_MIN = 0.3
+SIZE_RATIO_MAX = 5
+
 INFO = "info"
 WARNING = "warning"
 CRITICAL = "critical"
@@ -82,6 +91,7 @@ class Student:
     exam_state_seen: str = ""
     warn_count: int = 0
     ev_count: int = 0
+    ack_id: int = 0  # alerts up to this event id were marked as seen by the teacher
     submitted: bool = False
     exited: bool = False
     submissions: list[Submission] = field(default_factory=list)
@@ -93,9 +103,10 @@ class Student:
     connected: bool = True
     lost_reason: str = ""
     lost_since_ts: float = 0.0
+    file_present: bool = True  # the latest submission file is really in the submissions folder
 
     _RUNTIME = ("last_hb_mono", "stream_ready", "stream_changed_mono", "connected",
-                "lost_reason", "lost_since_ts")
+                "lost_reason", "lost_since_ts", "file_present")
 
     @property
     def full_name(self) -> str:
@@ -184,6 +195,12 @@ def describe_agent_event(kind: str, d: dict[str, Any]) -> tuple[str, bool, bool,
         return INFO, False, False, "Önceki oturumdan kalan sınav dosyasıyla devam ediliyor"
     if kind == "enforcement_started":
         return INFO, False, False, "Uygulama denetimi başladı"
+    if kind == "desktop_switch":
+        return WARNING, True, True, "Başka bir masaüstüne geçti"
+    if kind == "desktop_return":
+        seconds = d.get("seconds")
+        extra = f" ({int(seconds)} sn sonra)" if isinstance(seconds, (int, float)) else ""
+        return INFO, False, False, f"Sınav masaüstüne geri döndü{extra}"
     if kind == "agent_exit":
         return WARNING, True, True, "Ajan öğrenci tarafından kapatıldı"
     if kind == "submit_failed":
@@ -199,6 +216,14 @@ class Store:
         self.started_at = 0.0
         self.ended_at = 0.0
         self.exam_file: dict[str, Any] | None = None
+        # Chosen by the teacher in the panel before the exam. Two folders are created in it:
+        # "Kayıtlar" (screen recordings) and "Teslimler" (submitted files).
+        self.exam_dir: Path | None = None
+        # Files that were already in "Teslimler" when the folder was chosen, or that do not
+        # belong to any student: never treated as a submission.
+        self.ignored_files: set[str] = set()
+        self.recording_applied: str | None = None  # record path last sent to MediaMTX
+        self.folder_error = ""
         self.roster: dict[str, RosterEntry] = {}
         self.roster_name = ""
         self.students: dict[str, Student] = {}
@@ -207,6 +232,7 @@ class Store:
         self.events: list[Event] = []
         self.alerts: deque[Event] = deque(maxlen=MAX_ALERTS_IN_SNAPSHOT)
         self.next_event_id = 1
+        self.general_ack_id = 0  # the same as Student.ack_id, for alerts that belong to no student
         self.stream_alerts_seen: set[str] = set()
 
         self.mediamtx_ok = False
@@ -218,7 +244,6 @@ class Store:
         self._dirty = False
 
         self.cfg.dir_data.mkdir(parents=True, exist_ok=True)
-        self.cfg.dir_submissions.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------ paths
 
@@ -235,8 +260,27 @@ class Store:
         return self.cfg.dir_data / "exam" / "sinav.pka"
 
     @property
-    def index_path(self) -> Path:
-        return self.cfg.dir_submissions / "index.csv"
+    def settings_path(self) -> Path:
+        return self.cfg.dir_data / "settings.json"
+
+    @property
+    def dir_submissions(self) -> Path | None:
+        return self.exam_dir / SUBMISSIONS_DIRNAME if self.exam_dir else None
+
+    @property
+    def dir_recordings(self) -> Path | None:
+        return self.exam_dir / RECORDINGS_DIRNAME if self.exam_dir else None
+
+    @property
+    def record_path(self) -> str:
+        """MediaMTX recordPath for the chosen exam folder ("" = do not record)."""
+        if self.dir_recordings is None:
+            return ""
+        return str(self.dir_recordings / "%path" / "%Y-%m-%d_%H-%M-%S_%z")
+
+    @property
+    def index_path(self) -> Path | None:
+        return self.dir_submissions / "index.csv" if self.exam_dir else None
 
     # -------------------------------------------------------------- listeners
 
@@ -263,11 +307,14 @@ class Store:
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "exam_file": self.exam_file,
+            "exam_dir": str(self.exam_dir) if self.exam_dir else "",
+            "ignored_files": sorted(self.ignored_files),
             "roster_name": self.roster_name,
             "roster": [asdict(e) for e in self.roster.values()],
             "students": [s.to_json() for s in self.students.values()],
             "mac_history": self.mac_history,
             "next_event_id": self.next_event_id,
+            "general_ack_id": self.general_ack_id,
         }
         tmp = self.state_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -291,10 +338,13 @@ class Store:
             self.started_at = float(data.get("started_at") or 0)
             self.ended_at = float(data.get("ended_at") or 0)
             self.exam_file = data.get("exam_file")
+            self.exam_dir = Path(data["exam_dir"]) if data.get("exam_dir") else None
+            self.ignored_files = set(data.get("ignored_files") or [])
             self.roster_name = data.get("roster_name", "")
             self.roster = {e["numara"]: RosterEntry(**e) for e in data.get("roster", [])}
             self.mac_history = {k: list(v) for k, v in data.get("mac_history", {}).items()}
             self.next_event_id = int(data.get("next_event_id") or 1)
+            self.general_ack_id = int(data.get("general_ack_id") or 0)
             now_mono = time.monotonic()
             for raw in data.get("students", []):
                 st = Student.from_json(raw)
@@ -402,16 +452,74 @@ class Store:
                 json.dumps(e.details, ensure_ascii=False) if e.details else "",
             ])
         # BOM so that Excel opens Turkish characters correctly.
-        return ("﻿" + buffer.getvalue()).encode("utf-8")
+        return ("\ufeff" + buffer.getvalue()).encode("utf-8")
 
     def ack(self, numara: str | None) -> None:
+        """Mark the alerts of one student (or, with None, every alert) as seen."""
         targets = [self.students[numara]] if numara and numara in self.students else (
             list(self.students.values()) if numara is None else [])
+        seen = self.next_event_id - 1
         for st in targets:
             st.warn_count = 0
+            st.ack_id = seen
+        if numara is None:
+            self.general_ack_id = seen
+        self.changed()
+
+    # --------------------------------------------------------------- settings
+
+    def load_settings(self) -> None:
+        """Class and teacher names edited in the panel override config.yaml."""
+        try:
+            data = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if isinstance(data, dict):
+            self.cfg.sinif_adi = _clean(data.get("sinif_adi"), 60) or self.cfg.sinif_adi
+            self.cfg.ogretmen_adi = _clean(data.get("ogretmen_adi"), 60) or self.cfg.ogretmen_adi
+
+    def set_identity(self, sinif_adi: Any, ogretmen_adi: Any) -> None:
+        if self.state == RUNNING:
+            raise ApiError(409, "Sınav sürerken sınıf ve öğretmen adı değiştirilemez.")
+        sinif = _clean(sinif_adi, 60)
+        ogretmen = _clean(ogretmen_adi, 60)
+        if not sinif or not ogretmen:
+            raise ApiError(422, "Sınıf (salon) adı ve öğretmen adı boş bırakılamaz.")
+        self.cfg.sinif_adi, self.cfg.ogretmen_adi = sinif, ogretmen
+        try:
+            self.settings_path.write_text(
+                json.dumps({"sinif_adi": sinif, "ogretmen_adi": ogretmen}, ensure_ascii=False, indent=1),
+                encoding="utf-8")
+        except OSError as exc:
+            raise ApiError(500, f"Ayar kaydedilemedi: {exc}") from exc
         self.changed()
 
     # ------------------------------------------------------------ exam control
+
+    def set_exam_dir(self, raw: Any) -> Path:
+        """The teacher picked the exam folder; create "Kayıtlar" and "Teslimler" in it."""
+        if self.state != WAITING:
+            raise ApiError(409, "Sınav klasörü yalnızca sınav başlamadan önce seçilebilir.")
+        text = str(raw or "").strip().strip('"')
+        if not text:
+            raise ApiError(422, "Klasör seçilmedi.")
+        path = Path(text).expanduser()
+        if not path.is_absolute():
+            raise ApiError(422, "Klasörün tam yolunu verin (ör. D:\\Sinavlar\\Vize).")
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            (path / RECORDINGS_DIRNAME).mkdir(exist_ok=True)
+            (path / SUBMISSIONS_DIRNAME).mkdir(exist_ok=True)
+            probe = path / SUBMISSIONS_DIRNAME / ".yazma-denemesi"
+            probe.write_bytes(b"")
+            probe.unlink()
+        except OSError as exc:
+            raise ApiError(400, f"Bu klasör kullanılamıyor: {exc}") from exc
+        self.exam_dir = path.resolve()
+        # Whatever is already in "Teslimler" is not a submission of this exam.
+        self.ignored_files = {item.name for item in self.dir_submissions.iterdir() if item.is_file()}
+        self.add_event("", "exam_dir_selected", INFO, f"Sınav klasörü seçildi: {self.exam_dir}")
+        return self.exam_dir
 
     def set_exam_file(self, filename: str, data: bytes) -> dict[str, Any]:
         if self.state != WAITING:
@@ -446,8 +554,17 @@ class Store:
             raise ApiError(409, "Sınav dosyası zaten paylaşıldı; sınav sürüyor.")
         if self.state == ENDED:
             raise ApiError(409, "Sınav sona erdi. Yeni bir sınav için önce “Yeni sınav”a basın.")
+        if self.exam_dir is None:
+            raise ApiError(409, "Önce sınav klasörünü seçin.")
         if not self.exam_file:
             raise ApiError(409, "Önce sınav dosyasını (.pka) yükleyin.")
+        try:
+            # Whatever is in "Teslimler" before the exam starts is not a submission of this exam.
+            self.dir_submissions.mkdir(parents=True, exist_ok=True)
+            self.dir_recordings.mkdir(parents=True, exist_ok=True)
+            self.ignored_files |= {item.name for item in self.dir_submissions.iterdir() if item.is_file()}
+        except OSError as exc:
+            raise ApiError(400, f"Sınav klasörüne ulaşılamıyor: {exc}") from exc
         self.state = RUNNING
         self.exam_id = secrets.token_hex(8)
         self.started_at = time.time()
@@ -460,36 +577,37 @@ class Store:
         self.state = ENDED
         self.ended_at = time.time()
         self.add_event("", "exam_ended", INFO, "Sınav bitirildi")
+        self.write_events_csv()
 
-    def reset(self) -> str:
-        """Archive the finished exam and return to WAITING. Returns the archive folder."""
+    def write_events_csv(self) -> None:
+        """Keep a copy of the event log next to the recordings and submissions."""
+        if self.exam_dir is None:
+            return
+        try:
+            (self.exam_dir / EVENTS_CSV_NAME).write_bytes(self.export_csv())
+        except OSError as exc:
+            log.error("Olay kaydı sınav klasörüne yazılamadı: %s", exc)
+
+    def reset(self) -> None:
+        """Forget the finished exam and return to WAITING. Nothing in the exam folder is touched."""
         if self.state == RUNNING:
             raise ApiError(409, "Sınav sürerken sıfırlanamaz. Önce sınavı bitirin.")
-        archive = ""
-        submissions = [p for p in self.cfg.dir_submissions.iterdir()] if self.cfg.dir_submissions.exists() else []
-        if self.events or submissions or self.students:
-            self.save()
-            target = self.cfg.dir_data / "arsiv" / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            (target / "submissions").mkdir(parents=True, exist_ok=True)
-            for item in submissions:
-                shutil.move(str(item), str(target / "submissions" / item.name))
-            for item in (self.events_path, self.state_path):
-                if item.exists():
-                    shutil.move(str(item), str(target / item.name))
-            if self.exam_file_path.exists():
-                shutil.move(str(self.exam_file_path), str(target / "sinav.pka"))
-            archive = str(target)
+        self.write_events_csv()  # includes what happened after the exam ended (automatic submissions)
+        if self.events_path.exists():
+            # The raw log is never deleted: it moves next to the server data.
+            archive = self.cfg.dir_data / "arsiv"
+            archive.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            shutil.move(str(self.events_path), str(archive / f"olaylar_{stamp}.jsonl"))
 
         keep = {key: getattr(self, key) for key in (
             "roster", "roster_name", "_waiters", "mediamtx_ok", "mediamtx_checked",
-            "discovery_error", "config_error")}
+            "discovery_error", "config_error", "recording_applied")}
         self.__init__(self.cfg)
         for key, value in keep.items():
             setattr(self, key, value)
-        self.add_event("", "exam_reset", INFO,
-                       "Yeni sınav hazırlandı" + (f"; önceki sınav arşivlendi: {archive}" if archive else ""))
+        self.add_event("", "exam_reset", INFO, "Yeni sınav hazırlandı")
         self.save()
-        return archive
 
     # --------------------------------------------------------------- agent API
 
@@ -619,7 +737,7 @@ class Store:
 
         self.changed()
         stream: dict[str, Any] = {
-            "url": f"rtsp://{server_host}:{self.cfg.rtsp_port}/s/{numara}",
+            "url": f"rtsp://{server_host}:{self.cfg.rtsp_port}/{numara}",
             "user": self.cfg.stream_user,
             "pass": self.cfg.stream_pass,
         }
@@ -682,7 +800,9 @@ class Store:
         st.ffmpeg_alive = bool(body.get("ffmpeg_alive"))
         st.exam_state_seen = _clean(body.get("exam_state_seen"), 16)
         self.changed(persist=False)
-        return self.exam_status()
+        status = self.exam_status()
+        status["submitted"] = st.submitted and st.file_present
+        return status
 
     def agent_event(self, st: Student, kind: str, details: Any, agent_ts: Any) -> None:
         kind = _clean(kind, 40)
@@ -715,42 +835,71 @@ class Store:
         if not data:
             raise ApiError(400, "Dosya boş.")
 
-    def submit(self, st: Student, filename: str, data: bytes, auto: bool) -> dict[str, Any]:
+    def submit(self, st: Student, filename: str, data: bytes, auto: bool, claimed_sha: str = "",
+               stale: bool = False, original_name: str = "") -> dict[str, Any]:
+        """A student uploaded a file. It counts only once it is really in the submissions folder."""
         if self.state == WAITING:
             raise ApiError(409, "Sınav henüz başlamadı; teslim alınamaz.")
+        folder = self.dir_submissions
+        if folder is None:
+            raise ApiError(409, "Sınav klasörü seçilmemiş; teslim alınamıyor. Öğretmeninize haber verin.")
         self._check_pka(filename, data)
         sha = _sha256(data)
+        if claimed_sha and claimed_sha.strip().lower() != sha:
+            # The bytes that arrived are not the bytes the student's computer sent.
+            raise ApiError(400, "Dosya yüklenirken bozuldu. Yeniden deneyin.")
+
         base = submission_basename(st.numara, st.ad, st.soyad)
         version = len(st.submissions) + 1
         while True:
             name = f"{base}.pka" if version == 1 else f"{base}_v{version}.pka"
-            target = self.cfg.dir_submissions / name
+            target = folder / name
             if not target.exists():
                 break
             version += 1  # never overwrite an existing file
-        self.cfg.dir_submissions.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_suffix(".yukleniyor")
-        tmp.write_bytes(data)
-        os.replace(tmp, target)
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(".yukleniyor")
+            tmp.write_bytes(data)
+            os.replace(tmp, target)
+            # Read it back: the submission is confirmed from the folder, not from memory.
+            stored_ok = _sha256(target.read_bytes()) == sha
+        except OSError as exc:
+            log.error("Teslim dosyası yazılamadı (%s): %s", name, exc)
+            raise ApiError(500, "Dosya öğretmen bilgisayarına kaydedilemedi. Öğretmeninize haber verin.") from exc
+        if not stored_ok:
+            raise ApiError(500, "Dosya öğretmen bilgisayarına doğru kaydedilemedi. Yeniden deneyin.")
 
-        now = time.time()
-        submission = Submission(version=version, filename=name, sha256=sha, size=len(data), auto=auto, ts=now)
+        self._register_submission(st, name, data, sha, version, auto, from_folder=False,
+                                  original=_clean(Path((original_name or filename).replace("\\", "/")).name, 120),
+                                  stale=stale)
+        return {"sha256": sha, "filename": name, "version": version, "size": len(data), "verified": True}
+
+    def _register_submission(self, st: Student, name: str, data: bytes, sha: str, version: int,
+                             auto: bool, from_folder: bool, original: str = "", stale: bool = False) -> None:
+        submission = Submission(version=version, filename=name, sha256=sha, size=len(data), auto=auto,
+                                ts=time.time())
         st.submissions.append(submission)
         st.submitted = True
+        st.file_present = True
         self._append_index(st, submission)
 
-        label = "Otomatik teslim alındı" if auto else "Teslim etti"
+        if from_folder:
+            label = "Teslim dosyası klasörde bulundu"
+        else:
+            label = "Otomatik teslim alındı" if auto else "Teslim etti"
         self.add_event(
-            st.numara, "auto_submit" if auto else "submit", INFO,
-            f"{label}: {name} (SHA-256 {sha[:16]}…)",
-            {"filename": name, "sha256": sha, "size": len(data), "version": version, "auto": auto},
+            st.numara, "auto_submit" if auto else "submit", INFO, f"{label}: {name}",
+            {"filename": name, "sha256": sha, "size": len(data), "version": version, "auto": auto,
+             "from_folder": from_folder, "original": original},
         )
 
+        exam_size = int(self.exam_file["size"]) if self.exam_file else 0
         unchanged = bool(self.exam_file) and sha == self.exam_file["sha256"]
         if unchanged:
             self.add_event(
                 st.numara, "unchanged_submission", WARNING,
-                "Teslim edilen dosya sınav dosyasıyla birebir aynı (hiç değişiklik kaydedilmemiş)",
+                "Teslim edilen dosya sınav dosyasının kendisi (hiç değişiklik kaydedilmemiş)",
                 {"sha256": sha},
             )
         else:
@@ -762,18 +911,103 @@ class Store:
             for other in twins:
                 self.add_event(
                     st.numara, "duplicate_hash", CRITICAL,
-                    f"{other.numara} {other.full_name} ile birebir aynı dosyayı teslim etti (SHA-256 eşleşiyor)",
+                    f"{other.numara} {other.full_name} ile birebir aynı dosyayı teslim etti",
                     {"sha256": sha, "other": other.numara},
                 )
                 self.add_event(
                     other.numara, "duplicate_hash", CRITICAL,
-                    f"{st.numara} {st.full_name} ile birebir aynı dosyayı teslim etti (SHA-256 eşleşiyor)",
+                    f"{st.numara} {st.full_name} ile birebir aynı dosyayı teslim etti",
                     {"sha256": sha, "other": st.numara},
                 )
+            if stale:
+                self.add_event(
+                    st.numara, "stale_submission", WARNING,
+                    "Teslim edilen dosya, sınav dosyası indirilmeden önce kaydedilmiş — yanlış dosya olabilir",
+                    {"original": original},
+                )
+            if exam_size and not (exam_size * SIZE_RATIO_MIN <= len(data) <= exam_size * SIZE_RATIO_MAX):
+                # A Packet Tracer file cannot be opened here, but a very different size usually
+                # means that the wrong file was chosen.
+                self.add_event(
+                    st.numara, "suspicious_size", WARNING,
+                    f"Teslim edilen dosyanın boyutu sınav dosyasından çok farklı "
+                    f"({len(data) // 1024} KB; sınav dosyası {exam_size // 1024} KB) — yanlış dosya olabilir",
+                    {"size": len(data), "exam_size": exam_size},
+                )
         self.changed()
-        return {"sha256": sha, "filename": name, "version": version, "size": len(data)}
+
+    def check_submission_folder(self) -> None:
+        """Compare what the server believes with what is really in the "Teslimler" folder.
+
+        * A student counts as "teslim etti" only while the submitted file is in the folder.
+        * A file put into the folder by hand, named "<numara>_....pka", is taken as that
+          student's submission.
+        """
+        folder = self.dir_submissions
+        if folder is None:
+            return
+        try:
+            names = {item.name: item for item in folder.iterdir()
+                     if item.is_file() and item.suffix.lower() == ".pka"}
+        except OSError as exc:
+            message = f"Sınav klasörüne ulaşılamıyor: {folder}"
+            if message != self.folder_error:
+                log.error("%s (%s)", message, exc)
+                self.folder_error = message
+                self.changed(persist=False)
+            return
+        if self.folder_error:
+            self.folder_error = ""
+            self.changed(persist=False)
+        if self.state == WAITING:
+            return
+
+        registered = set(self.ignored_files)
+        for st in self.students.values():
+            registered.update(sub.filename for sub in st.submissions)
+            if not st.submissions:
+                continue
+            last = st.submissions[-1]
+            present = last.filename in names
+            if present == st.file_present:
+                continue
+            st.file_present = present
+            if not present:
+                self.add_event(st.numara, "submission_missing", CRITICAL,
+                               f"Teslim dosyası klasörde bulunamıyor: {last.filename}")
+            else:
+                self.add_event(st.numara, "submission_back", INFO,
+                               f"Teslim dosyası yeniden klasörde: {last.filename}", alert=False)
+
+        now = time.time()
+        for name in sorted(set(names) - registered):
+            numara = name.split("_", 1)[0] if "_" in name else Path(name).stem
+            st = self.students.get(numara)
+            if st is None:
+                self.ignored_files.add(name)
+                self.add_event("", "unknown_submission_file", WARNING,
+                               f"Teslimler klasöründe hiçbir öğrenciyle eşleşmeyen dosya var: {name}")
+                continue
+            path = names[name]
+            try:
+                if now - path.stat().st_mtime < 2:
+                    continue  # may still be being copied; look again on the next pass
+                data = path.read_bytes()
+            except OSError:
+                continue
+            if not data or len(data) > MAX_UPLOAD_BYTES:
+                self.ignored_files.add(name)
+                continue
+            self._register_submission(st, name, data, _sha256(data), len(st.submissions) + 1,
+                                      auto=False, from_folder=True)
+
+    def streams_to_stop(self) -> list[str]:
+        """Students whose file has arrived: their screen stream is no longer needed."""
+        return [st.numara for st in self.students.values() if st.submitted and st.stream_ready]
 
     def _append_index(self, st: Student, sub: Submission) -> None:
+        if self.index_path is None:
+            return
         new = not self.index_path.exists()
         try:
             with self.index_path.open("a", newline="", encoding="utf-8-sig" if new else "utf-8") as handle:
@@ -839,7 +1073,7 @@ class Store:
         self.mediamtx_ok = True
         self.mediamtx_checked = True
         for st in self.students.values():
-            ready = f"s/{st.numara}" in ready_paths
+            ready = st.numara in ready_paths
             if ready != st.stream_ready:
                 st.stream_ready = ready
                 st.stream_changed_mono = now_mono
@@ -847,9 +1081,9 @@ class Store:
 
         if self.state != ENDED:
             for path, pub_ip in publishers.items():
-                if not path.startswith("s/") or not pub_ip:
+                if not NUMARA_RE.match(path) or not pub_ip:
                     continue
-                numara = path[2:]
+                numara = path
                 key = f"{numara}|{pub_ip}"
                 if key in self.stream_alerts_seen:
                     continue
@@ -876,6 +1110,8 @@ class Store:
     # ---------------------------------------------------------------- snapshot
 
     def _status(self, st: Student) -> str:
+        if st.submissions and not st.file_present and (st.submitted or self.state == ENDED):
+            return "nofile"  # submitted, but the file is no longer in the folder
         if self.state == ENDED:
             return "done" if st.submissions else "nosubmit"
         if st.submitted:
@@ -895,7 +1131,7 @@ class Store:
             summary["total"] += 1
             if status == "done":
                 summary["submitted"] += 1
-            elif status in ("lost", "nosubmit"):
+            elif status in ("lost", "nosubmit", "nofile"):
                 summary["lost"] += 1
             else:
                 summary["connected"] += 1
@@ -924,6 +1160,7 @@ class Store:
                 "stream_ready": st.stream_ready,
                 "warn_count": st.warn_count,
                 "ev_count": st.ev_count,
+                "ack_id": st.ack_id,
                 "submission": asdict(last) if last else None,
                 "submission_count": len(st.submissions),
             })
@@ -941,22 +1178,26 @@ class Store:
                 "started_at": self.started_at,
                 "ended_at": self.ended_at,
                 "file": self.exam_file,
+                "folder": str(self.exam_dir) if self.exam_dir else "",
             },
             "roster": {"name": self.roster_name, "count": len(self.roster), "missing": missing},
             "health": {
                 "mediamtx_ok": self.mediamtx_ok or not self.mediamtx_checked,
                 "discovery_error": self.discovery_error,
                 "config_error": self.config_error,
+                "folder_error": self.folder_error,
+                "recording": bool(self.recording_applied),
                 "lan_ips": lan_ips or [],
                 "port": self.cfg.port,
             },
             "summary": summary,
             "students": students,
             "alerts": [e.to_json() for e in reversed(self.alerts)],
+            "general_ack_id": self.general_ack_id,
             "webrtc_base": self.cfg.mediamtx_webrtc,
             "paths": {
-                "submissions": str(self.cfg.dir_submissions),
-                "recordings": str(self.cfg.dir_recordings),
+                "submissions": str(self.dir_submissions) if self.exam_dir else "",
+                "recordings": str(self.dir_recordings) if self.exam_dir else "",
             },
             "retention_note": self.cfg.retention_note,
         }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import os
 import time
 
 from conftest import EXAM_BYTES, PANEL, Env
@@ -68,7 +69,7 @@ def test_api_requires_token(env: Env):
 def test_login_returns_everything_the_agent_needs(env: Env):
     _, body = env.login(numara="2021001")
     assert body["exam_state"] == WAITING
-    assert body["stream"]["url"] == "rtsp://192.168.1.10:8554/s/2021001"
+    assert body["stream"]["url"] == "rtsp://192.168.1.10:8554/2021001"
     assert body["stream"]["user"] == "sinavajan" and body["stream"]["pass"]
     assert any("Cisco Packet Tracer" in p for p in body["allowlist"]["patterns"])
     assert "notepad.exe" in body["allowlist"]["windows_kill"]
@@ -173,7 +174,11 @@ def test_roster_rules(env: Env):
 def test_exam_state_machine_and_exam_file_access(env: Env):
     client, _ = env.login()
     assert client.get("/api/exam-file").status_code == 409  # WAITING
-    assert env.panel.post("/panel/api/start", headers=PANEL, json={}).status_code == 409  # no file yet
+    refused = env.panel.post("/panel/api/start", headers=PANEL, json={})
+    assert refused.status_code == 409 and "klasörünü seçin" in refused.json()["error"]  # no folder yet
+    assert env.choose_folder().status_code == 200
+    refused = env.panel.post("/panel/api/start", headers=PANEL, json={})
+    assert refused.status_code == 409 and ".pka" in refused.json()["error"]  # no file yet
     assert env.panel.post("/panel/api/end", headers=PANEL).status_code == 409
 
     assert env.upload_exam(b"x", "sinav.txt").status_code == 400
@@ -215,8 +220,8 @@ def test_submission_naming_versions_index_and_checks(env: Env):
     work_a = b"cozum A"
     first = env.submit(a, work_a).json()
     assert first == {"sha256": hashlib.sha256(work_a).hexdigest(), "filename": "2021001_AhmetSahinCakir.pka",
-                     "version": 1, "size": len(work_a)}
-    folder = env.cfg.dir_submissions
+                     "version": 1, "size": len(work_a), "verified": True}
+    folder = env.submissions
     assert (folder / "2021001_AhmetSahinCakir.pka").read_bytes() == work_a
     assert env.snapshot_student("2021001")["status"] == "done"
 
@@ -253,7 +258,7 @@ def test_upload_size_limit(env: Env, monkeypatch):
     monkeypatch.setattr(store_module, "MAX_UPLOAD_BYTES", 1000)
     response = env.submit(client, b"x" * 1001)
     assert response.status_code == 413 and "50 MB" in response.json()["error"]
-    assert not list(env.cfg.dir_submissions.glob("*.pka"))
+    assert not list(env.submissions.glob("*.pka"))
 
 
 def test_auto_submit_after_end_and_final_status(env: Env):
@@ -301,8 +306,16 @@ def test_agent_events_alerts_and_ack(env: Env):
     history = env.panel.get("/panel/api/events", params={"numara": "2021001"}).json()["events"]
     assert len(history) >= 6
 
+    assert env.snapshot_student("2021001")["ack_id"] == 0
     assert env.panel.post("/panel/api/ack", headers=PANEL, json={"numara": "2021001"}).status_code == 200
-    assert env.snapshot_student("2021001")["status"] == "ok"
+    st = env.snapshot_student("2021001")
+    assert st["status"] == "ok" and st["ack_id"] == env.store.events[-1].id  # everything so far is seen
+    assert env.store.general_ack_id == 0
+    event("process_killed", name="discord.exe")
+    newest = env.store.snapshot()["alerts"][0]
+    assert newest["id"] > st["ack_id"] and env.snapshot_student("2021001")["warn_count"] == 1
+    assert env.panel.post("/panel/api/ack", headers=PANEL, json={}).status_code == 200  # everything
+    assert env.snapshot_student("2021001")["ack_id"] == newest["id"] == env.store.general_ack_id
 
     export = env.panel.get("/panel/api/export.csv")
     assert export.status_code == 200 and export.content.startswith(b"\xef\xbb\xbf")
@@ -342,15 +355,15 @@ def test_box_turns_red_when_stream_is_missing(env: Env):
     st = env.snapshot_student("2021001")
     assert st["status"] == "lost" and st["lost_reason"] == "ekran yayını yok"
 
-    store.apply_streams({"s/2021001"}, {"s/2021001": "192.168.1.50"})
+    store.apply_streams({"2021001"}, {"2021001": "192.168.1.50"})
     store.tick()
     assert env.snapshot_student("2021001")["status"] == "ok"
 
     # A stream from another address than the login is flagged once.
-    store.apply_streams({"s/2021001"}, {"s/2021001": "192.168.1.99"})
-    store.apply_streams({"s/2021001"}, {"s/2021001": "192.168.1.99"})
+    store.apply_streams({"2021001"}, {"2021001": "192.168.1.99"})
+    store.apply_streams({"2021001"}, {"2021001": "192.168.1.99"})
     assert len(env.alerts("stream_ip_mismatch")) == 1
-    store.apply_streams({"s/777"}, {"s/777": "192.168.1.98"})
+    store.apply_streams({"777"}, {"777": "192.168.1.98"})
     assert len(env.alerts("stream_without_login")) == 1
 
 
@@ -382,9 +395,10 @@ def test_state_survives_a_server_restart(env: Env):
     assert restored.exam_file["sha256"] == hashlib.sha256(EXAM_BYTES).hexdigest()
     assert len(restored.events) == len(env.store.events)
     assert restored.next_event_id == env.store.next_event_id
+    assert restored.exam_dir == env.exam_dir.resolve() and restored.record_path == env.store.record_path
 
 
-def test_reset_archives_instead_of_deleting(env: Env):
+def test_new_exam_keeps_every_file_of_the_finished_one(env: Env):
     upload_roster(env, [[2021001, "Ali", "Veli"]])
     client, _ = env.login()
     env.start()
@@ -392,18 +406,212 @@ def test_reset_archives_instead_of_deleting(env: Env):
     env.panel.post("/panel/api/end", headers=PANEL)
 
     response = env.panel.post("/panel/api/reset", headers=PANEL)
-    assert response.status_code == 200
-    archive = response.json()["archive"]
-    assert archive
+    assert response.status_code == 200 and response.json() == {"state": WAITING}
 
-    from pathlib import Path
-    archived = Path(archive)
-    assert (archived / "submissions" / "2021001_AliVeli.pka").read_bytes() == b"cozum"
-    assert (archived / "submissions" / "index.csv").exists()
-    assert (archived / "events.jsonl").exists() and (archived / "sinav.pka").exists()
-    assert not list(env.cfg.dir_submissions.iterdir())
+    # Nothing in the exam folder is moved or deleted; the event log is written next to it.
+    assert (env.submissions / "2021001_AliVeli.pka").read_bytes() == b"cozum"
+    assert (env.submissions / "index.csv").exists()
+    log_text = (env.exam_dir / "olay-kaydi.csv").read_text(encoding="utf-8-sig")
+    assert "Teslim etti: 2021001_AliVeli.pka" in log_text and "Sınav bitirildi" in log_text
+    assert len(list((env.cfg.dir_data / "arsiv").glob("olaylar_*.jsonl"))) == 1
 
     snapshot = env.store.snapshot()
     assert snapshot["exam"]["state"] == WAITING and snapshot["exam"]["file"] is None
+    assert snapshot["exam"]["folder"] == ""  # the next exam gets its own folder
     assert snapshot["students"] == [] and snapshot["roster"]["count"] == 1  # roster is kept
     assert client.post("/api/heartbeat", json={}).status_code == 401  # old sessions are gone
+
+
+# ------------------------------------------------------------- exam folder
+
+
+def test_exam_folder_gets_two_subfolders_and_sets_the_recording_path(env: Env):
+    assert env.store.record_path == ""  # nothing is recorded until a folder is chosen
+    assert env.choose_folder("goreli/yol").status_code == 422
+    assert env.choose_folder("").status_code == 422
+
+    body = env.choose_folder().json()
+    assert body["folder"] == str(env.exam_dir.resolve())
+    assert (env.exam_dir / "Kayıtlar").is_dir() and (env.exam_dir / "Teslimler").is_dir()
+    snapshot = env.store.snapshot()
+    assert snapshot["exam"]["folder"] == str(env.exam_dir.resolve())
+    assert snapshot["paths"]["recordings"].endswith("Kayıtlar")
+    assert snapshot["paths"]["submissions"].endswith("Teslimler")
+    # MediaMTX is told to record every stream into Kayıtlar/<numara>/<time>.
+    assert env.store.record_path == str(env.exam_dir.resolve() / "Kayıtlar" / "%path" / "%Y-%m-%d_%H-%M-%S_%z")
+
+    # It can be changed before the exam, but not once the file is shared.
+    other = env.tmp_path / "Başka Klasör"
+    assert env.choose_folder(other).status_code == 200 and (other / "Teslimler").is_dir()
+    assert env.choose_folder().status_code == 200
+    env.upload_exam()
+    env.panel.post("/panel/api/start", headers=PANEL)
+    assert env.choose_folder(other).status_code == 409
+
+
+def test_folder_window_of_the_operating_system(env: Env, monkeypatch):
+    import sinav.app as app_module
+    from sinav.folderdialog import DialogUnavailable
+
+    target = env.tmp_path / "Seçilen"
+    monkeypatch.setattr(app_module, "pick_folder", lambda initial="": str(target))
+    assert env.panel.post("/panel/api/pick-folder", headers=PANEL).json() == {"folder": str(target.resolve())}
+    assert (target / "Teslimler").is_dir()
+
+    monkeypatch.setattr(app_module, "pick_folder", lambda initial="": "")
+    assert env.panel.post("/panel/api/pick-folder", headers=PANEL).json() == {"folder": "", "cancelled": True}
+    assert env.store.exam_dir == target.resolve()  # cancelling keeps the previous choice
+
+    def unavailable(initial=""):
+        raise DialogUnavailable()
+
+    monkeypatch.setattr(app_module, "pick_folder", unavailable)
+    response = env.panel.post("/panel/api/pick-folder", headers=PANEL)
+    assert response.status_code == 501 and "elle yazın" in response.json()["error"]
+    assert env.student().post("/panel/api/pick-folder", headers=PANEL).status_code == 403
+
+
+def test_student_is_done_only_while_the_file_is_in_the_folder(env: Env):
+    client, _ = env.login()
+    env.start()
+    assert client.post("/api/heartbeat", json={}).json()["submitted"] is False
+    work = EXAM_BYTES + b"-cozum"
+    name = env.submit(client, work).json()["filename"]
+    env.store.check_submission_folder()
+    assert env.snapshot_student("2021001")["status"] == "done"
+    assert client.post("/api/heartbeat", json={}).json()["submitted"] is True
+    assert not env.alerts()
+
+    # The file disappears from the folder: the student is no longer "teslim etti".
+    (env.submissions / name).rename(env.tmp_path / "kenarda.pka")
+    env.store.check_submission_folder()
+    env.store.check_submission_folder()
+    assert env.snapshot_student("2021001")["status"] == "nofile"
+    missing = env.alerts("submission_missing")
+    assert len(missing) == 1 and missing[0]["severity"] == "critical" and name in missing[0]["message"]
+    assert client.post("/api/heartbeat", json={}).json()["submitted"] is False
+    assert env.store.snapshot()["summary"]["submitted"] == 0
+
+    (env.tmp_path / "kenarda.pka").rename(env.submissions / name)
+    env.store.check_submission_folder()
+    assert env.snapshot_student("2021001")["status"] == "done"
+
+
+def test_file_put_into_the_folder_by_hand_counts_as_submission(env: Env):
+    # A file that was in the folder before the exam is never taken as a submission.
+    env.choose_folder()
+    (env.submissions / "2021001_Eski.pka").write_bytes(b"gecen yilin dosyasi")
+    client, _ = env.login()
+    env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    env.start()
+    env.store.check_submission_folder()
+    assert env.snapshot_student("2021001")["status"] == "ok"
+
+    # The teacher copies a student's file from a USB stick.
+    old = time.time() - 10
+    by_hand = env.submissions / "2021002_usbden.pka"
+    by_hand.write_bytes(EXAM_BYTES + b"-usb")
+    env.store.check_submission_folder()
+    assert env.snapshot_student("2021002")["status"] == "ok"  # just written: may still be copying
+    os.utime(by_hand, (old, old))
+    env.store.check_submission_folder()
+    env.store.check_submission_folder()
+    st = env.snapshot_student("2021002")
+    assert st["status"] == "done" and st["submission"]["filename"] == "2021002_usbden.pka"
+    assert st["submission_count"] == 1
+    assert any("klasörde bulundu" in e.message for e in env.store.events)
+    assert "2021002_usbden.pka" in (env.submissions / "index.csv").read_text(encoding="utf-8-sig")
+
+    # A file that belongs to nobody is reported once and otherwise left alone.
+    stray = env.submissions / "kimin-bu.pka"
+    stray.write_bytes(b"x")
+    os.utime(stray, (old, old))
+    env.store.check_submission_folder()
+    env.store.check_submission_folder()
+    assert len(env.alerts("unknown_submission_file")) == 1 and stray.exists()
+    assert client.post("/api/heartbeat", json={}).json()["submitted"] is False
+
+
+def test_submitted_file_is_verified(env: Env):
+    a, _ = env.login(numara="2021001", mac="AA:BB:CC:00:00:01")
+    b, _ = env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    c, _ = env.login(numara="2021003", ad="Ece", soyad="Su", mac="AA:BB:CC:00:00:03", ip="192.168.1.52")
+    env.start()
+
+    # The agent sends the hash of the file it read; a damaged upload is refused.
+    work = EXAM_BYTES + b"-cozum"
+    broken = env.submit(a, work, sha256=hashlib.sha256(b"baska").hexdigest())
+    assert broken.status_code == 400 and "bozuldu" in broken.json()["error"]
+    assert not list(env.submissions.glob("*.pka")) and env.snapshot_student("2021001")["status"] == "ok"
+    ok = env.submit(a, work, sha256=hashlib.sha256(work).hexdigest().upper(),
+                    original_name=r"C:\Users\a\Desktop\Ağ çözümüm.pka")
+    assert ok.status_code == 200 and ok.json()["verified"] is True
+    assert not env.alerts()
+    submitted = next(e for e in env.store.events if e.type == "submit")
+    assert submitted.details["original"] == "Ağ çözümüm.pka"  # the name of the file the student picked
+
+    # The exam file itself, exactly as it was downloaded.
+    assert env.submit(b, EXAM_BYTES).status_code == 200
+    unchanged = env.alerts("unchanged_submission")
+    assert len(unchanged) == 1 and "sınav dosyasının kendisi" in unchanged[0]["message"]
+    assert env.snapshot_student("2021002")["warn_count"] == 1
+
+    # A file of a very different size, saved before the exam file was downloaded.
+    assert env.submit(c, b"minik", stale="true").status_code == 200
+    assert "yanlış dosya olabilir" in env.alerts("suspicious_size")[0]["message"]
+    assert "indirilmeden önce" in env.alerts("stale_submission")[0]["message"]
+
+    # The streams of students whose file has arrived are stopped.
+    env.store.apply_streams({"2021001", "2021002", "777"}, {})
+    assert sorted(env.store.streams_to_stop()) == ["2021001", "2021002"]
+
+
+def test_submission_needs_the_exam_folder(env: Env):
+    client, _ = env.login()
+    env.start()
+    env.store.exam_dir = None  # e.g. a state file from an older version
+    response = env.submit(client, b"cozum")
+    assert response.status_code == 409 and "Sınav klasörü" in response.json()["error"]
+
+
+def test_virtual_desktop_switch_is_an_alert(env: Env):
+    client, _ = env.login()
+    env.start()
+    client.post("/api/event", json={"type": "desktop_switch", "details": {}})
+    client.post("/api/event", json={"type": "desktop_return", "details": {"seconds": 12}})
+    alerts = env.alerts("desktop_switch")
+    assert len(alerts) == 1 and alerts[0]["message"] == "Başka bir masaüstüne geçti"
+    assert not env.alerts("desktop_return")
+    assert any(e.message == "Sınav masaüstüne geri döndü (12 sn sonra)" for e in env.store.events)
+    assert env.snapshot_student("2021001")["status"] == "warn"
+
+
+# ------------------------------------------------------ class and teacher name
+
+
+def test_class_and_teacher_name_are_changed_in_the_panel(env: Env):
+    response = env.panel.post("/panel/api/identity", headers=PANEL,
+                              json={"sinif_adi": "  Lab  3 ", "ogretmen_adi": "Dr. Işıl Öz"})
+    assert response.json() == {"sinif_adi": "Lab 3", "ogretmen_adi": "Dr. Işıl Öz"}
+    info = env.student().get("/api/info").json()
+    assert (info["sinif_adi"], info["ogretmen_adi"]) == ("Lab 3", "Dr. Işıl Öz")
+    assert env.store.snapshot()["class"] == {"sinif_adi": "Lab 3", "ogretmen_adi": "Dr. Işıl Öz"}
+    assert "Lab 3" in env.student().get("/").text
+
+    assert env.panel.post("/panel/api/identity", headers=PANEL,
+                          json={"sinif_adi": "", "ogretmen_adi": "X"}).status_code == 422
+    assert env.student().post("/panel/api/identity", headers=PANEL,
+                              json={"sinif_adi": "A", "ogretmen_adi": "B"}).status_code == 403
+
+    # The panel's choice wins over config.yaml after a restart.
+    from sinav.config import load_config
+    cfg = load_config(env.cfg.path)
+    assert cfg.sinif_adi == "B-102"
+    restored = Store(cfg)
+    restored.load()
+    restored.load_settings()
+    assert (cfg.sinif_adi, cfg.ogretmen_adi) == ("Lab 3", "Dr. Işıl Öz")
+
+    env.start()
+    assert env.panel.post("/panel/api/identity", headers=PANEL,
+                          json={"sinif_adi": "A", "ogretmen_adi": "B"}).status_code == 409

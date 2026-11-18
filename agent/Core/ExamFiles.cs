@@ -19,6 +19,56 @@ public sealed class ExamFileMeta
 
     /// <summary>SHA-256 of the last version the server confirmed.</summary>
     [JsonPropertyName("submitted_sha256")] public string SubmittedSha256 { get; set; } = "";
+
+    /// <summary>SHA-256 of the exam file exactly as it was downloaded (before any work).</summary>
+    [JsonPropertyName("exam_sha256")] public string ExamSha256 { get; set; } = "";
+}
+
+/// <summary>What is wrong with the file a student picked for submission.</summary>
+public enum SubmitProblem
+{
+    None,
+
+    // The file cannot be submitted at all.
+    NotPka,
+    Empty,
+    TooBig,
+
+    // The file can be submitted, but the student is asked first.
+    SameAsExamFile,
+    SavedBeforeDownload,
+}
+
+/// <summary>Checks made on the student's computer before a file is uploaded.</summary>
+public static class SubmissionRules
+{
+    public const long MaxUploadBytes = 50L * 1024 * 1024;
+
+    /// <param name="fileName">Name of the picked file.</param>
+    /// <param name="length">Its size in bytes.</param>
+    /// <param name="sha256">Its SHA-256 (hex).</param>
+    /// <param name="lastWriteUtcTicks">When it was last saved.</param>
+    /// <param name="examSha256">SHA-256 of the exam file as downloaded ("" if unknown).</param>
+    /// <param name="downloadedUtcTicks">When the exam file was downloaded (0 if unknown).</param>
+    public static SubmitProblem Check(string fileName, long length, string sha256, long lastWriteUtcTicks,
+        string examSha256, long downloadedUtcTicks)
+    {
+        if (!fileName.EndsWith(".pka", StringComparison.OrdinalIgnoreCase)) return SubmitProblem.NotPka;
+        if (length == 0) return SubmitProblem.Empty;
+        if (length > MaxUploadBytes) return SubmitProblem.TooBig;
+        // Byte for byte the file the teacher shared: nothing was saved into it.
+        if (examSha256.Length > 0 && string.Equals(sha256, examSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            return SubmitProblem.SameAsExamFile;
+        }
+        // Last saved before this exam's file even existed here: most likely some other file.
+        if (downloadedUtcTicks > 0 && lastWriteUtcTicks < downloadedUtcTicks) return SubmitProblem.SavedBeforeDownload;
+        return SubmitProblem.None;
+    }
+
+    /// <summary>True when the file must not be uploaded.</summary>
+    public static bool Blocks(SubmitProblem problem) =>
+        problem is SubmitProblem.NotPka or SubmitProblem.Empty or SubmitProblem.TooBig;
 }
 
 public static class ExamFiles

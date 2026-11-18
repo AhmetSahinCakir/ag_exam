@@ -52,7 +52,7 @@ public static class FfmpegCommand
         };
     }
 
-    /// <summary>rtsp://host:8554/s/1 -> rtsp://user:pass@host:8554/s/1 (credentials URL-encoded).</summary>
+    /// <summary>rtsp://host:8554/1 -> rtsp://user:pass@host:8554/1 (credentials URL-encoded).</summary>
     public static string UrlWithCredentials(string url, string user, string pass)
     {
         const string scheme = "rtsp://";

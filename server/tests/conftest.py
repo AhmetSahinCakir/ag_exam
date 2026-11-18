@@ -34,8 +34,6 @@ yayin:
 mediamtx:
   api: "http://127.0.0.1:9"      # nothing listens here: MediaMTX counts as "down"
 klasorler:
-  teslimler: teslim
-  kayitlar: kayit
   veri: veri
   dagitim: dagitim
 {extra}
@@ -51,6 +49,7 @@ class Env:
     def __init__(self, tmp_path: Path, extra: str = ""):
         self.tmp_path = tmp_path
         self.cfg = load_config(write_config(tmp_path, extra))
+        self.exam_dir = tmp_path / "Sınav Klasörü"
         self.app = create_app(self.cfg)
         self.store = self.app.state.store
         # Only the panel client runs the app lifespan (discovery thread, background tasks).
@@ -84,14 +83,24 @@ class Env:
         return self.panel.post("/panel/api/exam-file", headers=PANEL,
                                files={"file": (name, data, "application/octet-stream")})
 
+    def choose_folder(self, path: Path | str | None = None):
+        return self.panel.post("/panel/api/exam-folder", headers=PANEL,
+                               json={"path": str(path if path is not None else self.exam_dir)})
+
+    @property
+    def submissions(self) -> Path:
+        return self.exam_dir / "Teslimler"
+
     def start(self):
-        """Upload the exam file and share it (sharing the file starts the exam)."""
+        """Choose the exam folder, upload the exam file and share it (sharing starts the exam)."""
+        assert self.choose_folder().status_code == 200
         assert self.upload_exam().status_code == 200
         response = self.panel.post("/panel/api/start", headers=PANEL)
         assert response.status_code == 200, response.text
 
-    def submit(self, client: TestClient, data: bytes, auto: bool = False, name: str = "sinav.pka"):
-        return client.post("/api/submit", data={"auto": "true" if auto else "false"},
+    def submit(self, client: TestClient, data: bytes, auto: bool = False, name: str = "sinav.pka",
+               **fields: str):
+        return client.post("/api/submit", data={"auto": "true" if auto else "false", **fields},
                            files={"file": (name, data, "application/octet-stream")})
 
     def alerts(self, kind: str | None = None) -> list[dict]:

@@ -12,6 +12,7 @@ gerçek ajanın ağ davranışını taklit eder: UDP keşif -> giriş -> heartbe
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -88,6 +89,10 @@ class Api:
         parts = [
             f'--{boundary}\r\nContent-Disposition: form-data; name="auto"\r\n\r\n'
             f'{"true" if auto else "false"}\r\n'.encode(),
+            # The real agent sends the hash of the file it read, so that the server can tell
+            # whether the upload arrived intact.
+            f'--{boundary}\r\nContent-Disposition: form-data; name="sha256"\r\n\r\n'
+            f'{hashlib.sha256(content).hexdigest()}\r\n'.encode(),
             f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\n'
             "Content-Type: application/octet-stream\r\n\r\n".encode(),
             content,
@@ -148,7 +153,7 @@ class SimAgent(threading.Thread):
     def _run(self) -> None:
         login = self.api.call("POST", "/api/login", {
             "numara": self.numara, "ad": self.ad, "soyad": self.soyad,
-            "hostname": self.args.hostname or f"SIM-PC-{self.index:02d}",
+            "hostname": self.args.hostname or f"SIM-PC-{self.index % 1000:02d}",
             "mac": self.args.mac or "02:00:00:%02X:%02X:%02X" % (
                 (self.index >> 16) & 255, (self.index >> 8) & 255, self.index & 255),
             "agent_version": "sim-1.0",
@@ -190,12 +195,25 @@ class SimAgent(threading.Thread):
                 })
                 self.log("örnek 'process_killed' olayı gönderildi")
 
+            if state == "RUNNING" and self.args.desktop_event and time.monotonic() - started > 5:
+                self.args.desktop_event = False
+                self.api.call("POST", "/api/event", {"type": "desktop_switch", "ts": time.time(), "details": {}})
+                self.log("örnek 'desktop_switch' olayı gönderildi")
+
             if (state == "RUNNING" and self.args.submit and not submitted
                     and time.monotonic() - started > self.args.submit_after):
-                content = (self.exam_bytes or b"") + f"\ncozum-{self.numara}".encode()
+                content = self.exam_bytes or b""
+                if not self.args.submit_unchanged:
+                    content += f"\ncozum-{self.numara}".encode()
                 result = self.api.submit("sinav.pka", content, auto=False)
                 self.log(f"teslim edildi: {result['filename']} sha256={result['sha256'][:16]}…")
                 submitted = True
+                return
+
+            if hb.get("submitted") and not submitted:
+                # The server found this student's file in the submissions folder (e.g. the teacher
+                # copied it there by hand): the real agent finishes with "Teslim alındı".
+                self.log("teslim dosyası sunucuda görüldü, çıkılıyor")
                 return
 
             if state == "ENDED":
@@ -224,7 +242,11 @@ def main() -> int:
                         help="görüntüye numarayı yaz (ffmpeg'de drawtext/font desteği gerekir)")
     parser.add_argument("--submit", action="store_true", help="sınav başlayınca dosya teslim et")
     parser.add_argument("--submit-after", type=float, default=8.0, help="teslimden önce bekleme (sn)")
+    parser.add_argument("--submit-unchanged", action="store_true",
+                        help="--submit ile: sınav dosyasını hiç değiştirmeden teslim et")
     parser.add_argument("--kill-event", action="store_true", help="örnek 'process_killed' olayı gönder")
+    parser.add_argument("--desktop-event", action="store_true",
+                        help="örnek 'desktop_switch' (başka masaüstüne geçti) olayı gönder")
     args = parser.parse_args()
 
     base = args.server
@@ -243,7 +265,9 @@ def main() -> int:
     for i in range(args.count):
         numara = args.numara if (args.numara and args.count == 1) else str(args.first + i)
         ad = args.ad if args.count == 1 else f"{args.ad}{i + 1}"
-        agent = SimAgent(base, numara, ad, args.soyad, argparse.Namespace(**vars(args)), index=i + 1)
+        # Unique fake computer name / MAC per number, also across several simulator processes.
+        index = int(numara) % 1_000_000 if numara.isdigit() else i + 1
+        agent = SimAgent(base, numara, ad, args.soyad, argparse.Namespace(**vars(args)), index=index)
         agent.start()
         agents.append(agent)
         time.sleep(0.15)

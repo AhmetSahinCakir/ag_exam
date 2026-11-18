@@ -14,7 +14,7 @@ Bu belge öğretmen bilgisayarının kurulumunu, sınav günü akışını ve so
  │  • uygulama denetimi     │                 │  • öğretmen paneli (yalnızca       │
  │  • teslim                │                 │    localhost:8000/panel)           │
  │ ffmpeg.exe               │ ── TCP 8554 ──▶ │ MediaMTX (mediamtx/)               │
- │  • ekran → H.264 → RTSP  │                 │  • diske kayıt (recordings/)       │
+ │  • ekran → H.264 → RTSP  │                 │  • diske kayıt (sınav klasörü)     │
  └──────────────────────────┘                 │  • panele WebRTC (yalnızca yerel)  │
                                               └────────────────────────────────────┘
 ```
@@ -24,7 +24,8 @@ Bu belge öğretmen bilgisayarının kurulumunu, sınav günü akışını ve so
 - Ajan sunucuyu **kendisi bulur** (UDP yayını). Ajanda kayıtlı IP adresi yoktur; aynı ajan
   paketi üç sınıfta da kullanılır.
 - Öğrenci, ajanda büyük harflerle sınıf ve öğretmen adını görüp onaylar. Yanlış modeme
-  bağlanan öğrenci bunu orada fark eder. **Bu yüzden her sınıfta `sinif_adi` farklı olmalı.**
+  bağlanan öğrenci bunu orada fark eder. **Bu yüzden her sınıfta sınıf adı farklı olmalı**
+  (panelde sınıf adının yanındaki **Düzenle** ile değiştirilir).
 
 Öğretmen bilgisayarında sınıf ağına açılan portlar:
 
@@ -78,13 +79,12 @@ Panel (`/panel`), MediaMTX'in WebRTC'si (8889, 8189) ve denetim API'si (9997) ya
      genelde “Ortak” görünür).
    - MediaMTX'i ayrı (simge durumunda) bir pencerede, sunucuyu bu pencerede başlatır
      ve paneli tarayıcıda açar: <http://localhost:8000/panel>
-4. **`server\config.yaml` dosyasını düzenleyin** (Not Defteri ile):
-   ```yaml
-   sinif_adi: "B-102"
-   ogretmen_adi: "Adınız Soyadınız"
-   ```
-   Kaydedip `start-teacher.bat` penceresini kapatın ve yeniden başlatın. Bu iki satır
-   **her sınıfın bilgisayarında farklı** olmalı.
+4. **Sınıf (salon) ve öğretmen adını yazın.** Panelin sol üstünde sınıf adının yanındaki
+   **Düzenle**'ye basın, **Sınıf / salon adı** ile **Öğretmen adı**nı yazıp **Kaydet** deyin.
+   Öğrenciler programı açtığında bu adları görür. Sınıf adı **her sınıfın bilgisayarında
+   farklı** olmalı. Yazdığınız adlar kalıcıdır; sınav sürerken değiştirilemez.
+   (İlk açılıştaki adlar `server\config.yaml` dosyasındaki `sinif_adi` / `ogretmen_adi`
+   değerleridir; panelde yazdığınız onların yerine geçer.)
 5. **Ajan paketini edinin.** GitHub'da depo sayfası → **Actions** → **build-agent** → en
    üstteki yeşil çalıştırma → sayfanın altındaki **Artifacts** → **SinavAjan-win-x64**.
    İnen dosya bir zip'tir; içinde `SinavAjan` klasörü vardır (`SinavAjan.exe`,
@@ -112,46 +112,98 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
 ## 4. Sınav günü
 
 1. Öğretmen bilgisayarını sınıf modemine bağlayın. `scripts\start-teacher.bat`'ı çalıştırın.
-   Panel açılır; üstte sınıf ve öğretmen adı ile **Sınav başlamadı** yazar.
-2. Üstteki hazırlık satırında:
-   - **1 Sınav dosyası → Dosya seç** — öğrencilere dağıtılacak `.pka` dosyası.
-   - **2 Öğrenci listesi → Dosya seç** — isteğe bağlı Excel listesi (bkz. bölüm 6).
-3. Öğrenciler modeme bağlanır, ajanı **yönetici olarak** çalıştırır, sınıf/öğretmen adını
+   Panel açılır; üstte sınıf ve öğretmen adı ile **Sınav başlamadı** yazar. Ad yanlışsa
+   yanındaki **Düzenle** ile değiştirin.
+2. Üstteki hazırlık satırında, sırayla:
+   - **1 Sınav klasörü → Klasör seç** — Windows'un klasör penceresi açılır; bu sınavın
+     dosyalarının duracağı klasörü seçin (ör. `D:\Sınavlar\Ağ Temelleri Vize`; pencerede
+     yeni klasör de oluşturabilirsiniz). Seçtiğiniz klasörün içinde iki klasör açılır:
+     - **`Kayıtlar`** — öğrencilerin ekran kayıtları,
+     - **`Teslimler`** — öğrencilerin teslim ettiği dosyalar.
+
+     Klasör seçilmeden ekranlar kaydedilmez ve sınav dosyası paylaşılamaz. Her sınav için
+     ayrı bir klasör seçin. (Klasör penceresi açılamazsa panel, klasörün yolunu elle
+     yazmanız için bir kutu gösterir.)
+   - **2 Sınav dosyası → Dosya seç** — öğrencilere dağıtılacak `.pka` dosyası.
+   - **3 Öğrenci listesi → Dosya seç** — isteğe bağlı Excel listesi (bkz. bölüm 6).
+3. Öğrenciler modeme bağlanır, programı **yönetici olarak** çalıştırır, sınıf/öğretmen adını
    onaylar ve giriş yapar. Her öğrenci solda canlı ekranıyla bir kutu, sağda **Öğrenciler**
-   listesinde bir satır olarak belirir. Kutuda yalnızca ekran, numara ve ad vardır; satırı
-   okundan açınca o öğrencinin uyarıları ile **IP · bilgisayar adı · MAC** bilgisi görünür.
+   listesinde **tek satır** olarak belirir.
    - Bu aşamada izin listesi **uygulanmaz**. Öğrenciler Packet Tracer'ı açıp Cisco
      hesabıyla giriş yapsın (giriş tarayıcı açar; sınav başlayınca tarayıcı kapatılır).
    - “Giriş yapmayanlar” bölümü listede olup henüz girmeyenleri gösterir.
+   - **Ekran boyutu:** ekranların üstündeki **− / kaydırıcı / +** ile öğrenci ekranlarını
+     büyütüp küçültebilirsiniz (Ctrl + fare tekerleği de olur). **Sığdır** bütün ekranları
+     kaydırmadan görünecek boyuta getirir.
 4. Herkes hazır olunca **Sınav dosyasını paylaş**'a basın. **Dosyayı paylaşmak sınavı
    başlatır.** Öğrencide:
    - “Sınav başlıyor. İzin verilmeyen programlar 10 saniye içinde kapatılacak.” uyarısı
      ve geri sayım görünür,
-   - geri sayım bitince uygulama denetimi başlar; ajan küçük bir panele dönüşür,
+   - geri sayım bitince uygulama denetimi başlar; program küçük bir panele dönüşür,
    - panelde **Sınav dosyasını indir** düğmesi çıkar. Öğrenci dosyayı **kendi seçtiği
      yere** kaydeder ve Packet Tracer'da kendisi açar (*File → Open*).
 5. Sınav boyunca paneli izleyin:
    - Renkli nokta ve kutu çerçevesi durumu gösterir: **yeşil** = bağlı, **sarı** =
      görülmemiş uyarı var, **kırmızı** = bağlantı yok (10 sn sinyal yok ya da ekran
-     gelmiyor), **gri** = teslim etti.
-   - Bir olay olduğunda öğrencinin **satırında** uyarı ve kısa açıklaması çıkar, kutusunun
-     köşesinde uyarı sayısı görünür. Satırı okundan açınca o öğrencinin uyarıları listelenir;
-     **Görüldü** uyarıyı kapatır, **Ekranı büyüt** büyük görüntüyü açar.
-   - Listenin üstündeki **Uyarılar** süzgeci yalnızca dikkat gerektiren öğrencileri, en yeni
-     uyarı üstte olacak şekilde gösterir.
+     gelmiyor) ya da teslim dosyası klasörde yok, **gri** = teslim etti.
+   - Sağdaki listede her öğrenci tek satırdır. Bir olay olduğunda uyarı **o öğrencinin
+     satırında**, adının yanında görünür (sığmayan metin “…” ile kesilir; fareyle
+     üzerine gelince tamamı okunur). Birden çok uyarı varsa sayısı da yazar. Satırı okundan
+     açınca o öğrencinin son uyarıları, **IP · bilgisayar adı · MAC** bilgisi ve teslim
+     dosyası görünür; **Görüldü** uyarıları kapatır, **Ekranı büyüt** büyük görüntüyü açar.
+   - Listenin üstündeki **Uyarılar** sekmesi bütün uyarıları, en yenisi üstte olacak
+     şekilde **tek satırlık düz bir liste** olarak gösterir (saat, öğrenci, uyarı). Satıra
+     tıklayınca o öğrencinin ekranı açılır. Görüldü işaretlediğiniz uyarılar listede
+     soluk kalır; **Tümünü görüldü yap** hepsini birden işaretler.
    - Kutuya tıklayınca öğrencinin ekranı büyür; yanında tüm **olay geçmişi** ve “Bilgisayar
      ve teslim bilgileri” bulunur.
    - Sesli uyarı isterseniz sağ üstteki **Diğer** menüsünden **Uyarılarda ses çal**'ı açın.
    - **Süreyi siz tutarsınız.** Sistem süre saymaz ve öğrenciye süre göstermez; panelde
      yalnızca sınavın başladığı saat yazar.
-6. Öğrenci **Teslim et**'e basınca indirdiği (ve üzerine kaydettiği) dosya yüklenir, kutusu
-   griye döner, ajanı kapanır.
-7. Süre bitince **Sınavı bitir**'e basın (onay ister). Teslim etmemiş öğrencilerin son
-   kaydettiği dosya **otomatik** toplanır (olay kaydında “Otomatik teslim” yazar) ve
-   ajanlar kapanır. Dosyayı hiç indirmemiş ya da dosyası alınamamış öğrenciler kırmızı
-   “Teslim yok” olarak kalır.
-8. Sınav bitince üstte beliren **Olay kaydını indir** ile (ya da her zaman **Diğer →
-   Olay kaydını indir (CSV)** ile) olay kaydını indirin; Excel'de açılır.
+6. Öğrenci **Teslim et**'e basınca açılan pencereden **teslim edeceği dosyayı kendisi
+   seçer.** Dosya öğretmen bilgisayarındaki **`Teslimler`** klasörüne gelir; sistem dosyanın
+   klasöre gerçekten ulaştığını denetler, öğrencinin **ekran yayınını durdurur**, kutusu
+   griye döner (“Teslim etti”) ve programı kapanır. Ayrıntı için aşağıdaki “Teslim nasıl
+   denetlenir?” bölümüne bakın.
+7. Süre bitince **Sınavı bitir**'e basın (onay ister). Teslim etmemiş öğrencilerin
+   indirdiği dosyanın **son kaydedilmiş hâli otomatik** toplanır (olay kaydında “Otomatik
+   teslim” yazar) ve programlar kapanır. Dosyayı hiç indirmemiş ya da dosyası alınamamış
+   öğrenciler kırmızı “Teslim yok” olarak kalır.
+8. Sınav bitince üstte beliren **Sınav klasörünü aç** düğmesi klasörü Dosya Gezgini'nde
+   açar: kayıtlar, teslimler ve olay kaydı (`olay-kaydi.csv`) oradadır.
+
+### Teslim nasıl denetlenir?
+
+Öğrenci tarafında (dosya gönderilmeden önce):
+
+- Yalnızca `.pka` dosyası seçilebilir; boş ya da 50 MB'tan büyük dosya gönderilmez.
+- Seçilen dosya **indirilen sınav dosyasının birebir aynısıysa** (hiçbir şey
+  kaydedilmemişse) öğrenci uyarılır: “… indirdiğiniz sınav dosyasının aynısı: içine hiçbir
+  değişiklik kaydedilmemiş …”. Öğrenci yine de göndermek isterse gönderebilir; bu durumda
+  size de uyarı düşer.
+- Seçilen dosya **sınav dosyası indirilmeden önce kaydedilmişse** (büyük olasılıkla başka
+  bir dosya) öğrenci uyarılır; yine de gönderirse size uyarı düşer.
+- Doğru dosyada öğrenciye dosyanın adı, klasörü ve son kayıt saati gösterilip onay istenir.
+
+Öğretmen tarafında:
+
+- Dosya yüklenirken **bozulmadığı** iki yönden doğrulanır: öğrenci bilgisayarının hesapladığı
+  özet (SHA-256) ile öğretmen bilgisayarına ulaşan dosyanın özeti karşılaştırılır; dosya
+  `Teslimler` klasörüne yazıldıktan sonra **klasörden yeniden okunup** bir kez daha
+  karşılaştırılır. Tutmazsa teslim kabul edilmez ve öğrenci yeniden dener.
+- Öğrenci ancak dosyası **`Teslimler` klasöründe durduğu sürece** “Teslim etti” görünür.
+  Sistem klasörü birkaç saniyede bir denetler; dosya silinir ya da taşınırsa öğrenci
+  kırmızı “Dosya klasörde yok” olur ve uyarı düşer.
+- `Teslimler` klasörüne **elle koyduğunuz** bir dosya (ör. USB bellekten), adı öğrencinin
+  numarasıyla başlıyorsa (`2021001_….pka`) o öğrencinin teslimi sayılır: öğrenci “Teslim
+  etti” olur, yayını durur, programı “Teslim alındı” deyip kapanır.
+- Teslim edilen dosya **sınav dosyasının kendisiyse**, **başka bir öğrencinin dosyasıyla
+  birebir aynıysa** ya da **boyutu sınav dosyasından çok farklıysa** uyarı çıkar.
+
+Sistemin **denetleyemediği** şey: dosyanın Packet Tracer'da açılıp açılmadığı ve içindeki
+çözüm. `.pka` dosyaları şifreli olduğu için içi öğretmen bilgisayarında okunamaz. Yukarıdaki
+denetimler “yanlış dosya / kaydedilmemiş dosya / bozuk yükleme” durumlarını yakalar; içeriği
+değerlendirmek için dosyayı Packet Tracer'da açmanız gerekir.
 
 ### Uyarılar ne anlama gelir?
 
@@ -160,6 +212,7 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
 | `chrome.exe kapatıldı — pencere: “…”` | İzinsiz bir program pencere açtı; ajan onu kapattı. |
 | `Packet Tracer dışında bir pencere önde: explorer.exe (6 sn)` | İzin listesinde olmayan bir pencere 5 sn'den uzun süre öndeydi. Windows'un kendi programları (Dosya Gezgini, Ayarlar, Komut İstemi…) kapatılmaz, yalnızca bu şekilde bildirilir. |
 | `Monitör sayısı: 2` | İkinci ekran takılı ya da sınav sırasında takıldı/çıkarıldı. |
+| `Başka bir masaüstüne geçti` | Öğrenci Windows'un sanal masaüstlerinden bir başkasına geçti (Görev Görünümü, Win+Ctrl+→). Öğrenciye de bildirim gösterilir. Ekran yayını o masaüstünü de gösterir; izinsiz programlar orada da kapatılır. |
 | `Bağlantı koptu — ajandan sinyal gelmiyor / ekran yayını yok` | Wi-Fi koptu, bilgisayar uyudu ya da ajan kapandı. Bağlantı gelince kutu kendiliğinden yeşile döner. |
 | `Ajan öğrenci tarafından kapatıldı` | Öğrenci ajan penceresini kapattı (onay vererek). |
 | `Aynı numarayla ikinci oturum açma girişimi reddedildi` | Bu numara başka bir bilgisayarda zaten açık. |
@@ -167,7 +220,11 @@ Windows o program için *engelleme* kuralı oluşturur ve bu kural izin kurallar
 | `Farklı bir bilgisayardan yeniden giriş yaptı` | Öğrencinin oturumu düştükten sonra başka bir bilgisayardan girildi. |
 | `Ad uyuşmuyor` / `Numara öğrenci listesinde yok` | Girişteki bilgiler listeyle uyuşmuyor (giriş yine de kabul edilir). |
 | **`… ile birebir aynı dosyayı teslim etti`** (kırmızı) | İki farklı öğrencinin dosyasının SHA-256 özeti aynı. |
-| `Teslim edilen dosya sınav dosyasıyla birebir aynı` | Öğrenci hiçbir şey kaydetmeden teslim etti (boş teslim). |
+| `Teslim edilen dosya sınav dosyasının kendisi (hiç değişiklik kaydedilmemiş)` | Öğrenci hiçbir şey kaydetmeden, indirdiği dosyayı teslim etti (boş teslim). |
+| `Teslim edilen dosya, sınav dosyası indirilmeden önce kaydedilmiş` | Öğrenci büyük olasılıkla yanlış (eski) bir dosya seçti. |
+| `Teslim edilen dosyanın boyutu sınav dosyasından çok farklı` | Dosya sınav dosyasının üçte birinden küçük ya da beş katından büyük; yanlış dosya olabilir. |
+| **`Teslim dosyası klasörde bulunamıyor`** (kırmızı) | Teslim edilen dosya `Teslimler` klasöründen silinmiş ya da taşınmış. Geri konunca öğrenci yeniden “Teslim etti” olur. |
+| `Teslimler klasöründe hiçbir öğrenciyle eşleşmeyen dosya var` | Klasöre elle konan dosyanın adı giriş yapmış bir öğrencinin numarasıyla başlamıyor. |
 | **`Ekran yayını farklı bir IP adresinden geliyor`** (kırmızı) | Yayın, giriş yapılan bilgisayardan gelmiyor. |
 
 Her öndeki pencere değişimi, yayın yeniden başlatmaları, girişler ve teslimler uyarı
@@ -175,25 +232,32 @@ olarak değil **olay kaydına** yazılır (büyük pencerede ve CSV'de görünü
 
 ## 5. Sınavdan sonra
 
-| Ne | Nerede |
+Her şey panelde seçtiğiniz **sınav klasörünün** içindedir (sınav bitince üstteki **Sınav
+klasörünü aç** ya da her zaman **Diğer → Sınav klasörünü aç**):
+
+| Ne | Nerede (sınav klasörünün içinde) |
 |---|---|
-| Teslim dosyaları | `submissions\<numara>_<AdSoyad>.pka` (Türkçe harfler çevrilir: `2021001_AhmetSahinCakir.pka`). Aynı öğrencinin sonraki teslimleri `_v2`, `_v3` olarak ayrıca saklanır. |
-| Teslim dökümü | `submissions\index.csv` — zaman, numara, ad, dosya, **SHA-256**, boyut, otomatik mi, sürüm, IP, bilgisayar, MAC |
-| Ekran kayıtları | `recordings\s\<numara>\<tarih-saat>.mp4` — 10 dakikalık bölümler. Bağlantı kopup geri gelince yeni dosya başlar. VLC ile oynatılır. |
-| Olay kaydı | Panelden CSV; ham hali `data\events.jsonl` |
-| MediaMTX günlüğü | `data\mediamtx.log` |
+| Teslim dosyaları | `Teslimler\<numara>_<AdSoyad>.pka` (Türkçe harfler çevrilir: `2021001_AhmetSahinCakir.pka`). Aynı öğrencinin sonraki teslimleri `_v2`, `_v3` olarak ayrıca saklanır. |
+| Teslim dökümü | `Teslimler\index.csv` — zaman, numara, ad, dosya, **SHA-256**, boyut, otomatik mi, sürüm, IP, bilgisayar, MAC |
+| Ekran kayıtları | `Kayıtlar\<numara>\<tarih-saat>.mp4` — 10 dakikalık bölümler. Bağlantı kopup geri gelince yeni dosya başlar. VLC ile oynatılır. |
+| Olay kaydı | `olay-kaydi.csv` (sınav bitince yazılır; Excel'de açılır). Panelden de indirilebilir: **Diğer → Olay kaydını indir (CSV)**. |
+
+Sunucunun kendi çalışma dosyaları (`data\` klasörü: sınav durumu, ham olay kaydı
+`events.jsonl`, MediaMTX günlüğü `mediamtx.log`) deponun içinde kalır.
 
 - **Yeni sınav:** Sınav bitince üstte beliren **Yeni sınav** düğmesi (ya da **Diğer → Yeni
-  sınav hazırla**; sınav sürerken kullanılamaz) mevcut
-  teslimleri, olay kaydını ve sınav dosyasını **silmez**; `data\arsiv\<tarih-saat>\`
-  klasörüne taşır ve paneli boşaltır. Öğrenci listesi korunur. Ekran kayıtları
-  `recordings\` altında kalır.
+  sınav hazırla**; sınav sürerken kullanılamaz) paneli boşaltır. Biten sınavın kayıtları,
+  teslimleri ve olay kaydı **sınav klasöründe kalır; hiçbir şey silinmez ya da taşınmaz.**
+  Yeni sınav için yeniden klasör seçersiniz. Öğrenci listesi korunur.
 - Sunucu sınav sırasında kapanırsa (elektrik, yanlışlıkla kapatma) `start-teacher.bat`'ı
-  yeniden çalıştırın: sınav durumu, öğrenciler ve olaylar `data\state.json` dosyasından
-  **geri yüklenir**, ajanlar kendiliğinden yeniden bağlanır.
+  yeniden çalıştırın: sınav durumu, sınav klasörü, öğrenciler ve olaylar `data\state.json`
+  dosyasından **geri yüklenir**, programlar kendiliğinden yeniden bağlanır, kayıt aynı
+  klasöre sürer.
+- Sınav klasörü çıkarılabilir bir diskteyse ve disk sınav sırasında çıkarılırsa panelin
+  üstünde “Sınav klasörüne ulaşılamıyor” uyarısı çıkar; disk takılana kadar teslim alınamaz.
 - **Kayıt saklama:** Ekran kayıtları **otomatik silinmez**. Kurumunuzun kuralına göre
   `config.yaml` içindeki `kayit_saklama_notu` metnini düzenleyin (öğrenciye giriş
-  ekranında gösterilir) ve süre dolunca `recordings\` klasörünü elle silin.
+  ekranında gösterilir) ve süre dolunca sınav klasöründeki `Kayıtlar` klasörünü elle silin.
 
 ## 6. Öğrenci listesi (Excel)
 
@@ -217,7 +281,7 @@ Dosyanın içindeki açıklamalar her ayarı anlatır. Özet:
 
 | Anahtar | Varsayılan | Açıklama |
 |---|---|---|
-| `sinif_adi`, `ogretmen_adi` | — | Ajanda gösterilir; her sınıfta farklı olmalı |
+| `sinif_adi`, `ogretmen_adi` | — | Yalnızca ilk açılıştaki adlar. Panelde **Düzenle** ile yazdığınız adlar bunların yerine geçer (`data\settings.json`) |
 | `sunucu.port` / `sunucu.kesif_portu` | 8000 / 47000 | Değiştirirseniz `start-teacher.bat`, `mediamtx.yml` (`webrtcAllowOrigins`) ve `agent.json` da değişmeli |
 | `yayin.kullanici`, `yayin.sifre` | sinavajan / … | MediaMTX yayın kimliği (aşağıya bakın) |
 | `yayin.fps`, `genislik`, `bitrate_kbps` | boş | Doldurursanız ajanların `agent.json` değerlerini ezer. Wi-Fi zorlanıyorsa buradan düşürün (ör. 3 fps, 960 px, 300 kbps); öğrencinin yeniden giriş yapması yeterlidir |
@@ -228,8 +292,8 @@ Dosyanın içindeki açıklamalar her ayarı anlatır. Özet:
 | `esikler.on_pencere_toleransi_sn` | 5 | Öndeki pencere toleransı |
 | `esikler.kopma_suresi_sn` | 10 | Kırmızıya dönme süresi |
 | `esikler.kapatma_geri_sayim_sn` | 10 | Sınav başındaki geri sayım |
-| `klasorler.*` | `../submissions` … | Klasör yolları |
-| `kayit_saklama_notu` | — | Öğrenciye ve panelde gösterilen saklama açıklaması |
+| `klasorler.veri`, `klasorler.dagitim` | `../data`, `../dist` | Sunucunun çalışma dosyaları ve dağıtılacak ajan paketi. (Kayıtlar ve teslimler burada değil, panelde seçilen sınav klasöründedir.) |
+| `kayit_saklama_notu` | — | Öğrenciye giriş ekranında gösterilen saklama açıklaması |
 
 İzin listesi bölümleri sunucu çalışırken de yeniden okunur ve birkaç saniye içinde
 ajanlara ulaşır; diğer ayarlar için sunucuyu yeniden başlatın.
@@ -263,8 +327,11 @@ Sunucu IP'si burada **yoktur** ve hiçbir yere kaydedilmez; her açılışta ke�
 MediaMTX **v1.21.4** için yazılmıştır (`scripts\fetch-mediamtx.ps1` bu sürümü indirir ve
 SHA-256 özetini doğrular). Sürümü yükseltirseniz anahtar adlarını yeni sürümün örnek
 dosyasıyla karşılaştırın. RTSP yalnızca TCP; WebRTC açık, ICE sunucu listesi boş, yerel
-adres `webrtcAdditionalHosts` ile verilir; HLS/RTMP/SRT/MoQ kapalı; `s/` altındaki tüm
-yollar fMP4 olarak 10 dakikalık bölümlerle kaydedilir; okuma yalnızca `127.0.0.1`.
+adres `webrtcAdditionalHosts` ile verilir; HLS/RTMP/SRT/MoQ kapalı; okuma yalnızca
+`127.0.0.1`. Her öğrencinin yayın yolu numarasıdır (`rtsp://<öğretmen>:8554/<numara>`).
+Kayıt bu dosyada **kapalı** başlar: panelde sınav klasörü seçildiğinde sunucu, MediaMTX'in
+denetim API'siyle kaydı açar ve kayıt yolunu o klasörün `Kayıtlar` klasörüne çevirir (fMP4,
+10 dakikalık bölümler). Bu yüzden `recordPath` elle değiştirilmez.
 
 ## 8. Uygulama denetimi nasıl karar verir?
 
@@ -282,6 +349,9 @@ Sınav **sürerken** ajan saniyede bir:
    - **Yasak:** geri kalan her şey. Penceresi varsa **kapatılır**, panele olay düşer,
      öğrenciye “… sınav sırasında kullanılamaz.” bildirimi gösterilir.
 3. Monitör sayısı 1'den fazlaysa ya da değişirse uyarı verir.
+4. Öğrenci Windows'un başka bir **sanal masaüstüne** geçerse (Görev Görünümü, Win+Ctrl+D,
+   Win+Ctrl+→) uyarı verir ve öğrenciye “Başka bir masaüstüne geçtiniz…” bildirimini
+   gösterir. Geri döndüğünde kaç saniye orada kaldığı olay kaydına yazılır.
 
 Bilmeniz gerekenler:
 
@@ -345,9 +415,22 @@ Bilinçli: panel yalnızca öğretmen bilgisayarından (`localhost`) açılır.
 
 **35 kutu aynı anda oynarken tarayıcı zorlanıyor**
 
-**Diğer** menüsünde **Görünmeyen kutuları duraklat**'ı açın; **Kutuları ekrana sığdır**
-açıkken kutular zaten en küçük uygun boyuttadır. Yetmezse `config.yaml` → `yayin` altından
-fps/genişlik/bit hızını düşürün.
+**Diğer** menüsünde **Görünmeyen ekranları duraklat**'ı açın; ekranların üstündeki
+**Sığdır** açıkken kutular zaten en küçük uygun boyuttadır. Yetmezse `config.yaml` → `yayin`
+altından fps/genişlik/bit hızını düşürün.
+
+**“Klasör seç”e bastım, pencere gelmedi**
+
+Klasör penceresi tarayıcının arkasında kalmış olabilir: görev çubuğuna bakın (düğmede
+“Pencere açık…” yazar). Pencere hiç açılamıyorsa panel kendiliğinden bir kutu gösterir;
+klasörün tam yolunu (ör. `D:\Sınavlar\Vize`) yazıp **Kullan**'a basın — klasör yoksa
+oluşturulur.
+
+**Panelde “Sınav klasörüne ulaşılamıyor” yazıyor**
+
+Seçtiğiniz klasörün bulunduğu disk (USB bellek, ağ sürücüsü) çıkarılmış ya da klasör
+silinmiş. Diski geri takın. Sınav başlamadıysa **Sınav klasörü → Değiştir** ile başka bir
+klasör seçebilirsiniz.
 
 **Wi-Fi zorlanıyor (görüntüler takılıyor, kopmalar oluyor)**
 
@@ -364,6 +447,8 @@ fps/genişlik/bit hızını düşürün.
   Yöneticisi'nden sonlandırılsa bile Windows ffmpeg'i kapatır).
 - Giriş anından teslime/kapanışa kadar öğretmene şunlar gider: ekranın tamamı (tüm
   monitörler), öndeki pencerenin program adı ve başlığı, kapatılan programların adı,
-  bilgisayar adı, IP ve MAC adresi, monitör sayısı.
+  bilgisayar adı, IP ve MAC adresi, monitör sayısı, başka bir sanal masaüstüne geçildiği,
+  ve teslimde öğrencinin **seçtiği** dosya (adıyla birlikte). Program öğrencinin başka
+  hiçbir dosyasını okumaz ya da göndermez.
 - Kapsam dışı: macOS/Linux öğrenci bilgisayarı, telefon gibi ikinci cihazların tespiti,
   ajanın sahte görüntü göndermeye karşı korunması, sınıflar arası merkezî sunucu.
