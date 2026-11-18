@@ -51,9 +51,56 @@ jobs:
           path: publish/
           if-no-files-found: error
 
+  # Ajanı gerçek Windows üzerinde çalıştırır: keşif, giriş, ekran yayını, izinsiz programların
+  # kapatılması, öndeki pencere toleransı, teslim, ajan kapanınca ffmpeg'in de kapanması.
+  windows-e2e:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Sunucu testleri (Windows, Python 3.11)
+        run: |
+          python -m pip install --disable-pip-version-check -r server/requirements-dev.txt
+          python -m pytest server/tests -q
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: SinavAjan-win-x64
+          path: publish
+
+      - name: MediaMTX indir
+        shell: pwsh
+        run: ./scripts/fetch-mediamtx.ps1
+
+      - name: start-teacher.bat güvenlik duvarı kuralları
+        shell: cmd
+        run: |
+          call scripts\start-teacher.bat --firewall < nul
+          netsh advfirewall firewall show rule name="Sinav Izleme - Kesif (UDP 47000)" || exit /b 1
+          netsh advfirewall firewall show rule name="Sinav Izleme - API (TCP 8000)" || exit /b 1
+          netsh advfirewall firewall show rule name="Sinav Izleme - RTSP (TCP 8554)" || exit /b 1
+
+      - name: Uçtan uca test (ajan + sunucu + MediaMTX)
+        shell: powershell
+        run: ./agent/tests/E2E/windows-e2e.ps1 -AgentDir publish/SinavAjan
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-e2e-cikti
+          path: e2e-out/
+          if-no-files-found: warn
+          retention-days: 14
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, windows-e2e]
     runs-on: ubuntu-latest
     permissions:
       contents: write

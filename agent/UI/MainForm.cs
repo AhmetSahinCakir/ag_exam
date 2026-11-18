@@ -138,7 +138,13 @@ public sealed class MainForm : Form
     private TextBox AddField(TableLayoutPanel screen, string caption, int maxLength)
     {
         AddText(screen, caption, gap: 2);
-        var box = new TextBox { Width = Px(320), MaxLength = maxLength, Margin = new Padding(0, 0, 0, Px(10)) };
+        var box = new TextBox
+        {
+            Width = Px(320),
+            MaxLength = maxLength,
+            AccessibleName = caption,
+            Margin = new Padding(0, 0, 0, Px(10)),
+        };
         screen.Controls.Add(box);
         return box;
     }
@@ -203,7 +209,13 @@ public sealed class MainForm : Form
         AddText(screen, "Otomatik arama çalışmıyorsa öğretmeninizin söylediği IP adresini elle girin:",
             color: Muted, gap: 4);
         var manualRow = AddRow(screen);
-        var address = new TextBox { Width = Px(200), MaxLength = 64, PlaceholderText = "ör. 192.168.1.10" };
+        var address = new TextBox
+        {
+            Width = Px(200),
+            MaxLength = 64,
+            PlaceholderText = "ör. 192.168.1.10",
+            AccessibleName = "Sunucu IP adresi",
+        };
         address.Margin = new Padding(0, Px(4), Px(8), 0);
         var connect = NewButton("Bağlan");
         var error = AddText(screen, "", color: Bad);

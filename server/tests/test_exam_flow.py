@@ -37,10 +37,11 @@ def test_info_is_public_and_panel_is_local_only(env: Env):
     assert info["sinif_adi"] == "B-102" and info["ogretmen_adi"] == "Ayşe Öğretmen"
 
     for path in ("/panel", "/panel/static/panel.js", "/panel/api/stream", "/panel/api/export.csv",
-                 "/panel/api/events"):
+                 "/panel/api/events", "/panel/api/state"):
         assert student.get(path).status_code == 403, path
     assert student.post("/panel/api/end", headers=PANEL).status_code == 403
     assert env.panel.get("/panel").status_code == 200
+    assert env.panel.get("/panel/api/state").json()["class"]["sinif_adi"] == "B-102"
     assert "text/javascript" in env.panel.get("/panel/static/panel.js").headers["content-type"]
     # Cross-site form posts (no custom header) are refused even from localhost.
     assert env.panel.post("/panel/api/end").status_code == 403

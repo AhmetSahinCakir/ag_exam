@@ -30,7 +30,7 @@ $ProgressPreference = 'SilentlyContinue'   # ilerleme çubuğu Windows PowerShel
 $Version = '7.1.1'
 $ZipName = "ffmpeg-$Version-essentials_build.zip"
 $Url     = "https://github.com/GyanD/codexffmpeg/releases/download/$Version/$ZipName"
-$Sha256  = ''
+$Sha256  = '04861d3339c5ebe38b56c19a15cf2c0cc97f5de4fa8910e4d47e5e6404e4a2d4'
 # -----------------------------------------------------------------------------
 
 $target = Join-Path $OutDir 'ffmpeg.exe'

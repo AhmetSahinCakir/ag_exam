@@ -265,6 +265,11 @@ def create_app(cfg: Config) -> FastAPI:
         return StreamingResponse(generate(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    @app.get("/panel/api/state", dependencies=[Depends(local_only)])
+    async def panel_state() -> dict[str, Any]:
+        """The same snapshot the live stream sends, as a single JSON document (for tools and tests)."""
+        return store.snapshot(cached_ips)
+
     @app.get("/panel/api/events", dependencies=[Depends(local_only)])
     async def panel_events(numara: str = "") -> dict[str, Any]:
         return {"events": store.events_for(numara)}
