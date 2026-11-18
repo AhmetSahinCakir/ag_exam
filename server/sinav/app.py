@@ -6,6 +6,7 @@ import asyncio
 import html
 import json
 import logging
+import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -39,6 +40,8 @@ def is_local(request: Request) -> bool:
 def create_app(cfg: Config) -> FastAPI:
     store = Store(cfg)
     store.load()
+    # Lets an agent recognise the same server when it answers on several network adapters.
+    instance_id = secrets.token_hex(8)
     cached_ips: list[str] = lan_ips()
 
     # ------------------------------------------------------------ background
@@ -86,7 +89,8 @@ def create_app(cfg: Config) -> FastAPI:
         try:
             responder = DiscoveryResponder(
                 cfg.discovery_port,
-                lambda: {"port": cfg.port, "sinif_adi": cfg.sinif_adi, "ogretmen_adi": cfg.ogretmen_adi},
+                lambda: {"port": cfg.port, "sinif_adi": cfg.sinif_adi, "ogretmen_adi": cfg.ogretmen_adi,
+                         "id": instance_id},
             )
             responder.start()
         except OSError as exc:
@@ -170,6 +174,7 @@ def create_app(cfg: Config) -> FastAPI:
             "ogretmen_adi": cfg.ogretmen_adi,
             "exam_state": store.state,
             "server_version": __version__,
+            "instance_id": instance_id,
             "retention_note": cfg.retention_note,
         }
 

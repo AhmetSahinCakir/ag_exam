@@ -112,13 +112,28 @@ public static class Discovery
 
         lock (gate)
         {
-            // The same server answers on both the LAN address and loopback when the agent
-            // runs on the teacher PC; keep only the LAN entry.
-            var servers = found.Values.ToList();
-            servers.RemoveAll(s => IsLoopbackHost(s.Host) && servers.Any(o =>
-                !IsLoopbackHost(o.Host) && o.Port == s.Port && o.SinifAdi == s.SinifAdi && o.OgretmenAdi == s.OgretmenAdi));
-            return servers.OrderBy(s => s.SinifAdi, StringComparer.Ordinal).ThenBy(s => s.Host, StringComparer.Ordinal).ToList();
+            return Distinct(found.Values);
         }
+    }
+
+    /// <summary>
+    /// One entry per server. A server that is reachable over several network adapters (or over
+    /// loopback when the agent runs on the teacher PC) answers once per adapter; those answers
+    /// carry the same instance id and are merged, preferring a real LAN address.
+    /// </summary>
+    public static List<ServerInfo> Distinct(IEnumerable<ServerInfo> answers)
+    {
+        var servers = answers
+            .GroupBy(s => s.InstanceId.Length > 0 ? "id:" + s.InstanceId : "host:" + s.Key, StringComparer.Ordinal)
+            .Select(group => group
+                .OrderBy(s => IsLoopbackHost(s.Host) ? 1 : 0)
+                .ThenBy(s => s.Host, StringComparer.Ordinal)
+                .First())
+            .ToList();
+        // Answers without an id: drop a loopback duplicate of a LAN entry.
+        servers.RemoveAll(s => IsLoopbackHost(s.Host) && servers.Any(o =>
+            !IsLoopbackHost(o.Host) && o.Port == s.Port && o.SinifAdi == s.SinifAdi && o.OgretmenAdi == s.OgretmenAdi));
+        return servers.OrderBy(s => s.SinifAdi, StringComparer.Ordinal).ThenBy(s => s.Host, StringComparer.Ordinal).ToList();
     }
 
     private static bool IsLoopbackHost(string host) =>
@@ -162,6 +177,7 @@ public static class Discovery
                 // The address the answer really came from is always reachable from here.
                 Host = sender.Address.ToString(),
                 Port = reply.Port,
+                InstanceId = (reply.Id ?? "").Trim(),
                 SinifAdi = reply.SinifAdi.Trim(),
                 OgretmenAdi = reply.OgretmenAdi.Trim(),
             };

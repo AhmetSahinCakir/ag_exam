@@ -234,7 +234,20 @@ internal static class Program
         Equal("192.168.2.10", info?.Host, "sunucu adresi");
         Equal(8000, info?.Port ?? 0, "port");
         Equal("Sınıf: B-102 — Öğretmen: Ayşe Öğretmen", info?.Display, "gösterim metni");
+        Equal("", info?.InstanceId, "kimliksiz (eski) yanıt");
         Check(Discovery.Parse(Encoding.UTF8.GetBytes("çöp"), sender) == null, "bozuk yanıt yok sayılır");
+
+        // The same server seen over two adapters and loopback is listed once; another server stays.
+        ServerInfo S(string host, string id, string sinif) => new() { Host = host, Port = 8000, InstanceId = id, SinifAdi = sinif, OgretmenAdi = "X" };
+        var merged = Discovery.Distinct(new[]
+        {
+            S("172.21.192.1", "aaaa", "B-102"), S("127.0.0.1", "aaaa", "B-102"), S("10.1.0.35", "aaaa", "B-102"),
+            S("10.1.0.99", "bbbb", "B-102"),
+        });
+        Equal(2, merged.Count, "aynı sunucu birden çok adaptörden bir kez listelenir");
+        Equal("10.1.0.35", merged[0].Host, "LAN adresi tercih edilir");
+        Equal("10.1.0.99", merged[1].Host, "aynı adlı ama farklı sunucu ayrı kalır");
+        Equal(1, Discovery.Distinct(new[] { S("127.0.0.1", "", "B"), S("192.168.1.10", "", "B") }).Count, "kimliksiz yanıtlarda loopback kopyası atılır");
         Check(Discovery.Parse(Encoding.UTF8.GetBytes("{\"port\":8000}"), sender) == null, "adsız yanıt yok sayılır");
     }
 

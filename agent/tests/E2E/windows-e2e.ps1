@@ -167,9 +167,15 @@ function Count-Events([string]$numara, [string]$type, [string]$namePattern = '')
     }).Count
 }
 
+# Not through curl.exe: Windows PowerShell strips the double quotes of a JSON argument.
 function Panel-Post([string]$path, [string]$json = '{}') {
-    return Curl-Text @('-m', '10', '-X', 'POST', '-H', 'X-Panel: 1', '-H', 'Content-Type: application/json',
-        '-d', $json, "$base$path")
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$base$path" -TimeoutSec 10 `
+            -Headers @{ 'X-Panel' = '1' } -ContentType 'application/json' -Body $json
+        return $response.Content
+    } catch {
+        return "HATA: $($_.Exception.Message)"
+    }
 }
 
 # ---- UI Automation over the agent's windows -------------------------------------------
@@ -321,6 +327,7 @@ kapatma_disi:
   - 'C:\ProgramData\**'
   - 'C:\Packages\**'
   - 'C:\Users\**'
+  - 'C:\Program Files\WindowsApps\Microsoft.WindowsTerminal*\**'
   - '$root\**'
 esikler:
   on_pencere_toleransi_sn: 5
@@ -389,7 +396,8 @@ klasorler:
     $upload = Curl-Text @('-m', '10', '-H', 'X-Panel: 1', '-F', "file=@$exam", "$base/panel/api/exam-file")
     Check ($upload -match 'sha256') 'sınav dosyası yüklendi'
     $start = Panel-Post '/panel/api/start' '{"duration_min": 30}'
-    Check ($start -match 'RUNNING') 'sınav başlatıldı'
+    Check ($start -match 'RUNNING') "sınav başlatıldı ($start)"
+    if ($start -notmatch 'RUNNING') { throw 'Sınav başlatılamadı; kalan adımlar anlamsız.' }
 
     $countdown = Wait-AgentText 'Sınav başlıyor' 8
     Check ([bool]$countdown) 'ajan: "Sınav başlıyor." uyarısı ve geri sayım'

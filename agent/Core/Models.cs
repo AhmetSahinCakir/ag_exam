@@ -9,6 +9,9 @@ public sealed class DiscoveryReply
     [JsonPropertyName("port")] public int Port { get; set; } = 8000;
     [JsonPropertyName("sinif_adi")] public string SinifAdi { get; set; } = "";
     [JsonPropertyName("ogretmen_adi")] public string OgretmenAdi { get; set; } = "";
+
+    /// <summary>Random per server start; the same server answers with the same id on every adapter.</summary>
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
 }
 
 /// <summary>A teacher server the agent can talk to.</summary>
@@ -16,6 +19,7 @@ public sealed class ServerInfo
 {
     public string Host { get; init; } = "";
     public int Port { get; init; } = 8000;
+    public string InstanceId { get; init; } = "";
     public string SinifAdi { get; set; } = "";
     public string OgretmenAdi { get; set; } = "";
     public string RetentionNote { get; set; } = "";
