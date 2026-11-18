@@ -556,6 +556,7 @@ klasorler:
         -WorkingDirectory $root -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $OutDir 'server.out.log') `
         -RedirectStandardError (Join-Path $OutDir 'server.err.log')
+    $null = $server.Handle   # keeps the process handle, so that its exit code can be read later
     $ready = Wait-Until { (Curl-Text @('-m', '2', "$base/api/info")) -match 'AYAR-DOSYASI' } 60
     Check ([bool]$ready) 'sunucu yanıt veriyor (/api/info)'
     if (-not $ready) { throw 'Sunucu başlamadı.' }
