@@ -1,11 +1,15 @@
 name: build-agent
 
-# Öğrenci programını (Windows, .NET 8) TEK DOSYA olarak derler: SinavAjan.exe. ffmpeg bu
-# dosyanın içine gömülüdür; öğrenciye başka hiçbir şey gönderilmez. Dosya "SinavAjan.exe"
-# adlı artifact olarak (zip'lenmeden) yüklenir.
+# Üç dosya üretir ve hepsini gerçek Windows üzerinde dener:
 #
-# v ile başlayan bir etiket (ör. v1.0.0) gönderilirse aynı dosya kalıcı bir
-# GitHub Release olarak da yayınlanır (artifact'ler 90 gün sonra silinir).
+#   SinavIzleme-Kurulum.exe  sınavı yapan kişinin bilgisayarı için kurulum (Python, paketler,
+#                            MediaMTX ve öğrenci programı içinde; internet gerekmez)
+#   SinavAjan-Kurulum.exe    öğrenci bilgisayarı için kurulum
+#   SinavAjan.exe            öğrenci programının kurulumsuz, tek dosyalık hâli (ffmpeg içinde)
+#
+# Dosyalar zip'lenmeden, kendi adlarıyla artifact olarak yüklenir (90 gün saklanır).
+# v ile başlayan bir etiket (ör. v1.0.0) gönderilirse iki kurulum dosyası bir GitHub Release
+# TASLAĞINA eklenir; taslak, depo sahibinin "Publish release" demesiyle herkese açılır.
 
 on:
   push:
@@ -47,10 +51,33 @@ jobs:
           if ($files.Count -ne 1 -or $files[0].Name -ne 'SinavAjan.exe') { throw 'publish klasöründe yalnızca SinavAjan.exe olmalı' }
           if ($files[0].Length -lt 80MB) { throw 'ffmpeg, SinavAjan.exe içine gömülmemiş görünüyor' }
 
-      # Zip'lenmeden yüklenir: indirilen dosya doğrudan SinavAjan.exe'dir.
+      # Kurulumun içine konacak Python (tam kurulum; kopyası alınır).
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Kurulum dosyalarını üret (sistem + öğrenci)
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '1.0.0' }
+          ./installer/hazirla.ps1 -AgentExe publish/SinavAjan.exe -OutDir publish -Version $version
+
+      # Zip'lenmeden yüklenir: indirilen dosya doğrudan çalıştırılabilir.
       - uses: actions/upload-artifact@v7
         with:
           path: publish/SinavAjan.exe
+          archive: false
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: publish/SinavIzleme-Kurulum.exe
+          archive: false
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: publish/SinavAjan-Kurulum.exe
           archive: false
           if-no-files-found: error
 
@@ -120,6 +147,16 @@ jobs:
           name: SinavAjan.exe
           path: publish
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: SinavIzleme-Kurulum.exe
+          path: publish
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: SinavAjan-Kurulum.exe
+          path: publish
+
       - name: MediaMTX indir
         shell: pwsh
         run: ./scripts/fetch-mediamtx.ps1
@@ -135,6 +172,11 @@ jobs:
       - name: Uçtan uca test (ajan + sunucu + MediaMTX)
         shell: powershell
         run: ./agent/tests/E2E/windows-e2e.ps1 -AgentDir publish
+
+      # Kullanıcının yapacağı: kurulum dosyasını çalıştır, masaüstündeki simgeden başlat, kaldır.
+      - name: Kurulum dosyalarının denemesi (kur, masaüstünden başlat, kaldır)
+        shell: powershell
+        run: ./installer/kurulum-testi.ps1 -SetupDir publish
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -153,14 +195,25 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: SinavAjan.exe
+          name: SinavIzleme-Kurulum.exe
           path: paket
 
-      - name: Release
+      - uses: actions/download-artifact@v8
+        with:
+          name: SinavAjan-Kurulum.exe
+          path: paket
+
+      # Taslak olarak oluşturulur; yayımlamak depo sahibinin kararıdır.
+      - name: Release taslağı
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" paket/SinavAjan.exe --repo "$GITHUB_REPOSITORY" \
-            --title "Sınav Ajanı $TAG" \
-            --notes "Öğrencilere yalnızca SinavAjan.exe dosyasını gönderin. Kullanım: docs/KURULUM.md"
+          gh release create "$TAG" paket/SinavIzleme-Kurulum.exe paket/SinavAjan-Kurulum.exe \
+            --repo "$GITHUB_REPOSITORY" --draft \
+            --title "Sınav İzleme Sistemi $TAG" \
+            --notes "**Sınavı yapacak kişi:** \`SinavIzleme-Kurulum.exe\` dosyasını indirip çalıştırın; masaüstüne **Sınav İzleme Sistemi** simgesi gelir.
+
+          **Öğrenciler:** \`SinavAjan-Kurulum.exe\` dosyasını indirip çalıştırın; masaüstüne **Sınav Ajanı** simgesi gelir.
+
+          Kullanım kılavuzu: https://github.com/$GITHUB_REPOSITORY/blob/main/docs/KURULUM.md"

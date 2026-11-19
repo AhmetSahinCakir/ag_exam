@@ -49,6 +49,14 @@ public sealed class MainForm : Form
         _config = config;
         _ffmpeg = ffmpeg;
         Text = AppTitle;
+        try
+        {
+            // The program's own icon (title bar, taskbar) instead of the generic one.
+            if (Environment.ProcessPath is { } exe) Icon = Icon.ExtractAssociatedIcon(exe);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException)
+        {
+        }
         Font = Theme.Regular(10F);
         ForeColor = Theme.Text;
         BackColor = Theme.Background;

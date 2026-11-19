@@ -16,11 +16,12 @@ Cisco Packet Tracer ile yapılan sınavlar için, internet gerektirmeyen bir izl
 
 ## Kısaca
 
-1. Python'u kurun, bu sayfadan sistemi indirin.
-2. `scripts\start-teacher.bat` dosyasını çalıştırın; panel açılır.
-3. Öğrenci programını (**Actions → build-agent → SinavAjan.exe**) indirip öğrencilere
-   gönderin. Tek dosyadır.
-4. Sınav günü: klasörü ve sınav dosyasını seçin, öğrenciler giriş yapsın, **Sınavı başlat**'a
-   basın.
+1. [İndirme sayfasından](https://github.com/AhmetSahinCakir/ag_exam/releases/latest)
+   **`SinavIzleme-Kurulum.exe`** dosyasını indirip çalıştırın. Masaüstüne **Sınav İzleme
+   Sistemi** simgesi gelir.
+2. Aynı sayfadaki **`SinavAjan-Kurulum.exe`** dosyasını öğrencilere gönderin. Onların
+   masaüstüne **Sınav Ajanı** simgesi gelir.
+3. Sınav günü: simgeye çift tıklayın, klasörü ve sınav dosyasını seçin, öğrenciler giriş
+   yapsın, **Sınavı başlat**'a basın.
 
 Ayrıntılar: [kullanım kılavuzu](docs/KURULUM.md).

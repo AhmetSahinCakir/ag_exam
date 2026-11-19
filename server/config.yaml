@@ -2,7 +2,7 @@
 # Sınav İzleme Sistemi — sunucu ayarları
 #
 # Bu dosyayı her sınıfın bilgisayarında ayrı ayrı düzenleyin.
-# Değişiklikten sonra start-teacher.bat'ı yeniden başlatın. (İzin listesi
+# Değişiklikten sonra sistemi kapatıp yeniden açın. (İzin listesi
 # bölümleri sunucu çalışırken de yeniden okunur ve ajanlara iletilir.)
 #
 # Sınav klasörü (ekran kayıtları + teslim edilen dosyalar) burada DEĞİL,
@@ -113,7 +113,7 @@ esikler:
   panel_kapaninca_bekleme_sn: 5
   # Öğrenci programları bağlıyken (sınav sürerken ya da teslim etmemiş öğrenci varken)
   # bekleme daha uzundur: pencere yanlışlıkla kapanırsa ya da tarayıcı çökerse bu süre
-  # içinde paneli yeniden açarsanız (start-teacher.bat) sistem kapanmaz, sınav sürer.
+  # içinde paneli yeniden açarsanız (masaüstündeki simge) sistem kapanmaz, sınav sürer.
   ogrenci_bagliyken_bekleme_sn: 120
   # Sınav başladıktan sonra izinsiz programların kapatılmasına kadar geçen süre.
   kapatma_geri_sayim_sn: 10

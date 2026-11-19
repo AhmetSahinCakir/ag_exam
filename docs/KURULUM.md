@@ -11,34 +11,39 @@ Sınavdan önce yapılacak deneme: [PROVA.md](PROVA.md).
 
 İnternet gerekmez. Her sınıf kendi modemi ve kendi bilgisayarıyla çalışır.
 
-## İlk kurulum (bir kez, internet varken)
+## İlk kurulum (bir kez)
 
-1. **Python'u kurun.** <https://www.python.org/downloads/> adresinden indirin. Kurulumun ilk
-   ekranında **“Add python.exe to PATH”** kutusunu işaretleyin.
-2. **Sistemi indirin.** GitHub sayfasında **Code → Download ZIP** deyin, zip'i bir klasöre
-   açın (ör. `C:\sinav`).
-3. **`scripts` klasöründeki `start-teacher.bat` dosyasına çift tıklayın.** İlk seferde
-   gerekenleri kendisi indirir ve bir izin penceresi açar; **Evet** deyin. Birkaç dakika
-   sonra panel açılır.
-   - “Windows Güvenlik Uyarısı” çıkarsa iki kutuyu da işaretleyip **Erişime izin ver** deyin.
+1. **Kurulum dosyasını indirin.** [İndirme sayfasından](https://github.com/AhmetSahinCakir/ag_exam/releases/latest)
+   **`SinavIzleme-Kurulum.exe`** dosyasını indirin.
+2. **Dosyaya çift tıklayın.** Kurulum kendiliğinden yapılır; başka bir şey kurmanız gerekmez.
+   - “Windows kişisel bilgisayarınızı korudu” çıkarsa **Ek bilgi → Yine de çalıştır** deyin.
+   - “Bu uygulamanın cihazınızda değişiklik yapmasına izin veriyor musunuz?” sorusuna
+     **Evet** deyin.
+3. **Masaüstündeki “Sınav İzleme Sistemi” simgesine çift tıklayın.** Birkaç saniye içinde
+   panel açılır.
 4. **Sınıf adını ve adınızı yazın.** Panelin sol üstündeki **Düzenle**'ye basın. Öğrenciler
    doğru sınıfa bağlandıklarını bu addan anlar; her sınıfta farklı olmalıdır.
-5. **Öğrenci programını indirin.** GitHub sayfasında **Actions → build-agent →** en üstteki
-   yeşil satır **→** sayfanın altında **Artifacts → SinavAjan.exe**. Öğrencilere yalnızca bu
-   dosyayı gönderin; başka bir şey gerekmez. (`dist` klasörüne koyarsanız öğrenciler
-   sınav günü sınıf ağından da indirebilir.)
+5. **Öğrencilere programı gönderin.** Aynı indirme sayfasındaki **`SinavAjan-Kurulum.exe`**
+   dosyasını (ya da sayfanın bağlantısını) öğrencilere gönderin. Öğrenci dosyaya çift
+   tıklayınca program kurulur ve masaüstüne **Sınav Ajanı** simgesi gelir.
+   - Kurmayı unutan öğrenci sınav günü programı sınıf ağından da indirebilir: panelde
+     **Diğer** menüsünde yazan adresi tarayıcısına yazar.
 6. **Modemi kontrol edin.** Sizin ve öğrencilerin bilgisayarı aynı modeme bağlı olmalıdır.
    Modemde cihazların birbirini görmesini engelleyen ayar (“AP izolasyonu”) kapalı olmalıdır.
 7. **Bir deneme yapın:** [PROVA.md](PROVA.md).
 
 Kurulumdan sonra internet gerekmez.
 
+**Yeni sürüm çıkarsa** yeni kurulum dosyasını indirip çalıştırın; eskisinin üzerine kurulur.
+**Kaldırmak için:** Ayarlar → Uygulamalar → *Sınav İzleme Sistemi* → Kaldır. Sınav
+klasörleriniz (kayıtlar, teslimler) silinmez.
+
 ## Sınav günü
 
 ### 1. Sistemi açın
 
-Bilgisayarınızı sınıf modemine bağlayın ve `start-teacher.bat` dosyasını çalıştırın. Panel
-kendi penceresinde açılır. Siyah başlatma penceresini kapatmayın (küçültebilirsiniz).
+Bilgisayarınızı sınıf modemine bağlayın ve masaüstündeki **Sınav İzleme Sistemi** simgesine
+çift tıklayın. Birkaç saniye içinde panel kendi penceresinde açılır.
 
 ### 2. Sınavı hazırlayın
 
@@ -111,7 +116,7 @@ edebilirler; bu teslim **geç teslim** olarak işaretlenir ve size uyarı düşe
 Herkes teslim ettikten sonra **panel penceresini kapatın; sistem kendiliğinden kapanır.**
 
 - Bağlı öğrenci varken sistem kapanmadan önce 2 dakika bekler. Pencereyi yanlışlıkla
-  kapattıysanız bu sürede `start-teacher.bat` dosyasını yeniden çalıştırın: panel geri açılır,
+  kapattıysanız bu sürede masaüstündeki simgeye yeniden çift tıklayın: panel geri açılır,
   sınav kaldığı yerden sürer.
 - **Teslim etmemiş öğrenci varken sistemi kapatırsanız o öğrencilerin dosyası alınmaz.**
   Kapatmadan önce listede herkesin “Teslim etti” olduğuna bakın.
@@ -161,26 +166,29 @@ Sütunları **numara, ad, soyad** olan bir Excel dosyası. Liste yüklüyse:
 ## Sorun olursa
 
 **Öğrenci programı sınavı bulamıyor.**
-Öğrenci doğru Wi-Fi ağına bağlı mı? Başlatma penceresi açık mı? Olmuyorsa öğrenci,
-başlatma penceresinde ve **Diğer** menüsünde yazan adresi programa elle yazabilir.
+Öğrenci doğru Wi-Fi ağına bağlı mı? Sistem sizin bilgisayarınızda açık mı? Olmuyorsa
+öğrenci, panelde **Diğer** menüsünde yazan adresi programa elle yazabilir.
 
 **Öğrenci giriş yaptı ama ekranı gelmiyor.**
 Öğrencinin antivirüsü programı engellemiş olabilir (çözümü öğrenci kılavuzunda). Panelin
-üstünde kırmızı bir uyarı varsa `start-teacher.bat` penceresini kapatıp yeniden çalıştırın.
+üstünde kırmızı bir uyarı varsa yazanı uygulayın.
 
 **Görüntüler takılıyor.**
 Bilgisayarınızı modeme kabloyla bağlayın. **Diğer → Görünmeyen ekranları duraklat**'ı açın.
 
+**Simgeye tıkladım, bir şey olmadı.**
+Panelin açılması 10–20 saniye sürebilir. Açılmazsa simgeye yeniden çift tıklayın.
+
 **Panel penceresini yanlışlıkla kapattım.**
-`start-teacher.bat` dosyasını yeniden çalıştırın; panel geri açılır.
+Masaüstündeki simgeye yeniden çift tıklayın; panel geri açılır.
 
 **Bilgisayar ya da sistem sınav sırasında kapandı.**
-`start-teacher.bat` dosyasını yeniden çalıştırın. Sınav kaldığı yerden sürer, öğrenciler
+Sistemi masaüstündeki simgeden yeniden açın. Sınav kaldığı yerden sürer, öğrenciler
 kendiliğinden yeniden bağlanır.
 
 **“Klasör seç”e bastım, pencere gelmedi.**
 Pencere başka bir pencerenin arkasında kalmış olabilir; görev çubuğuna bakın.
 
 **Sınavda başka bir programa da izin vermem gerekiyor.**
-İzin verilen programlar `server\config.yaml` dosyasında yazar; her ayarın açıklaması dosyanın
-içindedir.
+Panelde **Diğer → Ayar dosyasını aç** deyin. İzin verilen programlar bu dosyada yazar; her
+ayarın açıklaması dosyanın içindedir. Kaydettiğiniz anda geçerli olur.

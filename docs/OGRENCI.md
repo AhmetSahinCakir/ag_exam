@@ -9,14 +9,16 @@ aktarır, sınav dosyasını indirmenizi ve sonunda dosyanızı teslim etmenizi 
 2. **Packet Tracer kurulu olsun ve hesabınızla giriş yapmış olun.** Giriş ekranında
    **“Keep me logged in”** seçeneğini açın. Sınav salonunda internet yoktur; ilk girişinizi
    orada yapamazsınız.
-3. **`SinavAjan.exe` dosyasını edinin** ve kolay bulacağınız bir yere (ör. Masaüstü)
-   kaydedin. Tek dosyadır; kurulum gerekmez.
+3. **Sınav Ajanı'nı kurun.** Size gönderilen **`SinavAjan-Kurulum.exe`** dosyasına çift
+   tıklayın. Masaüstüne **Sınav Ajanı** simgesi gelir.
+   - “Windows kişisel bilgisayarınızı korudu” çıkarsa **Ek bilgi → Yine de çalıştır** deyin.
+   - “Bu uygulamanın cihazınızda değişiklik yapmasına izin veriyor musunuz?” sorusuna
+     **Evet** deyin.
 
 ## Sınav günü
 
 1. **Sınav için verilen Wi-Fi ağına bağlanın.** (“İnternet yok” yazması normaldir.)
-2. `SinavAjan.exe` dosyasına **sağ tıklayın → Yönetici olarak çalıştır → Evet.**
-   - “Windows kişisel bilgisayarınızı korudu” çıkarsa **Ek bilgi → Yine de çalıştır.**
+2. Masaüstündeki **Sınav Ajanı** simgesine çift tıklayın ve izin sorusuna **Evet** deyin.
 3. Ekranda **sınıfınızın adı** görünür. Doğruysa **Doğru**'ya basın. Yanlışsa başka bir Wi-Fi
    ağına bağlısınız: **Yanlış**'a basın, doğru ağa bağlanıp **Tekrar ara** deyin.
 4. **Numaranızı, adınızı ve soyadınızı** yazıp **Giriş yap**'a basın.
@@ -76,11 +78,15 @@ adresi alttaki kutuya yazıp **Bağlan**'a basın.
 
 **“Ekran aktarımı başlatılamadı” uyarısı çıktı ya da “Ekran aktarımı başlatılıyor…” yazısı
 gitmiyor.**
-Antivirüsünüz programı engellemiş olabilir. Antivirüsü kapatmayın; `SinavAjan.exe` dosyasını
-ve `%LOCALAPPDATA%\SinavAjan` klasörünü antivirüsün “dışlamalar / istisnalar” listesine
-ekleyip programı yeniden açın. Windows Güvenliği için: **Başlat → Windows Güvenliği → Virüs
-ve tehdit koruması → Ayarları yönet → Dışlamalar → Dışlama ekle.** `SinavAjan.exe`
-silindiyse dosyayı yeniden edinin.
+Antivirüsünüz programı engellemiş olabilir. Antivirüsü kapatmayın; `C:\Program Files\Sinav
+Ajani` ve `%LOCALAPPDATA%\SinavAjan` klasörlerini antivirüsün “dışlamalar / istisnalar”
+listesine ekleyip programı yeniden açın. Windows Güvenliği için: **Başlat → Windows Güvenliği
+→ Virüs ve tehdit koruması → Ayarları yönet → Dışlamalar → Dışlama ekle.** Program
+silindiyse yeniden kurun.
+
+**Programı kurmayı unuttum.**
+Sınav için verilen Wi-Fi ağına bağlanın, size söylenen adresi tarayıcıya yazın ve programı
+oradan indirip çalıştırın.
 
 **Packet Tracer giriş istiyor.**
 Sınav başladıktan sonra tarayıcı açılamaz. Bu yüzden girişi sınav başlamadan yapın ve
@@ -103,6 +109,7 @@ Yalnızca giriş yaptığınız andan teslim edene ya da programı kapatana kada
 - Teslim ederken **sizin seçtiğiniz** dosya gönderilir; başka hiçbir dosyanız okunmaz.
 - Ekran aktarımı için bir yardımcı dosya geçici olarak açılır; program kapanırken silinir.
 
-Program kurulum yapmaz, Windows ile birlikte açılmaz, kamera ve mikrofonu kullanmaz.
-Kapandıktan sonra hiçbir şey çalışmaya devam etmez. İşiniz bitince `SinavAjan.exe` dosyasını
-silebilirsiniz.
+Kurulum yalnızca programı bilgisayarınıza kopyalar ve masaüstüne simge koyar. Program
+Windows ile birlikte açılmaz, arka planda çalışmaz, kamera ve mikrofonu kullanmaz; yalnızca
+siz açtığınızda çalışır. Kapandıktan sonra hiçbir şey çalışmaya devam etmez. İşiniz bitince
+**Ayarlar → Uygulamalar → Sınav Ajanı → Kaldır** ile kaldırabilirsiniz.

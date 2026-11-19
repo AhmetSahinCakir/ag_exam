@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from . import __version__
 from .config import Config, ConfigError, reload_policy
 from .discovery import DiscoveryResponder, lan_ips
-from .folderdialog import DialogUnavailable, open_folder, open_panel_window, pick_folder
+from .folderdialog import DialogUnavailable, open_folder, open_in_editor, open_panel_window, pick_folder
 from .mediamtx import fetch_streams, kick_publishers, set_recording
 from .roster import RosterError, parse_roster
 from .store import MAX_UPLOAD_BYTES, RUNNING, WAITING, ApiError, Store, Student
@@ -26,7 +26,8 @@ from .store import MAX_UPLOAD_BYTES, RUNNING, WAITING, ApiError, Store, Student
 log = logging.getLogger("sinav")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
-STATIC_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
+STATIC_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+                ".ico": "image/x-icon"}
 LOCAL_HOSTS = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 # The student program is one file; put it into the "dagitim" folder to hand it out over the
 # classroom network.
@@ -181,7 +182,7 @@ def create_app(cfg: Config) -> FastAPI:
             if gone >= 1.5 and not panel_gone_logged:
                 panel_gone_logged = True
                 log.info("Panel penceresi kapandı. Sistem %d sn sonra kapanacak; vazgeçmek için paneli "
-                         "yeniden açın (start-teacher.bat).", max(0, round(grace - gone)))
+                         "yeniden açın.", max(0, round(grace - gone)))
             if gone >= grace:
                 await shutdown_system("panel penceresi kapatıldı")
 
@@ -223,6 +224,7 @@ def create_app(cfg: Config) -> FastAPI:
     app.state.exit_code = 0
     app.state.stop_server = None  # set by run.py: stops the web server
     app.state.open_panel = False  # set by run.py --open-panel: show the panel window at start
+    app.state.user_config = None  # set by run.py --app: where the user's own settings file goes
 
     @app.exception_handler(ApiError)
     async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:
@@ -340,6 +342,11 @@ def create_app(cfg: Config) -> FastAPI:
             raise ApiError(404, "Sınav programı bu adresten dağıtılmıyor.")
         return FileResponse(path, filename=AGENT_FILE, media_type="application/octet-stream")
 
+    @app.get("/favicon.ico")
+    async def favicon() -> Response:
+        # The panel opens in a window of its own; this is its icon on the taskbar.
+        return FileResponse(STATIC_DIR / "favicon.ico", media_type="image/x-icon")
+
     @app.get("/panel", dependencies=[Depends(local_only)])
     async def panel() -> Response:
         return FileResponse(STATIC_DIR / "panel.html", media_type="text/html; charset=utf-8", headers=NO_STORE)
@@ -442,6 +449,27 @@ def create_app(cfg: Config) -> FastAPI:
             raise ApiError(501, f"Klasör açılamadı. Elle açın: {store.exam_dir}") from exc
         return {"folder": str(store.exam_dir)}
 
+    @app.post("/panel/api/open-settings", dependencies=[Depends(local_only)])
+    async def panel_open_settings() -> dict[str, Any]:
+        """Open the settings file (allowed programs and so on) in the editor of this computer.
+
+        The installed application keeps its own settings read-only under "Program Files"; the
+        first time, a copy is made in the user's folder and that copy is used from then on.
+        """
+        own = getattr(app.state, "user_config", None)
+        try:
+            if own is not None and Path(own) != cfg.path:
+                own = Path(own)
+                if not own.is_file():
+                    own.parent.mkdir(parents=True, exist_ok=True)
+                    own.write_bytes(cfg.path.read_bytes())
+                cfg.path = own
+                cfg.mtime = own.stat().st_mtime
+            open_in_editor(str(cfg.path))
+        except OSError as exc:
+            raise ApiError(501, f"Ayar dosyası açılamadı. Elle açın: {cfg.path}") from exc
+        return {"file": str(cfg.path)}
+
     @app.post("/panel/api/exam-file", dependencies=[Depends(local_only)])
     async def panel_exam_file(request: Request) -> dict[str, Any]:
         filename, data, _ = await read_upload(request)
@@ -516,8 +544,8 @@ def student_page(cfg: Config) -> str:
     has_file = (cfg.dir_dist / AGENT_FILE).is_file()
     download = (
         f'<p><a class="btn" href="/indir/{AGENT_FILE}">Sınav programını indir ({AGENT_FILE})</a></p>'
-        "<ol><li>İndirdiğiniz <b>SinavAjan.exe</b> dosyasına sağ tıklayın → "
-        "<b>Yönetici olarak çalıştır</b>.</li>"
+        "<ol><li>İndirdiğiniz <b>SinavAjan.exe</b> dosyasına çift tıklayın ve izin sorusuna "
+        "<b>Evet</b> deyin.</li>"
         "<li>Ekranda bu sınıfın adını görünce <b>Doğru</b> deyip giriş yapın.</li></ol>"
         if has_file
         else "<p>Sınav programı bu adresten dağıtılmıyor.</p>"

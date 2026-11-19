@@ -103,7 +103,7 @@ async function api(path, options) {
   try {
     response = await fetch(path, init);
   } catch (_) {
-    throw new Error('Sunucuya ulaşılamadı. Başlatma penceresi açık mı?');
+    throw new Error('Sunucuya ulaşılamadı. Sistem çalışıyor mu?');
   }
   let data = {};
   try { data = await response.json(); } catch (_) { /* gövde yok */ }
@@ -556,6 +556,9 @@ function renderMenuInfo() {
   const ips = S.health.lan_ips;
   if (ips.length) {
     lines.push(`Ajan sunucuyu kendisi bulamazsa öğrenci şu adresi yazabilir: ${ips.join(' veya ')}`);
+    if (S.health.agent_download) {
+      lines.push(`Programı kurmamış öğrenci tarayıcısına şunu yazıp indirebilir: ${ips.map((ip) => `http://${ip}:${S.health.port}`).join(' veya ')}`);
+    }
   }
   if (S.exam.folder) {
     lines.push(`Sınav klasörü: ${S.exam.folder}`);
@@ -573,8 +576,8 @@ function renderBanners() {
   const messages = [];
   const health = S.health;
   if (!health.mediamtx_ok) {
-    messages.push('Ekran görüntüleri alınamıyor ve kayıt yapılmıyor. Başlatma penceresini kapatıp '
-      + 'start-teacher.bat dosyasını yeniden çalıştırın.');
+    messages.push('Ekran görüntüleri alınamıyor ve kayıt yapılmıyor. Birkaç saniye içinde düzelmezse '
+      + 'bilgisayarı yeniden başlatıp sistemi yeniden açın; sınav kaldığı yerden sürer.');
   }
   if (health.folder_error) {
     messages.push(`${health.folder_error}. Teslimler alınamıyor ve kayıt yapılamıyor; klasörün bulunduğu `
@@ -1027,13 +1030,13 @@ function connectStream() {
       source.close();
       if (old) old.remove();
       box.prepend(el('div', 'banner server-down closed',
-        'Sistem kapatıldı. Bu pencereyi kapatabilirsiniz. Yeniden başlatmak için start-teacher.bat dosyasını çalıştırın.'));
+        'Sistem kapatıldı. Bu pencereyi kapatabilirsiniz. Yeniden açmak için masaüstündeki Sınav İzleme Sistemi simgesine çift tıklayın.'));
       return;
     }
     // EventSource kendiliğinden yeniden bağlanır; bu arada durumu göster.
     if (!old) {
       box.prepend(el('div', 'banner server-down',
-        'Sunucuyla bağlantı kesildi. Başlatma penceresi (start-teacher.bat) açık mı? Yeniden bağlanılıyor…'));
+        'Sunucuyla bağlantı kesildi. Yeniden bağlanılıyor… Sistem kapandıysa masaüstündeki simgeden yeniden açın.'));
     }
   };
 }
@@ -1186,6 +1189,16 @@ async function openExamFolder() {
   }
 }
 
+async function openSettingsFile() {
+  closeMenu();
+  try {
+    await api('/panel/api/open-settings');
+    toast('Ayar dosyası Not Defteri\'nde açıldı. İzin verilen programlar kaydedince hemen, diğer ayarlar sistem yeniden açılınca geçerli olur.');
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
 function openDialog(id, focusId, value) {
   closeMenu();
   $(id).hidden = false;
@@ -1316,6 +1329,7 @@ function bindControls() {
   bindDialogs();
   $('btnFolder').addEventListener('click', chooseFolder);
   $('btnOpenFolder').addEventListener('click', openExamFolder);
+  $('btnSettings').addEventListener('click', openSettingsFile);
   $('btnOpenFolderTop').addEventListener('click', openExamFolder);
   $('ackAll').addEventListener('click', async () => {
     try { await api('/panel/api/ack', { json: {} }); } catch (error) { toast(error.message, true); }

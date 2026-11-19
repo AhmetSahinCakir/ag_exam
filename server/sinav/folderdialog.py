@@ -96,11 +96,26 @@ def open_folder(path: str) -> None:
                      stderr=subprocess.DEVNULL)
 
 
+def open_in_editor(path: str) -> None:
+    """Open a text file (the settings) in the plain editor of this computer. Raises OSError."""
+    if os.name == "nt":
+        # Not os.startfile: ".yaml" usually has no program of its own on Windows.
+        subprocess.Popen(["notepad.exe", path], stdin=subprocess.DEVNULL,  # noqa: S603, S607
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+    opener = "open" if sys.platform == "darwin" else "xdg-open"
+    subprocess.Popen([opener, path], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL)
+
+
 def _run(command: list[str], env: dict[str, str] | None = None) -> str | None:
     """Run a dialog helper; return its output, or None when it could not show a window."""
     try:
+        # No console window: the installed application runs without one, and a helper that
+        # opened its own would flash a black window in front of the panel.
         done = subprocess.run(command, capture_output=True, timeout=TIMEOUT_S, env=env, check=False,
-                              stdin=subprocess.DEVNULL)
+                              stdin=subprocess.DEVNULL,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:

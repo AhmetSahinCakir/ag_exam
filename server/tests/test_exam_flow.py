@@ -951,13 +951,43 @@ def test_student_program_is_one_file_that_can_be_downloaded_from_the_server(env:
     assert "dağıtılmıyor" in page.text and "/indir/" not in page.text
     assert student.get("/indir/SinavAjan.exe").status_code == 404
 
+    assert env.panel.get("/panel/api/state").json()["health"]["agent_download"] is False
     env.cfg.dir_dist.mkdir(parents=True, exist_ok=True)
     (env.cfg.dir_dist / "SinavAjan.exe").write_bytes(b"MZ" + b"x" * 5000)
+    # The panel then shows the address a student can type into a browser.
+    assert env.panel.get("/panel/api/state").json()["health"]["agent_download"] is True
     page = student.get("/")
     assert '/indir/SinavAjan.exe' in page.text
-    assert "Yönetici olarak çalıştır" in page.text
+    assert "çift tıklayın" in page.text
     assert "zip" not in page.text.lower() and "ayıkla" not in page.text.lower()
     download = student.get("/indir/SinavAjan.exe")
     assert download.status_code == 200
     assert download.content == b"MZ" + b"x" * 5000
     assert 'filename="SinavAjan.exe"' in download.headers["content-disposition"]
+
+
+def test_settings_file_opens_in_the_editor_and_the_installed_app_uses_a_copy_of_its_own(env: Env, monkeypatch):
+    import sinav.app as app_module
+
+    opened = []
+    monkeypatch.setattr(app_module, "open_in_editor", lambda path: opened.append(path))
+
+    # Started from the folder (start-teacher.bat): the settings file itself is opened.
+    answer = env.panel.post("/panel/api/open-settings", headers=PANEL).json()
+    assert answer["file"] == str(env.cfg.path) and opened == [str(env.cfg.path)]
+
+    # Installed application: its settings are read-only, so the user gets a copy.
+    packaged = env.cfg.path
+    own = env.tmp_path / "kullanici" / "config.yaml"
+    env.app.state.user_config = own
+    answer = env.panel.post("/panel/api/open-settings", headers=PANEL).json()
+    assert answer["file"] == str(own) and opened[-1] == str(own)
+    assert own.read_bytes() == packaged.read_bytes()
+    assert env.cfg.path == own                      # changes to the copy are picked up from now on
+
+    # The copy is never overwritten by a later click.
+    own.write_text(own.read_text(encoding="utf-8") + "\n# benim notum\n", encoding="utf-8")
+    env.panel.post("/panel/api/open-settings", headers=PANEL)
+    assert "# benim notum" in own.read_text(encoding="utf-8")
+
+    assert env.student().post("/panel/api/open-settings", headers=PANEL).status_code == 403

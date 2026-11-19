@@ -1392,6 +1392,8 @@ class Store:
                 "panel_clients": self.panel_clients,
                 "lan_ips": lan_ips or [],
                 "port": self.cfg.port,
+                # The student program can be downloaded from this computer (see student_page).
+                "agent_download": (self.cfg.dir_dist / "SinavAjan.exe").is_file(),
             },
             "summary": summary,
             "students": students,

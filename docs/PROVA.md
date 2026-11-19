@@ -10,7 +10,8 @@ bölümüne bakın.
 ## Hazırlık
 
 - [ ] Modemin internet kablosunu çıkarın; sınav internetsiz yapılacak.
-- [ ] `start-teacher.bat` dosyasını çalıştırın; panel kendi penceresinde açılıyor.
+- [ ] Masaüstündeki **Sınav İzleme Sistemi** simgesine çift tıklayın; panel kendi
+      penceresinde açılıyor.
 - [ ] **Düzenle** ile sınıf adını ve adınızı yazın.
 - [ ] **Sınav klasörü**, **Sınav dosyası** ve (kullanacaksanız) **Öğrenci listesi**ni seçin.
 

@@ -14,6 +14,7 @@
     <Product>Sınav Ajanı</Product>
     <Description>Sınav İzleme Sistemi öğrenci ajanı</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\installer\sinav-ajan.ico</ApplicationIcon>
     <SatelliteResourceLanguages>tr</SatelliteResourceLanguages>
 
     <!-- Tek dosya, .NET kurulumu gerektirmez (öğrenci hiçbir şey kurmaz). -->
