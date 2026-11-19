@@ -8,8 +8,9 @@ name: build-agent
 #   SinavAjan.exe            öğrenci programının kurulumsuz, tek dosyalık hâli (ffmpeg içinde)
 #
 # Dosyalar zip'lenmeden, kendi adlarıyla artifact olarak yüklenir (90 gün saklanır).
-# v ile başlayan bir etiket (ör. v1.0.0) gönderilirse iki kurulum dosyası bir GitHub Release
-# TASLAĞINA eklenir; taslak, depo sahibinin "Publish release" demesiyle herkese açılır.
+# v ile başlayan bir etiket (ör. v1.0.0) oluşunca iki kurulum dosyası o etiketin GitHub
+# Release'ine eklenir (sürüm yoksa TASLAK olarak oluşturulur; taslak, depo sahibinin
+# "Publish release" demesiyle herkese açılır).
 
 on:
   push:
@@ -203,12 +204,18 @@ jobs:
           name: SinavAjan-Kurulum.exe
           path: paket
 
-      # Taslak olarak oluşturulur; yayımlamak depo sahibinin kararıdır.
-      - name: Release taslağı
+      # Bu etiket için bir sürüm (ya da taslağı) varsa dosyaları yenilenir; yoksa TASLAK
+      # oluşturulur. Taslağı yayımlamak depo sahibinin kararıdır.
+      - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          if gh release upload "$TAG" paket/SinavIzleme-Kurulum.exe paket/SinavAjan-Kurulum.exe \
+               --repo "$GITHUB_REPOSITORY" --clobber; then
+            echo "Var olan sürümün dosyaları yenilendi."
+            exit 0
+          fi
           gh release create "$TAG" paket/SinavIzleme-Kurulum.exe paket/SinavAjan-Kurulum.exe \
             --repo "$GITHUB_REPOSITORY" --draft \
             --title "Sınav İzleme Sistemi $TAG" \
