@@ -600,7 +600,7 @@ def test_class_and_teacher_name_are_changed_in_the_panel(env: Env):
     assert response.json() == {"sinif_adi": "Lab 3", "ogretmen_adi": "Dr. Işıl Öz"}
     info = env.student().get("/api/info").json()
     assert (info["sinif_adi"], info["ogretmen_adi"]) == ("Lab 3", "Dr. Işıl Öz")
-    assert env.store.snapshot()["class"] == {"sinif_adi": "Lab 3", "ogretmen_adi": "Dr. Işıl Öz"}
+    assert env.store.snapshot()["class"] == {"sinif_adi": "Lab 3", "ogretmen_adi": "Dr. Işıl Öz", "saved": True}
     assert "Lab 3" in env.student().get("/").text
 
     assert env.panel.post("/panel/api/identity", headers=PANEL,
@@ -991,3 +991,15 @@ def test_settings_file_opens_in_the_editor_and_the_installed_app_uses_a_copy_of_
     assert "# benim notum" in own.read_text(encoding="utf-8")
 
     assert env.student().post("/panel/api/open-settings", headers=PANEL).status_code == 403
+
+
+def test_panel_asks_for_the_class_details_until_they_were_entered_once(env: Env, tmp_path):
+    assert env.panel.get("/panel/api/state").json()["class"]["saved"] is False
+    env.panel.post("/panel/api/identity", headers=PANEL, json={"sinif_adi": "A-1", "ogretmen_adi": "Ada Kaya"})
+    assert env.panel.get("/panel/api/state").json()["class"] == {
+        "sinif_adi": "A-1", "ogretmen_adi": "Ada Kaya", "saved": True}
+
+    # The next start reads what was entered: nothing to ask.
+    again = Store(env.cfg)
+    again.load_settings()
+    assert again.snapshot()["class"]["saved"] is True

@@ -246,6 +246,7 @@ class Store:
         self.folder_error = ""
         self.closing = False  # agents are being told that the exam is closed
         self.panel_clients = 0  # panel windows that are open right now
+        self.identity_saved = False  # class and person name were entered in the panel
         self.roster: dict[str, RosterEntry] = {}
         self.roster_name = ""
         self.students: dict[str, Student] = {}
@@ -551,6 +552,7 @@ class Store:
         if isinstance(data, dict):
             self.cfg.sinif_adi = _clean(data.get("sinif_adi"), 60) or self.cfg.sinif_adi
             self.cfg.ogretmen_adi = _clean(data.get("ogretmen_adi"), 60) or self.cfg.ogretmen_adi
+            self.identity_saved = True
 
     def set_identity(self, sinif_adi: Any, ogretmen_adi: Any) -> None:
         if self.state == RUNNING:
@@ -566,6 +568,7 @@ class Store:
                 encoding="utf-8")
         except OSError as exc:
             raise ApiError(500, f"Ayar kaydedilemedi: {exc}") from exc
+        self.identity_saved = True
         self.changed()
 
     # ------------------------------------------------------------ exam control
@@ -1369,7 +1372,10 @@ class Store:
         ]
         return {
             "server_time": time.time(),
-            "class": {"sinif_adi": self.cfg.sinif_adi, "ogretmen_adi": self.cfg.ogretmen_adi},
+            # saved: the names were written in the panel at least once (not the sample names
+            # of a fresh installation); until then the panel asks for them when it opens.
+            "class": {"sinif_adi": self.cfg.sinif_adi, "ogretmen_adi": self.cfg.ogretmen_adi,
+                      "saved": self.identity_saved},
             "exam": {
                 "state": self.state,
                 "exam_id": self.exam_id,

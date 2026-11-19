@@ -1019,6 +1019,7 @@ function connectStream() {
     const down = $('banners').querySelector('.server-down');
     if (down) { down.remove(); $('banners').dataset.signature = ''; }
     render();
+    askIdentityOnce();
   };
   // Sunucu "Sistemi kapat" ile duruyor (bu pencereden ya da masaüstündeki sorudan).
   source.addEventListener('closed', () => { systemClosed = true; });
@@ -1266,6 +1267,16 @@ async function submitStart(event) {
   } catch (error) {
     toast(error.message, true);
   }
+}
+
+// İlk açılış: sınıf adı ve ad soyad hiç yazılmamışsa (örnek adlar duruyorsa) bir kez sor.
+let identityAsked = false;
+function askIdentityOnce() {
+  if (identityAsked || !S || S.class.saved || S.exam.state !== 'WAITING') return;
+  identityAsked = true;
+  if (DIALOGS.some((id) => !$(id).hidden)) return;
+  $('identityTeacher').value = '';
+  openDialog('identityDialog', 'identityClass', '');
 }
 
 function bindDialogs() {
