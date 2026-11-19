@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from . import usersettings
 from .config import Config
 from .naming import NUMARA_RE, name_key, natural_key, normalise_mac, submission_basename
 from .roster import RosterEntry
@@ -247,6 +248,9 @@ class Store:
         self.closing = False  # agents are being told that the exam is closed
         self.panel_clients = 0  # panel windows that are open right now
         self.identity_saved = False  # class and person name were entered in the panel
+        # "Diğer → Ayarlar": what was entered in the panel, laid over config.yaml's values.
+        self.settings_base = usersettings.Base(cfg)
+        self.user_settings: dict[str, Any] = {}
         self.roster: dict[str, RosterEntry] = {}
         self.roster_name = ""
         self.students: dict[str, Student] = {}
@@ -544,15 +548,63 @@ class Store:
     # --------------------------------------------------------------- settings
 
     def load_settings(self) -> None:
-        """Class and teacher names edited in the panel override config.yaml."""
+        """What was entered in the panel (class details, settings) overrides config.yaml."""
         try:
             data = json.loads(self.settings_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return
-        if isinstance(data, dict):
-            self.cfg.sinif_adi = _clean(data.get("sinif_adi"), 60) or self.cfg.sinif_adi
-            self.cfg.ogretmen_adi = _clean(data.get("ogretmen_adi"), 60) or self.cfg.ogretmen_adi
+        if not isinstance(data, dict):
+            return
+        sinif = _clean(data.get("sinif_adi"), 60)
+        ogretmen = _clean(data.get("ogretmen_adi"), 60)
+        if sinif and ogretmen:
+            self.cfg.sinif_adi, self.cfg.ogretmen_adi = sinif, ogretmen
             self.identity_saved = True
+        try:
+            self.user_settings = usersettings.clean(data.get("ayarlar") or {})
+        except usersettings.SettingsError as exc:
+            log.warning("settings.json içindeki ayarlar kullanılamadı: %s", exc)
+            self.user_settings = {}
+        usersettings.apply(self.cfg, self.settings_base, self.user_settings)
+
+    def _save_settings(self) -> None:
+        data: dict[str, Any] = {}
+        if self.identity_saved:
+            data["sinif_adi"], data["ogretmen_adi"] = self.cfg.sinif_adi, self.cfg.ogretmen_adi
+        if self.user_settings:
+            data["ayarlar"] = self.user_settings
+        try:
+            self.settings_path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        except OSError as exc:
+            raise ApiError(500, f"Ayar kaydedilemedi: {exc}") from exc
+
+    def settings_view(self) -> dict[str, Any]:
+        return usersettings.view(self.settings_base, self.user_settings)
+
+    def set_user_settings(self, raw: Any) -> dict[str, Any]:
+        """Save the settings window. Takes effect at once (see usersettings.apply)."""
+        try:
+            cleaned = usersettings.clean(raw)
+        except usersettings.SettingsError as exc:
+            raise ApiError(422, str(exc)) from exc
+        # A value equal to the base value is not stored: the base keeps applying, also after
+        # config.yaml changes.
+        defaults = usersettings.view(self.settings_base, {})["defaults"]
+        previous = self.user_settings
+        self.user_settings = {key: value for key, value in cleaned.items() if value != defaults.get(key)}
+        try:
+            self._save_settings()
+        except ApiError:
+            self.user_settings = previous
+            raise
+        usersettings.apply(self.cfg, self.settings_base, self.user_settings)
+        self.changed()
+        return self.settings_view()
+
+    def policy_file_reloaded(self) -> None:
+        """config.yaml was read again: its policy is the new base under the panel's settings."""
+        self.settings_base.policy = self.cfg.policy
+        usersettings.apply(self.cfg, self.settings_base, self.user_settings)
 
     def set_identity(self, sinif_adi: Any, ogretmen_adi: Any) -> None:
         if self.state == RUNNING:
@@ -561,14 +613,14 @@ class Store:
         ogretmen = _clean(ogretmen_adi, 60)
         if not sinif or not ogretmen:
             raise ApiError(422, "Sınıf (salon) adı ve ad soyad boş bırakılamaz.")
+        previous = (self.cfg.sinif_adi, self.cfg.ogretmen_adi, self.identity_saved)
         self.cfg.sinif_adi, self.cfg.ogretmen_adi = sinif, ogretmen
-        try:
-            self.settings_path.write_text(
-                json.dumps({"sinif_adi": sinif, "ogretmen_adi": ogretmen}, ensure_ascii=False, indent=1),
-                encoding="utf-8")
-        except OSError as exc:
-            raise ApiError(500, f"Ayar kaydedilemedi: {exc}") from exc
         self.identity_saved = True
+        try:
+            self._save_settings()
+        except ApiError:
+            self.cfg.sinif_adi, self.cfg.ogretmen_adi, self.identity_saved = previous
+            raise
         self.changed()
 
     # ------------------------------------------------------------ exam control
@@ -1326,7 +1378,8 @@ class Store:
     def snapshot(self, lan_ips: list[str] | None = None) -> dict[str, Any]:
         now_mono = time.monotonic()
         students = []
-        summary = {"total": 0, "connected": 0, "warned": 0, "lost": 0, "submitted": 0}
+        # total: students who have logged in; absent: on the list, not logged in yet.
+        summary = {"total": 0, "connected": 0, "warned": 0, "lost": 0, "submitted": 0, "absent": 0}
         for st in sorted(self.students.values(), key=lambda s: natural_key(s.numara)):
             status = self._status(st)
             summary["total"] += 1
@@ -1370,6 +1423,22 @@ class Store:
             for entry in sorted(self.roster.values(), key=lambda e: natural_key(e.numara))
             if entry.numara not in self.students
         ]
+        # Everybody on the list is shown from the moment the list is loaded: a black screen and
+        # "Giriş yapmadı" until the student logs in.
+        for entry in missing:
+            students.append({
+                "numara": entry["numara"], "ad": entry["ad"], "soyad": entry["soyad"],
+                "status": "absent", "lost_reason": "", "roster": "ok",
+                "ip": "", "hostname": "", "mac": "", "agent_version": "",
+                "login_ts": 0, "login_count": 0, "last_seen_s": None,
+                "fg_process": "", "fg_title": "", "monitors": 0, "ffmpeg_alive": False,
+                "exam_state_seen": "", "stream_ready": False,
+                "warn_count": 0, "ev_count": 0, "ack_id": 0,
+                "submission": None, "submission_count": 0,
+            })
+        summary["absent"] = len(missing)
+        if missing:
+            students.sort(key=lambda s: natural_key(s["numara"]))
         return {
             "server_time": time.time(),
             # saved: the names were written in the panel at least once (not the sample names

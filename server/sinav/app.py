@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from . import __version__
 from .config import Config, ConfigError, reload_policy
 from .discovery import DiscoveryResponder, lan_ips
-from .folderdialog import DialogUnavailable, open_folder, open_in_editor, open_panel_window, pick_folder
+from .folderdialog import DialogUnavailable, open_folder, open_panel_window, pick_folder
 from .mediamtx import fetch_streams, kick_publishers, set_recording
 from .roster import RosterError, parse_roster
 from .store import MAX_UPLOAD_BYTES, RUNNING, WAITING, ApiError, Store, Student
@@ -92,9 +92,15 @@ def create_app(cfg: Config) -> FastAPI:
                     store.save_if_dirty()
                 if count % 3 == 0:
                     try:
-                        if reload_policy(cfg):
-                            log.info("İzin listesi yeniden yüklendi (sürüm %s)", cfg.policy.version)
-                            store.changed(persist=False)
+                        read_before, version_before = cfg.mtime, cfg.policy.version
+                        reload_policy(cfg)
+                        if cfg.mtime != read_before:
+                            # The file was read again: what was entered in the panel
+                            # ("Ayarlar") stays in force on top of it.
+                            store.policy_file_reloaded()
+                            if cfg.policy.version != version_before:
+                                log.info("İzin listesi yeniden yüklendi (sürüm %s)", cfg.policy.version)
+                                store.changed(persist=False)
                         if store.config_error:
                             store.config_error = ""
                             store.changed(persist=False)
@@ -224,7 +230,6 @@ def create_app(cfg: Config) -> FastAPI:
     app.state.exit_code = 0
     app.state.stop_server = None  # set by run.py: stops the web server
     app.state.open_panel = False  # set by run.py --open-panel: show the panel window at start
-    app.state.user_config = None  # set by run.py --app: where the user's own settings file goes
 
     @app.exception_handler(ApiError)
     async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:
@@ -449,26 +454,14 @@ def create_app(cfg: Config) -> FastAPI:
             raise ApiError(501, f"Klasör açılamadı. Elle açın: {store.exam_dir}") from exc
         return {"folder": str(store.exam_dir)}
 
-    @app.post("/panel/api/open-settings", dependencies=[Depends(local_only)])
-    async def panel_open_settings() -> dict[str, Any]:
-        """Open the settings file (allowed programs and so on) in the editor of this computer.
+    @app.get("/panel/api/settings", dependencies=[Depends(local_only)])
+    async def panel_settings() -> dict[str, Any]:
+        """The settings window ("Diğer → Ayarlar"): values in force, defaults and limits."""
+        return store.settings_view()
 
-        The installed application keeps its own settings read-only under "Program Files"; the
-        first time, a copy is made in the user's folder and that copy is used from then on.
-        """
-        own = getattr(app.state, "user_config", None)
-        try:
-            if own is not None and Path(own) != cfg.path:
-                own = Path(own)
-                if not own.is_file():
-                    own.parent.mkdir(parents=True, exist_ok=True)
-                    own.write_bytes(cfg.path.read_bytes())
-                cfg.path = own
-                cfg.mtime = own.stat().st_mtime
-            open_in_editor(str(cfg.path))
-        except OSError as exc:
-            raise ApiError(501, f"Ayar dosyası açılamadı. Elle açın: {cfg.path}") from exc
-        return {"file": str(cfg.path)}
+    @app.post("/panel/api/settings", dependencies=[Depends(local_only)])
+    async def panel_save_settings(request: Request) -> dict[str, Any]:
+        return store.set_user_settings(await json_body(request))
 
     @app.post("/panel/api/exam-file", dependencies=[Depends(local_only)])
     async def panel_exam_file(request: Request) -> dict[str, Any]:

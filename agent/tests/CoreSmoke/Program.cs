@@ -96,6 +96,19 @@ internal static class Program
         Check(Policy.Compile(@"C:\A*\b?.exe").IsMatch(@"C:\Abc\b1.exe"), "glob * ve ?");
         Check(!Policy.Compile(@"C:\A*\b.exe").IsMatch(@"C:\Abc\x\b.exe"), "glob * klasör aşmaz");
         Check(Policy.Compile(@"C:\A\**\b.exe").IsMatch(@"C:\A\x\y\b.exe"), "glob ** klasör aşar");
+
+        // Panelde "Ayarlar → İzin verilen programlar"a yazılan bir program adı: nereye kurulu
+        // olursa olsun izinlidir; adı yalnızca benzeyen bir program izinli olmaz.
+        var byName = Policy.Compile(@"**\putty.exe");
+        Check(byName.IsMatch(@"C:\Program Files\PuTTY\putty.exe"), "adıyla izin: Program Files altında");
+        Check(byName.IsMatch(@"D:\Araçlar\İndirilenler\PUTTY.EXE"), "adıyla izin: başka klasörde, büyük harfle");
+        Check(!byName.IsMatch(@"C:\Program Files\PuTTY\notputty.exe"), "adıyla izin: adı benzeyen program izinli değil");
+        Check(!byName.IsMatch(@"C:\putty.exe.indirilen\chrome.exe"), "adıyla izin: klasör adı program sayılmaz");
+        var named = new Policy(new PolicyDto { Patterns = new List<string> { @"**\putty.exe" } }, @"C:\Windows",
+            Array.Empty<string?>());
+        Equal(PathClass.Allowed, named.Classify(@"C:\Windows\System32\putty.exe"), "adıyla izin: Windows klasöründe de izinli");
+        Equal(PathClass.Forbidden, named.Classify(@"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+            "adıyla izin: listede olmayan program yasak");
     }
 
     private static void TurkishCultureTests()

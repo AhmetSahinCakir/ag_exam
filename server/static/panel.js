@@ -12,6 +12,7 @@ const STATUS_TEXT = {
   done: 'Teslim etti',
   nosubmit: 'Teslim yok',
   nofile: 'Dosya klasörde yok',
+  absent: 'Giriş yapmadı',          // öğrenci listesinde var, henüz giriş yapmadı
 };
 const STATE_TEXT = { WAITING: 'Sınav başlamadı', RUNNING: 'Sınav sürüyor', ENDED: 'Sınav bitti' };
 const ROSTER_TEXT = {
@@ -327,6 +328,7 @@ function statusText(st) {
 }
 
 function noVideoText(st) {
+  if (st.status === 'absent') return STATUS_TEXT.absent;
   if (st.status === 'done') return doneText(st);
   if (st.status === 'nosubmit') return 'Teslim yok';
   if (st.status === 'nofile') return 'Dosya klasörde yok';
@@ -394,8 +396,10 @@ function renderTiles() {
   const grid = $('grid');
   const seen = new Set();
   let previous = null;
-  // Teslim edenlerin ekranı sona gider; kalanlar numara sırasıyla üstte durur.
-  const ordered = S.students.slice().sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done'));
+  // Giriş yapanlar numara sırasıyla üstte durur; listede olup henüz giriş yapmayanlar onların
+  // ardından, teslim edenler en sonda gelir.
+  const rank = (st) => (st.status === 'done' ? 2 : st.status === 'absent' ? 1 : 0);
+  const ordered = S.students.slice().sort((a, b) => rank(a) - rank(b));
   for (const st of ordered) {
     seen.add(st.numara);
     let tile = tiles.get(st.numara);
@@ -651,7 +655,8 @@ function renderSummary() {
   const sum = S.summary;
   // Sınav bittikten sonra kırmızı sayı "bağlantısı kopan" değil, "teslim etmeyen"dir.
   const lostLabel = S.exam.state === 'ENDED' ? 'teslim etmedi' : 'kopuk';
-  const signature = `${sum.connected}|${sum.warned}|${sum.lost}|${sum.submitted}|${lostLabel}`;
+  const absent = sum.absent || 0;
+  const signature = `${sum.connected}|${sum.warned}|${sum.lost}|${sum.submitted}|${absent}|${lostLabel}`;
   const box = $('summary');
   if (box.dataset.signature !== signature) {
     box.dataset.signature = signature;
@@ -661,6 +666,8 @@ function renderSummary() {
       summaryItem('var(--lost)', sum.lost, lostLabel),
       summaryItem('var(--done)', sum.submitted, 'teslim etti'),
     );
+    // Yalnızca öğrenci listesi yüklüyse ve giriş yapmayan varsa gösterilir.
+    if (absent > 0) box.append(summaryItem('var(--absent)', absent, 'giriş yapmadı'));
   }
   // Daraltılmış şerit: aynı sayılar alt alta.
   const rail = $('railSummary');
@@ -672,6 +679,7 @@ function renderSummary() {
       railItem('var(--lost)', sum.lost, lostLabel),
       railItem('var(--done)', sum.submitted, 'teslim etti'),
     );
+    if (absent > 0) rail.append(railItem('var(--absent)', absent, 'giriş yapmadı'));
   }
   const unseen = warningAlerts().filter(isUnseen).length;
   $('railAlerts').hidden = unseen === 0;
@@ -721,6 +729,8 @@ function createRow(numara) {
 }
 
 function toggleRow(numara) {
+  const st = byNumara.get(numara);
+  if (st && st.status === 'absent') return;       // giriş yapmayanın gösterilecek ayrıntısı yok
   if (expanded.has(numara)) expanded.delete(numara);
   else expanded.add(numara);
   renderList();
@@ -728,6 +738,7 @@ function toggleRow(numara) {
 
 /* Satırın sağındaki tek satırlık not: görülmemiş son uyarı, yoksa durum. */
 function rowNote(st, alert) {
+  if (st.status === 'absent') return STATUS_TEXT.absent;
   if (st.status === 'lost' || st.status === 'nofile' || st.status === 'nosubmit') return statusText(st);
   if (alert) return alert.message;
   if (st.status === 'done') return doneText(st);
@@ -741,16 +752,6 @@ function renderList() {
   $('alertList').hidden = !showAlerts;
   if (showAlerts) renderAlertList();
   else renderStudentList();
-
-  const missing = S.roster.missing;
-  $('missing').hidden = missing.length === 0 || showAlerts;
-  setText($('missingCount'), String(missing.length));
-  const missingSignature = missing.map((m) => m.numara).join(',');
-  const missingList = $('missingList');
-  if (missingList.dataset.signature !== missingSignature) {
-    missingList.dataset.signature = missingSignature;
-    missingList.replaceChildren(...missing.map((m) => el('div', '', `${m.numara} ${m.ad} ${m.soyad}`.trim())));
-  }
 }
 
 function renderStudentList() {
@@ -810,6 +811,7 @@ function alertItem(alert) {
 }
 
 function updateRow(row, st, alert) {
+  if (st.status === 'absent') expanded.delete(st.numara);
   const open = expanded.has(st.numara);
   const statusClass = `st-${st.status}`;
   if (row.statusClass !== statusClass) {
@@ -911,6 +913,8 @@ function checkNewAlerts() {
 
 function openModal(numara) {
   if (!tiles.has(numara)) return;
+  const st = byNumara.get(numara);
+  if (st && st.status === 'absent') return;       // giriş yapmayanın ekranı ve bilgisi yok
   modalNumara = numara;
   modalEvCount = -1;
   $('modalEvents').replaceChildren();
@@ -1065,7 +1069,8 @@ function closeMenu() {
 
 /* Programı hâlâ açık olan, teslim etmemiş öğrenciler. */
 function openStudents() {
-  return S.students.filter((st) => st.status !== 'done' && st.status !== 'nofile' && st.last_seen_s < 10);
+  return S.students.filter((st) => st.status !== 'done' && st.status !== 'nofile' && st.status !== 'absent'
+    && st.last_seen_s < 10);
 }
 
 async function resetExam() {
@@ -1092,11 +1097,14 @@ async function resetExam() {
 function openEndDialog() {
   if (!S || S.exam.state !== 'RUNNING') return;
   closeMenu();
-  const total = S.students.length;
-  const waiting = S.students.filter((st) => st.status !== 'done').length;
-  setText($('endSummary'), waiting === 0
+  const present = S.students.filter((st) => st.status !== 'absent');
+  const total = present.length;
+  const waiting = present.filter((st) => st.status !== 'done').length;
+  let summary = waiting === 0
     ? (total ? 'Giriş yapan bütün öğrenciler teslim etti.' : 'Giriş yapan öğrenci yok.')
-    : `Henüz teslim etmeyen öğrenci: ${waiting} (toplam ${total}).`);
+    : `Henüz teslim etmeyen öğrenci: ${waiting} (giriş yapan ${total}).`;
+  if (S.summary.absent > 0) summary += ` Listede olup giriş yapmayan: ${S.summary.absent}.`;
+  setText($('endSummary'), summary);
   let hint = 'Öğrenciler yazdığınız süreyi geri sayım olarak görür. Süre dolunca sınav kendiliğinden bitmez.';
   if (S.exam.ends_at) {
     const serverNow = S.server_time + (Date.now() - receivedAt) / 1000;
@@ -1190,14 +1198,121 @@ async function openExamFolder() {
   }
 }
 
-async function openSettingsFile() {
+/* ----------------------------------------------------------------- ayarlar penceresi */
+
+let settingsInfo = null;          // sunucudan gelen: values, defaults, limits
+let settingsPrograms = [];        // penceredeki "izin verilen programlar" listesi
+
+function renderSettingsPrograms() {
+  const fixed = el('li', 'fixed');
+  fixed.append(el('span', '', 'Packet Tracer'));
+  fixed.title = 'Her zaman izinlidir';
+  const items = settingsPrograms.map((name) => {
+    const item = el('li');
+    item.title = name;
+    const remove = el('button', '', '×');
+    remove.type = 'button';
+    remove.title = `${name} iznini kaldır`;
+    remove.setAttribute('aria-label', remove.title);
+    remove.addEventListener('click', () => {
+      settingsPrograms = settingsPrograms.filter((other) => other !== name);
+      renderSettingsPrograms();
+    });
+    item.append(el('span', '', name), remove);
+    return item;
+  });
+  $('settingsPrograms').replaceChildren(fixed, ...items);
+}
+
+/* "putty" -> "putty.exe"; aynı program iki kez eklenmez. Kurallara uymayanı sunucu geri çevirir. */
+function addSettingsProgram(text) {
+  let name = String(text || '').trim().replace(/^["']+|["']+$/g, '');
+  if (!name) return;
+  if (!/[\\/:%]/.test(name) && !name.includes('.')) name += '.exe';
+  if (!settingsPrograms.some((other) => other.toLowerCase() === name.toLowerCase())) settingsPrograms.push(name);
+  renderSettingsPrograms();
+}
+
+function fillSettings(values) {
+  settingsPrograms = values.programs.slice();
+  renderSettingsPrograms();
+  $('settingsProgram').value = '';
+  for (const radio of document.getElementsByName('settingsQuality')) radio.checked = radio.value === values.quality;
+  $('setForeground').value = values.foreground_tolerance_s;
+  $('setKill').value = values.kill_countdown_s;
+  $('setDisconnect').value = values.disconnect_s;
+  $('setCloseWait').value = values.close_wait_min;
+  $('setNote').value = values.retention_note;
+}
+
+async function openSettings() {
   closeMenu();
   try {
-    await api('/panel/api/open-settings');
-    toast('Ayar dosyası Not Defteri\'nde açıldı. İzin verilen programlar kaydedince hemen, diğer ayarlar sistem yeniden açılınca geçerli olur.');
+    settingsInfo = await api('/panel/api/settings', { method: 'GET' });
+  } catch (error) {
+    toast(error.message, true);
+    return;
+  }
+  const limits = settingsInfo.limits;
+  for (const [id, key] of [['setForeground', 'foreground_tolerance_s'], ['setKill', 'kill_countdown_s'],
+    ['setDisconnect', 'disconnect_s'], ['setCloseWait', 'close_wait_min']]) {
+    $(id).min = limits[key].min;
+    $(id).max = limits[key].max;
+  }
+  $('setNote').maxLength = settingsInfo.max_note;
+  fillSettings(settingsInfo.values);
+  $('settingsDialog').hidden = false;
+  $('settingsCancel').focus();
+}
+
+async function saveSettings(event) {
+  event.preventDefault();
+  // Kutuda yazılıp "Ekle"ye basılmamış bir program adı da sayılır.
+  addSettingsProgram($('settingsProgram').value);
+  $('settingsProgram').value = '';
+  const quality = Array.from(document.getElementsByName('settingsQuality')).find((radio) => radio.checked);
+  try {
+    await api('/panel/api/settings', {
+      json: {
+        programs: settingsPrograms,
+        quality: quality ? quality.value : 'normal',
+        foreground_tolerance_s: $('setForeground').value,
+        kill_countdown_s: $('setKill').value,
+        disconnect_s: $('setDisconnect').value,
+        close_wait_min: $('setCloseWait').value,
+        retention_note: $('setNote').value,
+      },
+    });
+    closeDialogs();
+    toast('Ayarlar kaydedildi.');
   } catch (error) {
     toast(error.message, true);
   }
+}
+
+function bindSettings() {
+  $('btnSettings').addEventListener('click', openSettings);
+  $('settingsCancel').addEventListener('click', closeDialogs);
+  $('settingsForm').addEventListener('submit', saveSettings);
+  $('settingsDefaults').addEventListener('click', () => { if (settingsInfo) fillSettings(settingsInfo.defaults); });
+  $('settingsProgramAdd').addEventListener('click', () => {
+    addSettingsProgram($('settingsProgram').value);
+    $('settingsProgram').value = '';
+    $('settingsProgram').focus();
+  });
+  // Enter, formu kaydetmek yerine programı listeye ekler.
+  $('settingsProgram').addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    $('settingsProgramAdd').click();
+  });
+  // Dosya yüklenmez: tarayıcıdan yalnızca seçilen programın adı alınır.
+  $('settingsProgramPick').addEventListener('click', () => $('settingsProgramFile').click());
+  $('settingsProgramFile').addEventListener('change', () => {
+    const file = $('settingsProgramFile').files[0];
+    if (file) addSettingsProgram(file.name);
+    $('settingsProgramFile').value = '';
+  });
 }
 
 function openDialog(id, focusId, value) {
@@ -1209,7 +1324,7 @@ function openDialog(id, focusId, value) {
   input.select();
 }
 
-const DIALOGS = ['identityDialog', 'folderDialog', 'startDialog', 'endDialog', 'shutdownDialog'];
+const DIALOGS = ['identityDialog', 'folderDialog', 'startDialog', 'endDialog', 'shutdownDialog', 'settingsDialog'];
 
 function closeDialogs() {
   for (const id of DIALOGS) $(id).hidden = true;
@@ -1340,7 +1455,7 @@ function bindControls() {
   bindDialogs();
   $('btnFolder').addEventListener('click', chooseFolder);
   $('btnOpenFolder').addEventListener('click', openExamFolder);
-  $('btnSettings').addEventListener('click', openSettingsFile);
+  bindSettings();
   $('btnOpenFolderTop').addEventListener('click', openExamFolder);
   $('ackAll').addEventListener('click', async () => {
     try { await api('/panel/api/ack', { json: {} }); } catch (error) { toast(error.message, true); }

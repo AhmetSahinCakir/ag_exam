@@ -112,8 +112,6 @@ def main() -> int:
                         datefmt="%H:%M:%S")
     app = create_app(cfg)
     app.state.open_panel = args.open_panel or args.app
-    if home is not None:
-        app.state.user_config = home / "config.yaml"
 
     ips = lan_ips()
     print("=" * 66)

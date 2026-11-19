@@ -29,6 +29,8 @@ bölümüne bakın.
 - [ ] Öğrenci Packet Tracer'da çalışırken (cihaz ekleme, komut penceresi açma) uyarı
       **çıkmıyor.**
 - [ ] Öğrenci tarayıcı açınca tarayıcı kapanıyor ve panelde uyarı çıkıyor.
+- [ ] Sınavda başka bir program da kullanılacaksa: **Diğer → Ayarlar**'da adını ekleyin;
+      öğrencide o program artık kapatılmıyor.
 - [ ] Öğrencide Wi-Fi'yı kapatıp açın: ekran kırmızıya dönüp bağlantı gelince düzeliyor.
 - [ ] Son 10 dakikada öğrencide bir kez uyarı çıkıyor ve süre kırmızıya dönüyor.
 - [ ] Süre dolunca sınav bitmiyor; panelde “süre aşıldı” yazıyor.

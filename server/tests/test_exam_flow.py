@@ -5,10 +5,12 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import json
 import os
 import time
 
 from conftest import EXAM_BYTES, PANEL, Env
+from sinav.config import load_config
 from openpyxl import Workbook
 
 from sinav.store import CLOSED, ENDED, RUNNING, WAITING, Store
@@ -422,7 +424,9 @@ def test_new_exam_keeps_every_file_of_the_finished_one(env: Env):
     snapshot = env.store.snapshot()
     assert snapshot["exam"]["state"] == WAITING and snapshot["exam"]["file"] is None
     assert snapshot["exam"]["folder"] == ""  # the next exam gets its own folder
-    assert snapshot["students"] == [] and snapshot["roster"]["count"] == 1  # roster is kept
+    # The roster is kept: its student is shown again as "not logged in yet".
+    assert env.store.students == {} and snapshot["roster"]["count"] == 1
+    assert [(s["numara"], s["status"]) for s in snapshot["students"]] == [("2021001", "absent")]
     assert client.post("/api/heartbeat", json={}).status_code == 401  # old sessions are gone
 
 
@@ -966,33 +970,6 @@ def test_student_program_is_one_file_that_can_be_downloaded_from_the_server(env:
     assert 'filename="SinavAjan.exe"' in download.headers["content-disposition"]
 
 
-def test_settings_file_opens_in_the_editor_and_the_installed_app_uses_a_copy_of_its_own(env: Env, monkeypatch):
-    import sinav.app as app_module
-
-    opened = []
-    monkeypatch.setattr(app_module, "open_in_editor", lambda path: opened.append(path))
-
-    # Started from the folder (start-teacher.bat): the settings file itself is opened.
-    answer = env.panel.post("/panel/api/open-settings", headers=PANEL).json()
-    assert answer["file"] == str(env.cfg.path) and opened == [str(env.cfg.path)]
-
-    # Installed application: its settings are read-only, so the user gets a copy.
-    packaged = env.cfg.path
-    own = env.tmp_path / "kullanici" / "config.yaml"
-    env.app.state.user_config = own
-    answer = env.panel.post("/panel/api/open-settings", headers=PANEL).json()
-    assert answer["file"] == str(own) and opened[-1] == str(own)
-    assert own.read_bytes() == packaged.read_bytes()
-    assert env.cfg.path == own                      # changes to the copy are picked up from now on
-
-    # The copy is never overwritten by a later click.
-    own.write_text(own.read_text(encoding="utf-8") + "\n# benim notum\n", encoding="utf-8")
-    env.panel.post("/panel/api/open-settings", headers=PANEL)
-    assert "# benim notum" in own.read_text(encoding="utf-8")
-
-    assert env.student().post("/panel/api/open-settings", headers=PANEL).status_code == 403
-
-
 def test_panel_asks_for_the_class_details_until_they_were_entered_once(env: Env, tmp_path):
     assert env.panel.get("/panel/api/state").json()["class"]["saved"] is False
     env.panel.post("/panel/api/identity", headers=PANEL, json={"sinif_adi": "A-1", "ogretmen_adi": "Ada Kaya"})
@@ -1003,3 +980,129 @@ def test_panel_asks_for_the_class_details_until_they_were_entered_once(env: Env,
     again = Store(env.cfg)
     again.load_settings()
     assert again.snapshot()["class"]["saved"] is True
+
+
+# ------------------------------------------------------- students of the list before they log in
+
+
+def test_students_of_the_list_are_shown_before_they_log_in(env: Env):
+    assert env.store.snapshot()["students"] == []
+    upload_roster(env, [[2021003, "Can", "Demir"], [2021001, "Ali", "Veli"], [2021002, "Ayşe", "Yılmaz"]])
+
+    snapshot = env.panel.get("/panel/api/state").json()
+    assert [(s["numara"], s["ad"], s["status"]) for s in snapshot["students"]] == [
+        ("2021001", "Ali", "absent"), ("2021002", "Ayşe", "absent"), ("2021003", "Can", "absent")]
+    assert all(s["stream_ready"] is False and s["submission"] is None for s in snapshot["students"])
+    assert snapshot["summary"] == {"total": 0, "connected": 0, "warned": 0, "lost": 0, "submitted": 0, "absent": 3}
+
+    # A student who logs in takes the place of the placeholder; a student who is not on the
+    # list is shown as well.
+    env.login(numara="2021002", ad="Ayşe", soyad="Yılmaz")
+    env.login(numara="2021009", ad="Liste", soyad="Dışı", ip="192.168.1.59", mac="AA:BB:CC:00:00:09")
+    snapshot = env.store.snapshot()
+    assert [(s["numara"], s["status"]) for s in snapshot["students"]] == [
+        ("2021001", "absent"), ("2021002", "ok"), ("2021003", "absent"), ("2021009", "warn")]
+    assert snapshot["summary"]["total"] == 2 and snapshot["summary"]["absent"] == 2
+
+    # Still listed while the exam runs and after it ended.
+    env.choose_folder()
+    env.upload_exam()
+    env.start()
+    assert env.snapshot_student("2021001")["status"] == "absent"
+    env.panel.post("/panel/api/end", headers=PANEL)
+    assert env.snapshot_student("2021001")["status"] == "absent"
+    assert env.snapshot_student("2021002")["status"] == "nosubmit"
+
+
+# ---------------------------------------------------------------------- settings in the panel
+
+
+def test_settings_window_shows_the_values_in_force(env: Env):
+    view = env.panel.get("/panel/api/settings").json()
+    assert view["values"] == view["defaults"] == {
+        "programs": [], "quality": "normal", "foreground_tolerance_s": 5, "kill_countdown_s": 10,
+        "disconnect_s": 10, "close_wait_min": 2, "retention_note": env.cfg.retention_note,
+    }
+    assert view["limits"]["foreground_tolerance_s"] == {"min": 1, "max": 120}
+    assert env.student().get("/panel/api/settings").status_code == 403
+    assert env.student().post("/panel/api/settings", headers=PANEL, json={}).status_code == 403
+
+
+def test_settings_changed_in_the_panel_take_effect_at_once(env: Env):
+    client, session = env.login()
+    version = session["allowlist"]["version"]
+    assert "fps" not in session["stream"]
+
+    saved = env.panel.post("/panel/api/settings", headers=PANEL, json={
+        "programs": ["putty.exe", "Wireshark", r"C:\Program Files\Tera Term\\", "PUTTY.EXE"],
+        "quality": "low", "foreground_tolerance_s": 8, "kill_countdown_s": 0, "disconnect_s": 20,
+        "close_wait_min": 5, "retention_note": "Kayıtlar  30 gün\nsaklanır.",
+    })
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["values"]["programs"] == ["putty.exe", "Wireshark.exe", "C:\\Program Files\\Tera Term\\"]
+
+    # The student program that is already running is told that the rules changed ...
+    beat = client.post("/api/heartbeat", json={}).json()
+    assert beat["allowlist_version"] != version
+    policy = env.cfg.policy
+    assert policy.patterns[:2] == ["C:\\Program Files\\Cisco Packet Tracer*\\",
+                                   "C:\\Program Files (x86)\\Cisco Packet Tracer*\\"]
+    assert policy.patterns[2:] == ["**\\putty.exe", "**\\Wireshark.exe", "C:\\Program Files\\Tera Term\\"]
+    assert (policy.foreground_tolerance_s, policy.kill_countdown_s) == (8, 0)
+    assert env.store.agent_settings()["foreground_tolerance_s"] == 8
+    # ... and the rest applies on the server at once.
+    assert env.cfg.disconnect_s == 20 and env.cfg.close_after_busy_s == 300
+    assert env.student().get("/api/info").json()["retention_note"] == "Kayıtlar 30 gün saklanır."
+    # The picture quality reaches a student at the next login.
+    _, again = env.login(numara="2021002", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
+    assert (again["stream"]["fps"], again["stream"]["width"], again["stream"]["bitrate_kbps"]) == (3, 960, 300)
+
+    # Kept for the next start; class details and settings share the file without losing each other.
+    env.panel.post("/panel/api/identity", headers=PANEL, json={"sinif_adi": "A-1", "ogretmen_adi": "Ada Kaya"})
+    stored = json.loads(env.store.settings_path.read_text(encoding="utf-8"))
+    assert stored["sinif_adi"] == "A-1" and stored["ayarlar"]["quality"] == "low"
+    fresh = load_config(env.cfg.path)
+    restarted = Store(fresh)
+    restarted.load_settings()
+    assert restarted.user_settings == env.store.user_settings
+    assert fresh.policy.patterns == policy.patterns and fresh.disconnect_s == 20
+    assert fresh.sinif_adi == "A-1" and restarted.identity_saved
+
+    # Back to the defaults: nothing is stored any more.
+    defaults = env.panel.get("/panel/api/settings").json()["defaults"]
+    env.panel.post("/panel/api/settings", headers=PANEL, json=defaults)
+    assert env.store.user_settings == {}
+    assert len(env.cfg.policy.patterns) == 2 and env.cfg.disconnect_s == 10 and env.cfg.stream_fps is None
+    assert "ayarlar" not in json.loads(env.store.settings_path.read_text(encoding="utf-8"))
+
+
+def test_settings_that_cannot_be_used_are_refused_and_change_nothing(env: Env):
+    env.panel.post("/panel/api/settings", headers=PANEL, json={"programs": ["putty.exe"]})
+    for bad, text in (
+        ({"programs": ["C:\\**"]}, "çok geniş"),
+        ({"programs": ["*.exe"]}, "dosya adını"),
+        ({"programs": ["notlar.txt"]}, "dosya adını"),
+        ({"programs": ["Program Files\\x\\"]}, "C:\\"),
+        ({"programs": "putty.exe"}, "liste"),
+        ({"foreground_tolerance_s": 0}, "1 ile 120"),
+        ({"disconnect_s": "çok"}, "sayı"),
+        ({"quality": "ultra"}, "Görüntü kalitesi"),
+        ({"retention_note": "x" * 401}, "400"),
+    ):
+        response = env.panel.post("/panel/api/settings", headers=PANEL, json=bad)
+        assert response.status_code == 422 and text in response.json()["error"], (bad, response.text)
+    assert env.store.user_settings == {"programs": ["putty.exe"]}
+    assert env.cfg.policy.patterns[-1] == "**\\putty.exe"
+
+
+def test_panel_settings_stay_in_force_when_the_settings_file_is_read_again(env: Env):
+    env.panel.post("/panel/api/settings", headers=PANEL, json={"programs": ["putty.exe"], "kill_countdown_s": 3})
+    text = env.cfg.path.read_text(encoding="utf-8")
+    env.cfg.path.write_text(text + "\nizin_listesi:\n  - 'D:\\Araclar\\'\n", encoding="utf-8")
+    os.utime(env.cfg.path, (time.time() + 5, time.time() + 5))
+
+    from sinav.config import reload_policy
+    reload_policy(env.cfg)
+    env.store.policy_file_reloaded()
+    assert env.cfg.policy.patterns == ["D:\\Araclar\\", "**\\putty.exe"]
+    assert env.cfg.policy.kill_countdown_s == 3

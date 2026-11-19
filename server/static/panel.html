@@ -45,7 +45,7 @@
           <button id="btnRosterMenu" type="button" class="menu-item">Öğrenci listesi yükle (Excel)</button>
           <a id="btnExport" class="menu-item" href="/panel/api/export.csv">Olay kaydını indir (CSV)</a>
           <button id="btnReset" type="button" class="menu-item">Yeni sınav hazırla</button>
-          <button id="btnSettings" type="button" class="menu-item">Ayar dosyasını aç</button>
+          <button id="btnSettings" type="button" class="menu-item">Ayarlar…</button>
           <div class="menu-sep"></div>
           <label class="menu-check"><input id="sound" type="checkbox"> Uyarılarda ses çal</label>
           <label class="menu-check" title="Ekranda görünmeyen kutuların görüntüsü durdurulur; bilgisayar zorlanıyorsa açın">
@@ -129,10 +129,6 @@
       <ul id="studentList"></ul>
       <ul id="alertList" hidden></ul>
       <div id="listEmpty" class="list-empty" hidden></div>
-      <details id="missing" hidden>
-        <summary>Giriş yapmayanlar <span id="missingCount">0</span></summary>
-        <div id="missingList"></div>
-      </details>
       </div>
     </aside>
   </main>
@@ -263,6 +259,74 @@
       <div class="dialog-actions">
         <button id="folderCancel" type="button">Vazgeç</button>
         <button type="submit" class="primary">Kullan</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Ayarlar -->
+  <div id="settingsDialog" class="modal" hidden>
+    <form id="settingsForm" class="dialog settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" novalidate>
+      <h2 id="settingsTitle">Ayarlar</h2>
+      <div class="settings-body">
+
+        <section>
+          <h3>İzin verilen programlar</h3>
+          <p class="field-hint">Sınav sırasında yalnızca Packet Tracer açık kalabilir. Başka bir programa da izin
+            vermek için adını ekleyin. Sınav sürerken de ekleyebilirsiniz; hemen geçerli olur.</p>
+          <ul id="settingsPrograms" class="chips"></ul>
+          <div class="inline-field">
+            <input id="settingsProgram" type="text" maxlength="200" autocomplete="off" spellcheck="false"
+                   placeholder="ör. putty.exe" aria-label="Program adı">
+            <button id="settingsProgramAdd" type="button">Ekle</button>
+            <button id="settingsProgramPick" type="button">Bilgisayardan seç…</button>
+            <input id="settingsProgramFile" type="file" accept=".exe" hidden>
+          </div>
+        </section>
+
+        <section>
+          <h3>Ekran görüntüsü</h3>
+          <div class="choice-col">
+            <label class="choice"><input type="radio" name="settingsQuality" value="low"> Düşük
+              <span class="soft">— yavaş ya da kalabalık ağlar için</span></label>
+            <label class="choice"><input type="radio" name="settingsQuality" value="normal"> Normal</label>
+            <label class="choice"><input type="radio" name="settingsQuality" value="high"> Yüksek
+              <span class="soft">— az öğrenci ya da güçlü ağ için</span></label>
+          </div>
+          <p class="field-hint">Değişiklik, öğrencinin bir sonraki girişinde geçerli olur.</p>
+        </section>
+
+        <section>
+          <h3>Uyarılar ve süreler</h3>
+          <div class="setting-row">
+            <label for="setForeground">Öğrenci başka bir pencereye geçince uyar</label>
+            <span class="unit"><input id="setForeground" type="number" step="1" inputmode="numeric" autocomplete="off"> saniye sonra</span>
+          </div>
+          <div class="setting-row">
+            <label for="setKill">Sınav başlayınca izin verilmeyen programları kapat</label>
+            <span class="unit"><input id="setKill" type="number" step="1" inputmode="numeric" autocomplete="off"> saniye sonra</span>
+          </div>
+          <div class="setting-row">
+            <label for="setDisconnect">Bağlantısı kesilen öğrenciyi “bağlantı yok” göster</label>
+            <span class="unit"><input id="setDisconnect" type="number" step="1" inputmode="numeric" autocomplete="off"> saniye sonra</span>
+          </div>
+          <div class="setting-row">
+            <label for="setCloseWait">Öğrenciler bağlıyken panel kapanırsa sistemi kapat</label>
+            <span class="unit"><input id="setCloseWait" type="number" step="1" inputmode="numeric" autocomplete="off"> dakika sonra</span>
+          </div>
+        </section>
+
+        <section>
+          <h3>Öğrenciye gösterilen bilgilendirme</h3>
+          <textarea id="setNote" rows="3" maxlength="400" spellcheck="false"
+                    aria-label="Öğrenciye gösterilen bilgilendirme"></textarea>
+          <p class="field-hint">Öğrenci giriş yapmadan önce, ekranının izleneceğini bildiren yazının ardından gösterilir.</p>
+        </section>
+      </div>
+      <div class="dialog-actions">
+        <button id="settingsDefaults" type="button" class="link small">Varsayılanlara dön</button>
+        <span class="spacer"></span>
+        <button id="settingsCancel" type="button">Vazgeç</button>
+        <button type="submit" class="primary">Kaydet</button>
       </div>
     </form>
   </div>

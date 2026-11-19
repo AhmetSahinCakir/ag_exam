@@ -55,13 +55,16 @@ Panelin üstündeki üç adımı sırayla yapın:
    klasör açılır: **Kayıtlar** (ekran kayıtları), **Teslimler** (teslim edilen dosyalar),
    **Uyarılar** (her öğrencinin uyarıları). Her sınav için ayrı bir klasör seçin.
 2. **Sınav dosyası → Dosya seç.** Öğrencilere verilecek `.pka` dosyası.
-3. **Öğrenci listesi → Dosya seç.** İsteğe bağlıdır (aşağıya bakın).
+3. **Öğrenci listesi → Dosya seç.** İsteğe bağlıdır (aşağıya bakın). Listeyi yüklediğiniz anda
+   bütün öğrenciler siyah ekranlı kutular olarak ve sağdaki listede “Giriş yapmadı” diye
+   görünür.
 
 ### 3. Öğrenciler giriş yapar
 
 Öğrenciler modeme bağlanıp programı açar ve giriş yapar. Her öğrencinin ekranı solda, adı
-sağdaki listede görünür. Bu sırada hiçbir program kapatılmaz; öğrenciler Packet Tracer'ı
-açıp hesaplarına giriş yapsın.
+sağdaki listede görünür. Liste yüklediyseniz giriş yapan öğrencinin siyah kutusu canlı
+ekrana döner ve öne geçer; kimin eksik olduğunu kalan siyah kutulardan görürsünüz. Bu sırada
+hiçbir program kapatılmaz; öğrenciler Packet Tracer'ı açıp hesaplarına giriş yapsın.
 
 ### 4. Sınavı başlatın
 
@@ -144,7 +147,24 @@ Sütunları **numara, ad, soyad** olan bir Excel dosyası. Liste yüklüyse:
 
 - Listede olmayan bir numarayla ya da farklı bir adla giriş yapılırsa uyarı çıkar (giriş yine
   kabul edilir).
-- Henüz giriş yapmamış öğrencileri “Giriş yapmayanlar” bölümünde görürsünüz.
+- Listedeki bütün öğrenciler, sınav başlamadan da, siyah ekranlı kutular olarak ve sağdaki
+  listede görünür. Giriş yapmayanların yanında **Giriş yapmadı** yazar; üstteki sayılarda
+  kaç kişinin giriş yapmadığını görürsünüz.
+
+## Ayarlar
+
+Panelde **Diğer → Ayarlar**:
+
+- **İzin verilen programlar:** Sınavda Packet Tracer dışında bir programa da izin vermek
+  için adını ekleyin (ör. `putty.exe`) ya da **Bilgisayardan seç** ile programı gösterin.
+  Sınav sürerken de eklenebilir; hemen geçerli olur.
+- **Ekran görüntüsü:** Görüntüler takılıyorsa **Düşük**'ü seçin. Değişiklik, öğrencinin bir
+  sonraki girişinde geçerli olur.
+- **Uyarılar ve süreler:** Başka pencereye geçince kaç saniye sonra uyarı verileceği,
+  sınav başlayınca programların kaç saniye sonra kapatılacağı gibi süreler.
+- **Öğrenciye gösterilen bilgilendirme:** Öğrencinin giriş yapmadan önce gördüğü yazı.
+
+**Varsayılanlara dön** bütün ayarları ilk hâline getirir.
 
 ## Uyarılar ne demek?
 
@@ -177,6 +197,7 @@ Sütunları **numara, ad, soyad** olan bir Excel dosyası. Liste yüklüyse:
 
 **Görüntüler takılıyor.**
 Bilgisayarınızı modeme kabloyla bağlayın. **Diğer → Görünmeyen ekranları duraklat**'ı açın.
+Yetmezse **Diğer → Ayarlar**'da ekran görüntüsünü **Düşük** yapın.
 
 **Simgeye tıkladım, bir şey olmadı.**
 Panelin açılması 10–20 saniye sürebilir. Açılmazsa simgeye yeniden çift tıklayın.
@@ -192,5 +213,5 @@ kendiliğinden yeniden bağlanır.
 Pencere başka bir pencerenin arkasında kalmış olabilir; görev çubuğuna bakın.
 
 **Sınavda başka bir programa da izin vermem gerekiyor.**
-Panelde **Diğer → Ayar dosyasını aç** deyin. İzin verilen programlar bu dosyada yazar; her
-ayarın açıklaması dosyanın içindedir. Kaydettiğiniz anda geçerli olur.
+Panelde **Diğer → Ayarlar**'ı açın, **İzin verilen programlar** bölümüne programın adını
+ekleyip **Kaydet**'e basın. Hemen geçerli olur.
