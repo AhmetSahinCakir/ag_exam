@@ -10,7 +10,8 @@ aktarır, sınav dosyasını indirmenizi ve sonunda dosyanızı teslim etmenizi 
    **“Keep me logged in”** seçeneğini açın. Sınav salonunda internet yoktur; ilk girişinizi
    orada yapamazsınız.
 3. **Sınav Ajanı'nı kurun.** Size gönderilen **`SinavAjan-Kurulum.exe`** dosyasına çift
-   tıklayın. Masaüstüne **Sınav Ajanı** simgesi gelir.
+   tıklayın, açılan pencerede **Kur**'a, sonra **Bitti**'ye basın. Masaüstüne **Sınav Ajanı**
+   simgesi gelir.
    - “Windows kişisel bilgisayarınızı korudu” çıkarsa **Ek bilgi → Yine de çalıştır** deyin.
    - “Bu uygulamanın cihazınızda değişiklik yapmasına izin veriyor musunuz?” sorusuna
      **Evet** deyin.

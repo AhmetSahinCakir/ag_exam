@@ -41,6 +41,14 @@ ShowLanguageDialog=no
 [Languages]
 Name: "tr"; MessagesFile: "compiler:Languages\Turkish.isl"
 
+[Messages]
+; Hazır çeviride düğmenin adı (Kur) ile yazı (Sonraki) uyuşmuyor; yazılar sadeleştirildi.
+tr.ReadyLabel2a=Kuruluma başlamak için Kur düğmesine basın.
+tr.ReadyLabel2b=Kuruluma başlamak için Kur düğmesine basın.
+tr.FinishedLabel=[name] kuruldu. Masaüstündeki simgeye çift tıklayarak açabilirsiniz.
+tr.FinishedLabelNoIcons=[name] kuruldu.
+tr.ClickFinish=Bu pencereyi kapatmak için Bitti düğmesine basın.
+
 [Files]
 Source: "{#Source}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "sinav-izleme.ico"; DestDir: "{app}"; Flags: ignoreversion

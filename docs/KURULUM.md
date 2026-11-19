@@ -15,14 +15,16 @@ Sınavdan önce yapılacak deneme: [PROVA.md](PROVA.md).
 
 1. **Kurulum dosyasını indirin.** [İndirme sayfasından](https://github.com/AhmetSahinCakir/ag_exam/releases/latest)
    **`SinavIzleme-Kurulum.exe`** dosyasını indirin.
-2. **Dosyaya çift tıklayın.** Kurulum kendiliğinden yapılır; başka bir şey kurmanız gerekmez.
+2. **Dosyaya çift tıklayın**, açılan pencerede **Kur**'a, kurulum bitince **Bitti**'ye basın.
+   Başka bir şey kurmanız gerekmez; **Bitti**'ye basınca sistem kendiliğinden açılır.
    - “Windows kişisel bilgisayarınızı korudu” çıkarsa **Ek bilgi → Yine de çalıştır** deyin.
    - “Bu uygulamanın cihazınızda değişiklik yapmasına izin veriyor musunuz?” sorusuna
      **Evet** deyin.
-3. **Masaüstündeki “Sınav İzleme Sistemi” simgesine çift tıklayın.** Birkaç saniye içinde
-   panel açılır.
-4. **Sınıf adını ve adınızı yazın.** Panelin sol üstündeki **Düzenle**'ye basın. Öğrenciler
-   doğru sınıfa bağlandıklarını bu addan anlar; her sınıfta farklı olmalıdır.
+3. **Sınıf adını ve adınızı yazın.** Panel ilk açıldığında bunları sorar. Öğrenciler doğru
+   sınıfa bağlandıklarını bu addan anlar; her sınıfta farklı olmalıdır. Sonradan değiştirmek
+   için panelin sol üstündeki **Düzenle**'ye basın.
+4. **Sonraki açılışlarda** masaüstündeki **Sınav İzleme Sistemi** simgesine çift tıklayın;
+   birkaç saniye içinde panel açılır.
 5. **Öğrencilere programı gönderin.** Aynı indirme sayfasındaki **`SinavAjan-Kurulum.exe`**
    dosyasını (ya da sayfanın bağlantısını) öğrencilere gönderin. Öğrenci dosyaya çift
    tıklayınca program kurulur ve masaüstüne **Sınav Ajanı** simgesi gelir.
