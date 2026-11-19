@@ -51,6 +51,31 @@ public static class Win
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr lParam);
+    [DllImport("user32.dll")] static extern bool IsWindowEnabled(IntPtr hWnd);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hWnd, StringBuilder text, int count);
+
+    // Controls inside a window as "handle|class|usable|text" (usable: visible and enabled).
+    public static List<string> Children(long parent)
+    {
+        var result = new List<string>();
+        EnumChildWindows(new IntPtr(parent), (hWnd, lParam) =>
+        {
+            var name = new StringBuilder(128);
+            GetClassName(hWnd, name, name.Capacity);
+            var text = new StringBuilder(512);
+            GetWindowText(hWnd, text, text.Capacity);
+            var usable = IsWindowVisible(hWnd) && IsWindowEnabled(hWnd);
+            result.Add(hWnd.ToInt64() + "|" + name + "|" + (usable ? "1" : "0") + "|" + text);
+            return true;
+        }, IntPtr.Zero);
+        return result;
+    }
+
+    public static void Click(long handle)
+    {
+        PostMessage(new IntPtr(handle), 0x00F5 /* BM_CLICK */, IntPtr.Zero, IntPtr.Zero);
+    }
 
     // Visible top-level windows as "pid|handle|title".
     public static List<string> Windows()
@@ -118,12 +143,68 @@ function Get-Json([string]$path) {
 function Test-Rule([string]$name) {
     return [bool](Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue)
 }
-function Get-Shortcut([string]$path) { return (New-Object -ComObject WScript.Shell).CreateShortcut($path) }
+# Reads a shortcut. (Not WScript.Shell: it cannot open a path with letters outside the
+# system code page, such as "ı" and "İ" on an English Windows.)
+function Get-Shortcut([string]$path) {
+    $shell = New-Object -ComObject Shell.Application
+    $item = $shell.Namespace((Split-Path -Parent $path)).ParseName((Split-Path -Leaf $path))
+    $link = $item.GetLink
+    $icon = ''
+    try { $null = $link.GetIconLocation([ref]$icon) } catch { }
+    return (New-Object psobject -Property @{
+        TargetPath = $link.Path; Arguments = $link.Arguments; WorkingDirectory = $link.WorkingDirectory; IconLocation = "$icon"
+    })
+}
 function Install([string]$setup, [string]$log) {
     $process = Start-Process -FilePath (Join-Path $SetupDir $setup) -PassThru -Wait `
         -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/LOG="' + (Join-Path $OutDir $log) + '"'))
     return $process.ExitCode
 }
+# Runs a setup file the way a double-click does (with its windows) and presses the buttons a
+# user would press. Returns the texts of the buttons that were pressed, in order; $null when
+# the setup did not finish.
+function Install-ByHand([string]$setup, [string]$titlePattern, [string]$shotPrefix) {
+    $process = Start-Process -FilePath (Join-Path $SetupDir $setup) -PassThru
+    $pressed = New-Object System.Collections.Generic.List[string]
+    $shots = 0
+    $deadline = (Get-Date).AddSeconds(240)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 700
+        $process.Refresh()
+        if ($process.HasExited) { break }
+        # The setup may own more than one window with this title; take the one with buttons.
+        $window = $null; $buttons = @(); $go = $null
+        foreach ($candidate in @(Find-Windows $titlePattern)) {
+            $buttons = @([Win]::Children($candidate.Handle) | ForEach-Object {
+                $parts = $_.Split('|', 4)
+                if ($parts[2] -eq '1' -and $parts[1] -match 'Button' -and $parts[3]) {
+                    New-Object psobject -Property @{ Handle = [long]$parts[0]; Text = $parts[3].Replace('&', '') }
+                }
+            })
+            # The page that asks nothing more than "install" / "next", and the last page.
+            $go = $buttons | Where-Object { $_.Text -match '^(Kur|Install|İleri >|Next >|Bitti|Bitir|Son|Finish)$' } | Select-Object -First 1
+            if ($go) { $window = $candidate; break }
+        }
+        if (-not $go) { continue }
+        if ($shots -lt 4) { $shots++; Shot ("{0}-{1}-{2}" -f $shotPrefix, $shots, ($go.Text -replace '[^A-Za-z]', '')) }
+        Write-Host "  pencere: $($window.Title) | düğmeler: $(($buttons | ForEach-Object { $_.Text }) -join ', ') | basılan: $($go.Text)"
+        $pressed.Add($go.Text)
+        [Win]::Click($go.Handle)
+        if ($go.Text -match '^(Bitti|Bitir|Son|Finish)$') {
+            $null = $process.WaitForExit(30000)
+            break
+        }
+        Start-Sleep -Seconds 1
+    }
+    $process.Refresh()
+    if (-not $process.HasExited) {
+        Shot "$shotPrefix-takildi"
+        try { $process.Kill() } catch { }
+        return $null
+    }
+    return ,$pressed.ToArray()
+}
+
 function Uninstall([string]$folder, [string]$log) {
     $uninstaller = Join-Path $folder 'unins000.exe'
     if (-not (Test-Path $uninstaller)) { return -1 }
@@ -159,10 +240,30 @@ try {
     Get-ChildItem $SetupDir -Filter '*.exe' | ForEach-Object { Write-Host ("  {0}  {1:N0} MB" -f $_.Name, ($_.Length / 1MB)) }
 
     # ---------------------------------------------------------------- install
-    Step 'Sistemin kurulumu (SinavIzleme-Kurulum.exe)'
+    Step 'Sistemin kurulumu: çift tıklanmış gibi (SinavIzleme-Kurulum.exe)'
     $started = Get-Date
-    $code = Install 'SinavIzleme-Kurulum.exe' 'kurulum-sistem.log'
-    Check ($code -eq 0) ("kurulum tamamlandı (çıkış kodu $code, {0:N0} sn)" -f ((Get-Date) - $started).TotalSeconds)
+    $pressed = Install-ByHand 'SinavIzleme-Kurulum.exe' $systemName 'kurulum-sistem'
+    Check ($null -ne $pressed) ("kurulum tamamlandı ({0:N0} sn); basılan düğmeler: $($pressed -join ' > ')" -f ((Get-Date) - $started).TotalSeconds)
+    if ($null -eq $pressed) {
+        Write-Host '  pencereli kurulum bitmedi; sessiz kurulumla sürdürülüyor'
+        $code = Install 'SinavIzleme-Kurulum.exe' 'kurulum-sistem.log'
+        Check ($code -eq 0) "sessiz kurulum tamamlandı (çıkış kodu $code)"
+    } else {
+        # The last page offers to start the system; it is ticked by default.
+        $info = Wait-Until { Get-Json '/api/info' } 90
+        Check ([bool]$info) 'kurulumun son sayfasından çıkınca sistem kendiliğinden açıldı'
+        $panel = Wait-Until { @(Find-Windows $panelTitle) } 120
+        Check ([bool]$panel) 'panel penceresi açıldı'
+        Start-Sleep -Seconds 4
+        Shot 'kurulumdan-sonra'
+        # Close it again: the next steps start it from the desktop shortcut.
+        $stop = Start-Process -FilePath (Join-Path $systemDir 'python\pythonw.exe') -PassThru -Wait `
+            -ArgumentList @(('"' + (Join-Path $systemDir 'server\run.py') + '"'), '--stop')
+        Check ($stop.ExitCode -eq 0) "çalışan sistem kapatılabildi (run.py --stop, çıkış kodu $($stop.ExitCode))"
+        Check (-not (Get-Process pythonw, mediamtx -ErrorAction SilentlyContinue)) 'sunucu ve MediaMTX kapandı'
+        Get-Process msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
     foreach ($file in @('python\pythonw.exe', 'python\python.exe', 'server\run.py', 'server\config.yaml', 'server\static\panel.html',
                         'mediamtx\mediamtx.exe', 'mediamtx\mediamtx.yml', 'dist\SinavAjan.exe', 'sinav-izleme.ico', 'unins000.exe')) {
         Check (Test-Path (Join-Path $systemDir $file)) "kuruldu: $file"
@@ -192,9 +293,14 @@ try {
         Check ($foreign.Count -eq 0) "Python yalnızca kendi klasörlerini kullanıyor (bilgisayardaki başka Python karışmıyor) $($foreign -join '; ')"
     }
 
-    Step 'Öğrenci programının kurulumu (SinavAjan-Kurulum.exe)'
-    $code = Install 'SinavAjan-Kurulum.exe' 'kurulum-ajan.log'
-    Check ($code -eq 0) "kurulum tamamlandı (çıkış kodu $code)"
+    Step 'Öğrenci programının kurulumu: çift tıklanmış gibi (SinavAjan-Kurulum.exe)'
+    $pressed = Install-ByHand 'SinavAjan-Kurulum.exe' $agentName 'kurulum-ajan'
+    Check ($null -ne $pressed) "kurulum tamamlandı; basılan düğmeler: $($pressed -join ' > ')"
+    if ($null -eq $pressed) {
+        Write-Host '  pencereli kurulum bitmedi; sessiz kurulumla sürdürülüyor'
+        $code = Install 'SinavAjan-Kurulum.exe' 'kurulum-ajan.log'
+        Check ($code -eq 0) "sessiz kurulum tamamlandı (çıkış kodu $code)"
+    }
     $agentFiles = @(Get-ChildItem -LiteralPath $agentDir -File -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Sort-Object)
     Write-Host "  kurulan dosyalar: $($agentFiles -join ', ')"
     Check ($agentFiles -contains 'SinavAjan.exe') 'SinavAjan.exe kuruldu'
@@ -207,7 +313,7 @@ try {
     Check ($run -notmatch 'Sinav') 'kurulum Windows açılışına bir şey eklemedi'
     Check (-not (Get-Service | Where-Object { $_.Name -match 'Sinav' -or $_.DisplayName -match 'Sinav' })) 'kurulum servis eklemedi'
     Check (-not (Get-ScheduledTask | Where-Object { $_.TaskName -match 'Sinav' })) 'kurulum zamanlanmış görev eklemedi'
-    Check (-not (Get-Process SinavAjan, pythonw, mediamtx -ErrorAction SilentlyContinue)) 'kurulumdan sonra arka planda çalışan bir şey yok'
+    Check (-not (Get-Process SinavAjan, pythonw, mediamtx -ErrorAction SilentlyContinue)) 'öğrenci programının kurulumundan sonra arka planda çalışan bir şey yok'
 
     # ------------------------------------------------------------------ start
     Step 'Masaüstü kısayolundan başlatma'

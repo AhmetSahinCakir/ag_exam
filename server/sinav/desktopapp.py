@@ -108,16 +108,6 @@ def instance_running() -> bool:
         return False
 
 
-def wait_until_ours(port: int, seconds: float) -> bool:
-    """Wait for the copy that is starting to answer on its port."""
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if probe(port) == "ours":
-            return True
-        time.sleep(0.5)
-    return False
-
-
 def probe(port: int) -> str:
     """Who has the server's port on this computer: "free", "ours" or "other"."""
     try:

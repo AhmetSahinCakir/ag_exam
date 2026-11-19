@@ -83,11 +83,13 @@ def main() -> int:
         cfg.dir_data = home / "data"
         cfg.dir_dist = HERE.parent / "dist"
         if not desktopapp.claim_single_instance():
-            # The icon was clicked again while the first copy was still starting (or it is
-            # running): wait for that copy and show its panel instead of starting another.
-            print("Başka bir kopya çalışıyor; onun paneli açılıyor.")
-            if desktopapp.wait_until_ours(cfg.port, 30):
+            # The icon was clicked again. If the system is running, show its panel again; if
+            # the first copy is still starting, it will open the panel itself in a moment.
+            if desktopapp.probe(cfg.port) == "ours":
+                print("Sistem zaten çalışıyor; panel penceresi yeniden açılıyor.")
                 desktopapp.show_running_panel(cfg.port)
+            else:
+                print("Sistem zaten açılıyor; ikinci kopya başlatılmadı.")
             return 0
         owner = desktopapp.probe(cfg.port)
         if owner == "ours":
