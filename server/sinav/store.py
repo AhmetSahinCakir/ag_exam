@@ -57,7 +57,11 @@ WARNING = "warning"
 CRITICAL = "critical"
 
 # Events of the exam itself that are also written into every student's own log file.
-EXAM_LOG_KINDS = {"exam_started", "exam_extended", "exam_ended", "time_up", "recording_started", "system_shutdown"}
+EXAM_LOG_KINDS = {"exam_started", "exam_extended", "exam_ended", "time_up", "recording_started",
+                  "recording_stopped", "system_shutdown"}
+# A connection that was lost for at least this long is a warning when it comes back; a shorter
+# break (the Wi-Fi hiccups of a full classroom) is only written to the student's record.
+LONG_OUTAGE_S = 60
 ROSTER_TEXT = {"no_roster": "Liste yüklü değil", "ok": "Listede", "name_mismatch": "Listede, ad uyuşmuyor",
                "not_in_list": "Listede yok"}
 LOG_KIND_TEXT = {INFO: "bilgi", WARNING: "UYARI", CRITICAL: "KRİTİK"}
@@ -108,6 +112,13 @@ class Student:
     warn_count: int = 0
     ev_count: int = 0
     ack_id: int = 0  # alerts up to this event id were marked as seen by the teacher
+    # The student program's own clock at the moment it began closing programs in this exam:
+    # whatever was started before that was simply open when the exam began.
+    enforce_agent_ts: float = 0.0
+    # The window that is in front right now and was already reported as a warning (event id and
+    # program name): the reminders that follow are not counted again while that one is unseen.
+    foreign_alert_id: int = 0
+    foreign_name: str = ""
     submitted: bool = False
     exited: bool = False
     submissions: list[Submission] = field(default_factory=list)
@@ -168,6 +179,14 @@ def _fmt_time(ts: float) -> str:
     return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _fmt_duration(seconds: int) -> str:
+    """75 -> "1 dk 15 sn", 120 -> "2 dk"."""
+    minutes, rest = divmod(max(0, int(seconds)), 60)
+    if not minutes:
+        return f"{rest} sn"
+    return f"{minutes} dk {rest} sn" if rest else f"{minutes} dk"
+
+
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -196,6 +215,9 @@ def describe_agent_event(kind: str, d: dict[str, Any]) -> tuple[str, bool, bool,
     title_part = f" — pencere: “{title}”" if title else ""
 
     if kind == "process_killed":
+        if d.get("before_exam") is True:
+            # Open before the exam and closed when it began: expected, nothing to look into.
+            return INFO, False, False, f"Sınav başlarken açık olan program kapatıldı: {name}{title_part}"
         return WARNING, True, True, f"{name} kapatıldı{title_part}"
     if kind == "process_kill_failed":
         return WARNING, True, True, f"{name} kapatılamadı ({_clean(d.get('error'), 120) or 'bilinmeyen hata'})"
@@ -204,6 +226,8 @@ def describe_agent_event(kind: str, d: dict[str, Any]) -> tuple[str, bool, bool,
         extra = f" ({int(seconds)} sn){title_part}" if isinstance(seconds, (int, float)) else title_part
         if is_shell_surface(d):
             return INFO, False, False, f"Masaüstü ya da pencere geçişi önde: {name}{extra}"
+        if d.get("reminder") is True:
+            return INFO, False, False, f"Packet Tracer dışındaki pencere hâlâ önde: {name}{extra}"
         return WARNING, True, True, f"Packet Tracer dışında bir pencere önde: {name}{extra}"
     if kind == "foreground_change":
         return INFO, False, False, f"Öndeki pencere: {name}{title_part}"
@@ -691,6 +715,11 @@ class Store:
         self.changed()
         return count
 
+    def ack_general(self) -> None:
+        """Mark the warnings that belong to no student as seen."""
+        self.general_ack_id = self.next_event_id - 1
+        self.changed()
+
     # --------------------------------------------------------------- settings
 
     def load_settings(self) -> None:
@@ -964,6 +993,13 @@ class Store:
             raise ApiError(409, "Ekran kaydı zaten açık.")
         self.record_enabled = True
         self.add_event("", "recording_started", INFO, "Ekran kaydı sınav sürerken başlatıldı")
+
+    def stop_recording(self) -> None:
+        """“Kaydı durdur”: nothing is recorded from now on (it can be started again)."""
+        if self.state == WAITING or not self.record_enabled:
+            raise ApiError(409, "Ekran kaydı açık değil.")
+        self.record_enabled = False
+        self.add_event("", "recording_stopped", INFO, "Ekran kaydı durduruldu")
 
     def end_exam(self) -> None:
         if self.state != RUNNING:
@@ -1265,10 +1301,34 @@ class Store:
                     clean_details[_clean(key, 40)] = _clean(value, 300)
         if isinstance(agent_ts, (int, float)):
             clean_details["agent_ts"] = agent_ts
+        # Decided here, never taken from the student program.
+        clean_details.pop("before_exam", None)
+        clean_details.pop("reminder", None)
+
+        if kind == "enforcement_started" and not st.enforce_agent_ts and isinstance(agent_ts, (int, float)):
+            st.enforce_agent_ts = float(agent_ts)
+        elif kind == "process_killed":
+            started = clean_details.get("started")
+            if (isinstance(started, (int, float)) and not isinstance(started, bool)
+                    and st.enforce_agent_ts and 0 < started <= st.enforce_agent_ts):
+                clean_details["before_exam"] = True
+        elif kind == "foreign_foreground" and not is_shell_surface(clean_details):
+            # The student program repeats this every 30 seconds while the window stays in
+            # front. One warning is enough until it was seen; after "Görüldü" a window that
+            # is still in front is a warning again.
+            name = _clean(clean_details.get("name") or "?", 120)
+            if st.foreign_alert_id > st.ack_id and st.foreign_name == name:
+                clean_details["reminder"] = True
+        elif kind == "foreground_restored":
+            st.foreign_alert_id, st.foreign_name = 0, ""
+
         severity, alert, counts, message = describe_agent_event(kind, clean_details)
         if kind == "agent_exit":
             st.exited = True
-        self.add_event(st.numara, kind, severity, message, clean_details, alert=alert, counts=counts)
+        event = self.add_event(st.numara, kind, severity, message, clean_details, alert=alert, counts=counts)
+        if kind == "foreign_foreground" and counts:
+            st.foreign_alert_id = event.id
+            st.foreign_name = _clean(clean_details.get("name") or "?", 120)
 
     # ------------------------------------------------------------- submissions
 
@@ -1523,8 +1583,14 @@ class Store:
             else:
                 seconds = int(time.time() - st.lost_since_ts) if st.lost_since_ts else 0
                 st.lost_reason = ""
-                self.add_event(st.numara, "connection_restored", INFO,
-                               f"Bağlantı yeniden kuruldu ({seconds} sn sonra)", alert=True, counts=False)
+                if seconds >= LONG_OUTAGE_S:
+                    # Out of sight for a long time: worth a look. A short break is not.
+                    self.add_event(st.numara, "long_outage", WARNING,
+                                   f"Bağlantı {_fmt_duration(seconds)} kesik kaldı; yeniden kuruldu",
+                                   {"seconds": seconds})
+                else:
+                    self.add_event(st.numara, "connection_restored", INFO,
+                                   f"Bağlantı yeniden kuruldu ({seconds} sn sonra)", alert=True, counts=False)
 
     def apply_streams(self, ready_paths: set[str], publishers: dict[str, str]) -> None:
         """Update stream status from MediaMTX. publishers maps path -> publisher IP."""
@@ -1684,6 +1750,8 @@ class Store:
             "students": students,
             "alerts": [e.to_json() for e in reversed(self.alerts)],
             "general_ack_id": self.general_ack_id,
+            # How a student is named in the panel: "name", "number" or "both" (Ayarlar).
+            "student_label": self.user_settings.get("student_label", "name"),
             "webrtc_base": self.cfg.mediamtx_webrtc,
             "paths": {
                 "submissions": str(self.dir_submissions) if self.exam_dir else "",

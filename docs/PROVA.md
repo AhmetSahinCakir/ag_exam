@@ -26,12 +26,13 @@ bölümüne bakın.
 
 - [ ] **Sınavı başlat** → kısa bir süre (ör. 15 dakika) yazıp başlatın. Öğrencide geri sayım
       görünüyor.
-- [ ] “Ekranları kaydet”i işaretlemeden başlattıysanız üstte **Kaydı başlat** görünüyor;
-      basınca kayıt o andan itibaren başlıyor.
+- [ ] Sınav sürerken üstteki **Kaydı durdur** ile kayıt duruyor, **Kaydı başlat** ile
+      yeniden başlıyor.
+- [ ] Sınavdan önce açık olan programlar sınav başlarken kapanıyor ama uyarı çıkmıyor.
 - [ ] Öğrenci **Sınav dosyasını indir** ile dosyayı indirip **Packet Tracer'da açabiliyor.**
 - [ ] Öğrenci Packet Tracer'da çalışırken (cihaz ekleme, komut penceresi açma) uyarı
       **çıkmıyor.**
-- [ ] Öğrenci tarayıcı açınca tarayıcı kapanıyor ve panelde uyarı çıkıyor.
+- [ ] Öğrenci sınav sırasında tarayıcı açınca tarayıcı kapanıyor ve panelde uyarı çıkıyor.
 - [ ] Öğrenci Packet Tracer pencereleri arasında Alt+Tab ile geçiş yapınca uyarı
       **çıkmıyor.**
 - [ ] Sınavda başka bir program da kullanılacaksa: **Diğer → Ayarlar**'da adını ekleyin;

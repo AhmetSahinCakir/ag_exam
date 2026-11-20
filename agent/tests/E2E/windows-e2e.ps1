@@ -532,6 +532,7 @@ function Start-Agent {
 }
 
 $script:numaraRuleChecked = $false
+$script:appsSeen = $null
 
 function Login-Agent([string]$numara, [string]$ad, [string]$soyad) {
     # Discovery: either the confirmation screen (one server) or the server list (several answers).
@@ -757,7 +758,7 @@ klasorler:
     $survivor = Start-Process notepad.exe -PassThru
     Start-Sleep -Seconds 4
     Check ((Count-Events $numara 'process_killed') -eq 0) 'bekleme aşamasında hiçbir program kapatılmıyor'
-    Get-Process -Name notepad -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    # Notepad stays open: it is closed when the exam begins, and that is not a warning.
 
     # --------------------------------------------------------------- exam start
     Step 'Sınavı başlat (başlangıç saati, süre, ekran kaydı)'
@@ -792,6 +793,11 @@ klasorler:
     Shot 'geri-sayim'
     $running = Wait-AgentText '^Sınav sürüyor$' 20
     Check ([bool]$running) 'geri sayımdan sonra sınav paneli: "Sınav sürüyor"'
+    $closedAtStart = Wait-Until { Get-Events $numara | Where-Object { $_.type -eq 'process_killed' -and "$($_.details.name)" -match 'notepad' } | Select-Object -First 1 } 15
+    Check ([bool]$closedAtStart) 'sınavdan önce açık olan Not Defteri sınav başlarken kapatıldı'
+    if ($closedAtStart) {
+        Check ($closedAtStart.severity -eq 'info' -and $closedAtStart.details.before_exam -eq $true -and $closedAtStart.message -match 'Sınav başlarken açık olan program kapatıldı') "sınav başlarken kapatılan program uyarı sayılmıyor, yalnızca kayda geçiyor ($($closedAtStart.severity): $($closedAtStart.message))"
+    }
     Check ([bool](Wait-AgentText '^Kalan süre: (29|30):\d\d$' 6)) 'süre verildiği için öğrenci panelinde geri sayım var ("Kalan süre: 29:55")'
     $first = Remaining-Seconds
     Start-Sleep -Seconds 3
@@ -1236,6 +1242,45 @@ klasorler:
     Check ($again -match '^HATA' -and $again -match '409') "kayıt açıkken yeniden başlatılamıyor ($again)"
     $recordLogged = Wait-Until { Get-Events '' | Where-Object { $_.type -eq 'recording_started' } | Select-Object -First 1 } 8
     Check ([bool]$recordLogged) 'kaydın sonradan başlatıldığı olay kaydına yazıldı'
+
+    Step 'Kaydı durdur ve yeniden başlat'
+    $stopped = Panel-Post '/panel/api/record/stop'
+    Check ($stopped -match '"record":\s*false') "Kaydı durdur: kayıt sınav sürerken kapatıldı ($stopped)"
+    $recordingOff = Wait-Until { $s = Get-Snapshot; if ($s -and -not $s.health.recording -and -not $s.exam.record) { $s } } 15
+    Check ([bool]$recordingOff) 'MediaMTX ekran kaydı durdu'
+    Start-Sleep -Seconds 3
+    $sizeStopped = 0
+    foreach ($file in @(Get-ChildItem $lateFolder -Filter *.mp4 -ErrorAction SilentlyContinue)) { $sizeStopped += Get-LiveFileSize $file.FullName }
+    Start-Sleep -Seconds 6
+    $sizeLater = 0
+    foreach ($file in @(Get-ChildItem $lateFolder -Filter *.mp4 -ErrorAction SilentlyContinue)) { $sizeLater += Get-LiveFileSize $file.FullName }
+    Check ($sizeStopped -gt 0 -and $sizeLater -eq $sizeStopped) "kayıt durunca dosya büyümüyor, o ana kadarki kayıt yerinde ($sizeStopped bayt)"
+    Check ((Get-Student $fifth).stream_ready) 'kayıt dururken canlı izleme sürüyor'
+    $againStopped = Panel-Post '/panel/api/record/stop'
+    Check ($againStopped -match '^HATA' -and $againStopped -match '409') "kayıt kapalıyken durdurulamıyor ($againStopped)"
+    $restarted = Panel-Post '/panel/api/record/start'
+    Check ($restarted -match '"record":\s*true') "kayıt yeniden başlatıldı ($restarted)"
+    $grewAgain = Wait-Until {
+        $bytes = 0
+        foreach ($file in @(Get-ChildItem $lateFolder -Filter *.mp4 -ErrorAction SilentlyContinue)) { $bytes += Get-LiveFileSize $file.FullName }
+        if ($bytes -gt $sizeStopped + 2000) { $bytes }
+    } 60
+    Check ([bool]$grewAgain) "yeniden başlatınca kayıt sürüyor ($sizeStopped -> $grewAgain bayt)"
+
+    Step 'Ayarlar: program ekleme listesi'
+    $apps = $null
+    $appsReady = Wait-Until {
+        $raw = Curl-Text @('-m', '10', "$base/panel/api/apps")
+        if ($raw) { $script:appsSeen = $raw | ConvertFrom-Json; if (-not $script:appsSeen.scanning) { $script:appsSeen } }
+    } 90 1500
+    $apps = $script:appsSeen
+    Check ($apps -and @($apps.catalog).Count -ge 15) "hazır program listesi geliyor ($(@($apps.catalog).Count) program)"
+    Check ([bool]$appsReady) 'bu bilgisayardaki programların okunması bitti'
+    $withIcon = @($apps.installed | Where-Object { $_.icon -like 'data:image/png;base64,*' })
+    Write-Host "  bu bilgisayardaki programlar: $(@($apps.installed).Count); simgesi olan: $($withIcon.Count)"
+    @($apps.installed) | Select-Object -First 6 | ForEach-Object { Write-Host "    $($_.name)  [$($_.exe)]" }
+    $catalogIcons = @($apps.catalog | Where-Object { $_.icon }).Count
+    Check ((@($apps.installed).Count + $catalogIcons) -ge 3 -and ($withIcon.Count + $catalogIcons) -ge 3) "kurulu programlar kendi simgeleriyle listeleniyor (listede $(@($apps.installed).Count), simgeli hazır program $catalogIcons)"
 
     Step 'Son 10 dakika: tek uyarı, kırmızı geri sayım; panel öne atlamıyor'
     $panelHandle = Wait-Until { $h = Get-AgentWindowHandle '^Sınav$'; if ($h -ne [IntPtr]::Zero) { $h } } 10

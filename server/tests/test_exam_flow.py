@@ -1159,8 +1159,8 @@ def test_students_of_the_list_are_shown_before_they_log_in(env: Env):
 def test_settings_window_shows_the_values_in_force(env: Env):
     view = env.panel.get("/panel/api/settings").json()
     assert view["values"] == view["defaults"] == {
-        "programs": [], "quality": "normal", "foreground_tolerance_s": 5, "kill_countdown_s": 10,
-        "disconnect_s": 10, "close_wait_min": 2, "retention_note": env.cfg.retention_note,
+        "programs": [], "quality": "normal", "student_label": "name", "foreground_tolerance_s": 5,
+        "kill_countdown_s": 10, "disconnect_s": 10, "close_wait_min": 2, "retention_note": env.cfg.retention_note,
     }
     assert view["limits"]["foreground_tolerance_s"] == {"min": 1, "max": 120}
     assert env.student().get("/panel/api/settings").status_code == 403
@@ -1440,6 +1440,160 @@ def test_new_exam_keeps_what_was_entered_in_the_panel(env: Env):
 
 
 # ------------------------------------------------------- starting the recording later
+
+
+def test_recording_can_be_stopped_and_started_again(env: Env):
+    client, _ = env.login()
+    env.choose_folder()
+    env.upload_exam()
+    assert env.panel.post("/panel/api/record/stop", headers=PANEL).status_code == 409      # nothing to stop yet
+    env.panel.post("/panel/api/start", headers=PANEL, json={"record": True})
+    assert env.store.record_path != ""
+
+    stopped = env.panel.post("/panel/api/record/stop", headers=PANEL)
+    assert stopped.status_code == 200 and stopped.json() == {"record": False}
+    assert env.store.record_path == "" and env.panel.get("/panel/api/state").json()["exam"]["record"] is False
+    again = env.panel.post("/panel/api/record/stop", headers=PANEL)
+    assert again.status_code == 409 and "açık değil" in again.json()["error"]
+    assert env.student().post("/panel/api/record/stop", headers=PANEL).status_code == 403
+
+    # ... and on again, as often as wanted; also after the exam has ended (late hand-ins).
+    assert env.panel.post("/panel/api/record/start", headers=PANEL).status_code == 200
+    env.panel.post("/panel/api/end", headers=PANEL)
+    assert env.store.record_path != ""
+    assert env.panel.post("/panel/api/record/stop", headers=PANEL).status_code == 200
+    assert env.store.record_path == ""
+    assert [e.type for e in env.store.events if e.type.startswith("recording_")] == [
+        "recording_stopped", "recording_started", "recording_stopped"]
+    env.store.flush_student_logs()
+    text = next(env.store.dir_alerts.glob("2021000001_*.csv")).read_text(encoding="utf-8-sig")
+    assert text.count("sınav;Ekran kaydı durduruldu") == 2
+
+
+# ------------------------------------------------------- what is a warning and what is not
+
+
+def test_programs_that_were_open_before_the_exam_are_closed_without_a_warning(env: Env):
+    """At the start of an exam nearly every student has a browser open. Closing those is what
+    is expected; a warning for each would bury the ones that matter."""
+    client, _ = env.login()
+    env.start()
+    client.post("/api/event", json={"type": "enforcement_started", "details": {}, "ts": 1000.0})
+    # Started before the exam began for this student (by the student computer's own clock).
+    client.post("/api/event", json={"type": "process_killed", "ts": 1001.0,
+                                    "details": {"name": "chrome.exe", "title": "Yeni Sekme", "started": 400.0}})
+    st = env.snapshot_student("2021000001")
+    assert (st["status"], st["warn_count"]) == ("ok", 0) and not env.alerts("process_killed")
+    event = [e for e in env.store.events if e.type == "process_killed"][-1]
+    assert event.severity == "info" and event.details["before_exam"] is True
+    assert event.message == "Sınav başlarken açık olan program kapatıldı: chrome.exe — pencere: “Yeni Sekme”"
+
+    # Opened during the exam: that is a warning.
+    client.post("/api/event", json={"type": "process_killed", "ts": 1300.0,
+                                    "details": {"name": "chrome.exe", "started": 1290.0}})
+    st = env.snapshot_student("2021000001")
+    assert (st["status"], st["warn_count"]) == ("warn", 1)
+    assert env.alerts("process_killed")[0]["message"] == "chrome.exe kapatıldı"
+
+    # The student program was restarted in the middle of the exam: the exam still began at 1000.
+    client.post("/api/event", json={"type": "enforcement_started", "details": {}, "ts": 2000.0})
+    client.post("/api/event", json={"type": "process_killed", "ts": 2001.0,
+                                    "details": {"name": "firefox.exe", "started": 1500.0}})
+    assert env.snapshot_student("2021000001")["warn_count"] == 2
+    # Nothing the student program says can switch the warning off; a program whose start is not
+    # known counts as opened during the exam.
+    client.post("/api/event", json={"type": "process_killed", "ts": 2002.0,
+                                    "details": {"name": "opera.exe", "before_exam": True}})
+    client.post("/api/event", json={"type": "process_killed", "ts": 2003.0, "details": {"name": "brave.exe"}})
+    assert env.snapshot_student("2021000001")["warn_count"] == 4
+    # Both kinds are in the student's own file.
+    env.store.flush_student_logs()
+    text = next(env.store.dir_alerts.glob("2021000001_*.csv")).read_text(encoding="utf-8-sig")
+    assert "bilgi;Sınav başlarken açık olan program kapatıldı: chrome.exe" in text and "UYARI;chrome.exe kapatıldı" in text
+
+
+def test_a_window_that_stays_in_front_is_one_warning_until_it_was_seen(env: Env):
+    client, _ = env.login()
+    env.start()
+    foreign = {"type": "foreign_foreground", "details": {"name": "explorer.exe", "title": "Belgeler", "seconds": 6}}
+    client.post("/api/event", json=foreign)
+    assert env.snapshot_student("2021000001")["warn_count"] == 1
+    # The student program repeats it every 30 seconds while the window stays in front.
+    for seconds in (36, 66):
+        client.post("/api/event", json={"type": "foreign_foreground",
+                                        "details": {"name": "explorer.exe", "title": "Belgeler", "seconds": seconds}})
+    assert env.snapshot_student("2021000001")["warn_count"] == 1 and len(env.alerts("foreign_foreground")) == 1
+    assert [e.message for e in env.store.events if e.type == "foreign_foreground"][-1] == \
+        "Packet Tracer dışındaki pencere hâlâ önde: explorer.exe (66 sn) — pencere: “Belgeler”"
+
+    # Marked as seen, and the window is still in front: that is worth a new warning.
+    env.panel.post("/panel/api/ack", headers=PANEL, json={"numara": "2021000001"})
+    client.post("/api/event", json={"type": "foreign_foreground",
+                                    "details": {"name": "explorer.exe", "title": "Belgeler", "seconds": 96}})
+    assert env.snapshot_student("2021000001")["warn_count"] == 1 and len(env.alerts("foreign_foreground")) == 2
+
+    # Another program in front, or the same one again after Packet Tracer was back: new warnings.
+    client.post("/api/event", json={"type": "foreign_foreground", "details": {"name": "winver.exe", "seconds": 6}})
+    assert env.snapshot_student("2021000001")["warn_count"] == 2
+    client.post("/api/event", json={"type": "foreground_restored", "details": {"seconds": 20}})
+    client.post("/api/event", json={"type": "foreign_foreground", "details": {"name": "winver.exe", "seconds": 6}})
+    assert env.snapshot_student("2021000001")["warn_count"] == 3
+
+
+def test_a_short_break_in_the_connection_is_not_a_warning_a_long_one_is(env: Env):
+    client, _ = env.login()
+    env.start()
+    store = env.store
+    st = store.students["2021000001"]
+
+    def lose_and_return(seconds: float):
+        st.last_hb_mono -= env.cfg.disconnect_s + 1
+        store.tick()
+        assert env.snapshot_student("2021000001")["status"] == "lost"
+        st.lost_since_ts -= seconds
+        client.post("/api/heartbeat", json={})
+        store.tick()
+
+    lose_and_return(20)
+    snapshot = env.snapshot_student("2021000001")
+    assert (snapshot["status"], snapshot["warn_count"]) == ("ok", 0)
+    assert [e.type for e in store.events if e.numara and e.type in ("disconnected", "connection_restored", "long_outage")] == \
+        ["disconnected", "connection_restored"]
+
+    lose_and_return(200)
+    snapshot = env.snapshot_student("2021000001")
+    assert (snapshot["status"], snapshot["warn_count"]) == ("warn", 1)
+    assert env.alerts("long_outage")[0]["message"] == "Bağlantı 3 dk 20 sn kesik kaldı; yeniden kuruldu"
+
+
+def test_warnings_without_a_student_are_marked_as_seen_on_their_own(env: Env):
+    client, _ = env.login()
+    env.start()
+    client.post("/api/event", json={"type": "process_killed", "details": {"name": "chrome.exe"}})
+    env.store.add_event("", "unknown_submission_file", "warning", "Teslimler klasöründe tanınmayan dosya: x.pka")
+    state = env.panel.get("/panel/api/state").json()
+    general = [a for a in state["alerts"] if not a["numara"] and a["severity"] != "info"]
+    assert general and general[0]["id"] > state["general_ack_id"]
+
+    assert env.panel.post("/panel/api/ack", headers=PANEL, json={"general": True}).json() == {"ok": True, "count": 0}
+    state = env.panel.get("/panel/api/state").json()
+    assert general[0]["id"] <= state["general_ack_id"]
+    assert env.snapshot_student("2021000001")["warn_count"] == 1      # the student's own warning is untouched
+
+
+def test_how_students_are_named_in_the_panel_is_a_setting(env: Env):
+    assert env.panel.get("/panel/api/state").json()["student_label"] == "name"
+    for mode in ("number", "both", "name"):
+        saved = env.panel.post("/panel/api/settings", headers=PANEL, json={"student_label": mode})
+        assert saved.status_code == 200 and saved.json()["values"]["student_label"] == mode
+        assert env.panel.get("/panel/api/state").json()["student_label"] == mode
+    bad = env.panel.post("/panel/api/settings", headers=PANEL, json={"student_label": "initials"})
+    assert bad.status_code == 422 and "Öğrenci gösterimi" in bad.json()["error"]
+    # Kept for the next start, like the other settings.
+    env.panel.post("/panel/api/settings", headers=PANEL, json={"student_label": "both"})
+    restored = Store(load_config(env.cfg.path))
+    restored.load_settings()
+    assert restored.snapshot()["student_label"] == "both"
 
 
 def test_recording_can_be_started_while_the_exam_runs(env: Env):

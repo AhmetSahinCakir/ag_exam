@@ -25,6 +25,10 @@ QUALITY: dict[str, dict[str, int | None]] = {
     "high": {"fps": 6, "width": 1600, "bitrate_kbps": 900, "crf": 21},
 }
 
+# How a student is named in the panel (under the screens, in the list). Files and records
+# always carry the number.
+STUDENT_LABELS = ("name", "number", "both")
+
 # key -> (lowest, highest) of the numbers that can be entered in the panel
 LIMITS: dict[str, tuple[int, int]] = {
     "foreground_tolerance_s": (1, 120),
@@ -111,6 +115,12 @@ def clean(raw: Any) -> dict[str, Any]:
             raise SettingsError(f"En çok {MAX_PROGRAMS} program eklenebilir.")
         result["programs"] = cleaned
 
+    label = raw.get("student_label")
+    if label not in (None, ""):
+        if label not in STUDENT_LABELS:
+            raise SettingsError("Öğrenci gösterimi: ad soyad, numara ya da ikisi birlikte olmalı.")
+        result["student_label"] = label
+
     quality = raw.get("quality")
     if quality not in (None, ""):
         if quality not in QUALITY:
@@ -183,6 +193,7 @@ def view(base: Base, settings: dict[str, Any]) -> dict[str, Any]:
     defaults = {
         "programs": [],
         "quality": "normal",
+        "student_label": "name",
         "foreground_tolerance_s": int(base.policy.foreground_tolerance_s),
         "kill_countdown_s": int(base.policy.kill_countdown_s),
         "disconnect_s": int(base.disconnect_s),

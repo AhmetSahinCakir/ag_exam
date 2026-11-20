@@ -77,8 +77,10 @@ hiçbir program kapatılmaz; öğrenciler Packet Tracer'ı açıp hesaplarına g
 - **Ekranları kaydet:** işaretliyse ekranlar *Kayıtlar* klasörüne kaydedilir. İşaretli
   değilse ekranları yalnızca canlı izlersiniz. Öğrenci bu seçimi göremez.
 
-Sınavı kayıtsız başlattıysanız, sınav sürerken üstte **Kaydı başlat** düğmesi görünür. Basıp
-onaylayınca ekranlar **o andan itibaren** kaydedilir; öncesi kaydedilmemiştir.
+Sınav başladıktan sonra kaydı istediğiniz an değiştirebilirsiniz: kayıt açıkken üstte
+**Kaydı durdur**, kapalıyken **Kaydı başlat** düğmesi görünür. Kayıt yalnızca açık olduğu
+sürelerde yapılır; kapalıyken geçen süre kaydedilmez. Kaydın durumu üst satırda **Kayıt**
+başlığının altında yazar.
 
 Sınav başlayınca öğrencilerde kısa bir geri sayımdan sonra izin verilmeyen programlar
 kapanır ve öğrencinin panelinde **Sınav dosyasını indir** düğmesi çıkar. Hiçbir şey
@@ -86,15 +88,18 @@ kendiliğinden açılmaz ya da inmez; dosyayı öğrenci istediği yere kendisi 
 
 ### 5. Sınavı izleyin
 
-- **Renkler:** yeşil = bağlı, sarı = uyarı var, kırmızı = bağlantı yok, gri = teslim etti.
+- **Renkler:** yeşil = bağlı, sarı = uyarı var, kırmızı = bağlantı yok (sınav bitince:
+  teslim etmedi), mavi = teslim etti, gri = giriş yapmadı. Görüntüsü henüz gelmemiş ekranlar
+  gri görünür.
+- **Sayılar:** listenin üstünde toplam öğrenci sayısı ve her durumdaki öğrenci sayısı yazar.
 - Ekranların altında ve listede öğrencinin **adı soyadı** yazar; öğrenciler ada göre
-  sıralanır. Numarası, ekranını büyütünce **Bilgisayar ve teslim bilgileri**nde görünür.
-  Teslim dosyalarının, kayıt klasörlerinin adlarında ve kayıt dosyalarında numara her zaman
-  vardır.
+  sıralanır. Yalnızca numarayı ya da ikisini birlikte göstermek için **Diğer → Ayarlar →
+  Öğrencilerin gösterimi**. Teslim dosyalarının, kayıt klasörlerinin adlarında ve kayıt
+  dosyalarında numara her zaman vardır.
 - **Uyarılar** öğrencinin satırında, adının yanında görünür. Satırdaki oka basınca o
   öğrencinin uyarıları açılır. **Görüldü**'ye basınca kaç uyarının işaretlendiği yazılır ve
-  o uyarılar soluklaşıp **✓** alır.
-- **Uyarılar** sekmesi bütün uyarıları tek liste hâlinde gösterir.
+  o uyarılar soluklaşıp **✓** alır. Hepsini birden işaretlemek için sayıların altındaki
+  **Tümünü görüldü yap**.
 - Bir ekrana tıklayınca büyür. Sağında yalnızca o öğrencinin **uyarıları** görünür; giriş,
   pencere geçişi gibi öteki kayıtlar altındaki **Diğer kayıtlar** başlığına basınca açılır.
 - Öğrencinin Packet Tracer pencereleri arasında geçiş yapması (Alt+Tab) ve masaüstüne
@@ -204,8 +209,13 @@ gelmeyecek bir öğrenciyi, giriş yapmadıysa, satırını açıp **Listeden ç
 Panelde **Diğer → Ayarlar**:
 
 - **İzin verilen programlar:** Sınavda Packet Tracer dışında bir programa da izin vermek
-  için adını ekleyin (ör. `putty.exe`) ya da **Bilgisayardan seç** ile programı gösterin.
-  Sınav sürerken de eklenebilir; hemen geçerli olur.
+  için **+ Program ekle**'ye basın. Açılan listede sık kullanılan programlar (tarayıcılar,
+  Visual Studio Code, PuTTY…) ve bilgisayarınızda kurulu programlar görünür; üstteki kutuya
+  adını yazarak arayın ve yanındaki **Ekle**'ye basın. Listede olmayan bir programı dosya
+  adını yazarak (ör. `putty.exe`) ya da **Bilgisayardan seç** ile ekleyin. Sınav sürerken
+  de eklenebilir; hemen geçerli olur.
+- **Öğrencilerin gösterimi:** Ekranların altında ve listede **ad soyad**, **numara** ya da
+  **ikisi birlikte** yazılır.
 - **Ekran görüntüsü:** **Düşük** (540p), **Normal** (720p) ya da **Yüksek** (900p).
   Görüntüler takılıyorsa **Düşük**'ü seçin. Kalite arttıkça kayıtlar daha çok yer tutar
   (“Sınavdan sonra” bölümündeki tabloya bakın). Değişiklik, öğrencinin bir sonraki
@@ -224,7 +234,7 @@ Panelde **Diğer → Ayarlar**:
 | Packet Tracer dışında bir pencere önde | Öğrenci 5 saniyeden uzun süre başka bir pencereye baktı. |
 | Başka bir masaüstüne geçti | Öğrenci Windows'un ikinci masaüstüne geçti. |
 | Monitör sayısı: 2 | İkinci bir ekran takılı. |
-| Bağlantı koptu | Wi-Fi koptu ya da bilgisayar uyudu. Bağlantı gelince kendiliğinden düzelir. |
+| Bağlantı … kesik kaldı | Öğrencinin bağlantısı 1 dakikadan uzun süre koptu (Wi-Fi kapandı ya da bilgisayar uyudu). Bağlantı koptuğu sürece kutu kırmızıdır. |
 | Ajan öğrenci tarafından kapatıldı | Öğrenci programı kapattı. |
 | Bu bilgisayardan daha önce … giriş yapmıştı | Aynı bilgisayardan başka bir numarayla giriş yapıldı. Uyarıda önceki girişin numarası ve yazılan ad soyad da yer alır. |
 | Aynı numarayla ikinci oturum açma girişimi | Bu numara başka bir bilgisayarda zaten açık. |
@@ -234,6 +244,15 @@ Panelde **Diğer → Ayarlar**:
 | Geç teslim | Dosya sınav bittikten sonra teslim edildi. |
 | Teslim dosyası klasörde bulunamıyor | Teslim edilen dosya *Teslimler* klasöründen silinmiş ya da taşınmış. |
 | Sınav süresi doldu | Verdiğiniz süre bitti; sınav sürüyor, bitirmek size kalmış. |
+
+**Uyarı sayılmayanlar** (yalnızca öğrencinin kayıt dosyasına ve “Diğer kayıtlar”a yazılır):
+
+- Sınav başlarken açık olan programların kapatılması. Uyarı, yalnızca sınav sırasında
+  açılan program için çıkar.
+- Packet Tracer pencereleri arasında geçiş (Alt+Tab) ve masaüstüne bakmak.
+- 1 dakikadan kısa bağlantı kesintileri.
+- Aynı pencerenin önde kalmayı sürdürmesi: bunun için tek uyarı çıkar. Uyarıyı **Görüldü**
+  yaptıktan sonra pencere hâlâ öndeyse yeniden uyarılırsınız.
 
 ## Sorun olursa
 

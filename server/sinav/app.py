@@ -16,6 +16,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from . import __version__
+from .apps import AppList
 from .config import Config, ConfigError, reload_policy
 from .discovery import DiscoveryResponder, lan_ips
 from .folderdialog import DialogUnavailable, open_folder, open_panel_window, pick_folder
@@ -54,6 +55,7 @@ def create_app(cfg: Config) -> FastAPI:
     instance_id = secrets.token_hex(8)
     cached_ips: list[str] = lan_ips()
     dialog_open = False
+    app_list = AppList()
     panel_clients = 0          # panel pages connected to the live stream
     panel_gone_since = 0.0     # monotonic time the last one disconnected; 0 = never seen / connected
     panel_gone_logged = False
@@ -483,6 +485,12 @@ def create_app(cfg: Config) -> FastAPI:
         """The settings window ("Diğer → Ayarlar"): values in force, defaults and limits."""
         return store.settings_view()
 
+    @app.get("/panel/api/apps", dependencies=[Depends(local_only)])
+    async def panel_apps() -> dict[str, Any]:
+        """“Program ekle”: programs that are commonly allowed, and the ones installed on this
+        computer (read once, in the background: "scanning" is true until that is done)."""
+        return app_list.view()
+
     @app.post("/panel/api/settings", dependencies=[Depends(local_only)])
     async def panel_save_settings(request: Request) -> dict[str, Any]:
         return store.set_user_settings(await json_body(request))
@@ -544,6 +552,12 @@ def create_app(cfg: Config) -> FastAPI:
         store.start_recording()
         return {"record": True}
 
+    @app.post("/panel/api/record/stop", dependencies=[Depends(local_only)])
+    async def panel_record_stop() -> dict[str, Any]:
+        """“Kaydı durdur”: the screens are no longer recorded (watching goes on)."""
+        store.stop_recording()
+        return {"record": False}
+
     @app.post("/panel/api/extend", dependencies=[Depends(local_only)])
     async def panel_extend(request: Request) -> dict[str, Any]:
         body = await json_body(request)
@@ -577,6 +591,9 @@ def create_app(cfg: Config) -> FastAPI:
     @app.post("/panel/api/ack", dependencies=[Depends(local_only)])
     async def panel_ack(request: Request) -> dict[str, Any]:
         body = await json_body(request)
+        if body.get("general") is True:
+            store.ack_general()     # the warnings that belong to no student (shown above the grid)
+            return {"ok": True, "count": 0}
         numara = body.get("numara")
         return {"ok": True, "count": store.ack(str(numara) if numara else None)}
 

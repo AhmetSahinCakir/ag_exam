@@ -19,10 +19,10 @@
       <div id="teacherName" class="teacher-name"></div>
     </div>
 
+    <!-- Sınavın durumu: durum etiketi ve yanında küçük başlıklı değerler (başlangıç, kalan süre, kayıt) -->
     <div class="exam">
-      <span id="stateDot" class="dot"></span>
-      <span id="examState" class="state">Bağlanıyor…</span>
-      <span id="timer" class="timer"></span>
+      <span class="state-pill"><span id="stateDot" class="dot"></span><span id="examState" class="state">Bağlanıyor…</span></span>
+      <div id="examStats" class="stats"></div>
     </div>
 
     <div class="top-actions">
@@ -35,7 +35,9 @@
                 title="Bütün ekranlar kaydırmadan görünecek şekilde boyutlandırılır">Sığdır</button>
       </div>
       <button id="btnRecordStart" type="button" hidden
-              title="Sınav kayıtsız başlatıldı; ekran kaydını şimdi başlatır">Kaydı başlat</button>
+              title="Ekranlar şu an kaydedilmiyor; kaydı şimdi başlatır">Kaydı başlat</button>
+      <button id="btnRecordStop" type="button" hidden
+              title="Ekranlar kaydediliyor; kaydı durdurur (canlı izleme sürer)">Kaydı durdur</button>
       <button id="btnEnd" type="button" class="danger" hidden>Sınavı bitir</button>
       <button id="btnOpenFolderTop" type="button" hidden>Sınav klasörünü aç</button>
       <button id="btnResetTop" type="button" class="primary" hidden>Yeni sınav</button>
@@ -122,21 +124,19 @@
       <div id="sideBody">
       <div class="side-head">
         <div class="side-title">
-          <h2>Öğrenciler</h2>
+          <h2>Öğrenciler <span id="countAll" class="total" title="Toplam öğrenci">0</span></h2>
           <span class="side-title-actions">
             <button id="btnAddStudent" type="button" class="compact" title="Listeye elle bir öğrenci ekle">+ Öğrenci ekle</button>
             <button id="sideCollapse" type="button" class="icon" title="Listeyi daralt" aria-label="Listeyi daralt"><span class="chev"></span></button>
           </span>
         </div>
         <div id="summary" class="summary"></div>
-        <div class="filters" role="tablist">
-          <button id="filterAll" type="button" class="filter active" role="tab">Tümü <span id="countAll">0</span></button>
-          <button id="filterAlerts" type="button" class="filter" role="tab">Uyarılar <span id="countAlerts">0</span></button>
-          <button id="ackAll" type="button" class="link small" hidden>Tümünü görüldü yap</button>
+        <div id="ackBar" class="ack-bar" hidden>
+          <span id="ackText"></span>
+          <button id="ackAll" type="button" class="link small">Tümünü görüldü yap</button>
         </div>
       </div>
       <ul id="studentList"></ul>
-      <ul id="alertList" hidden></ul>
       <div id="listEmpty" class="list-empty" hidden></div>
       </div>
     </aside>
@@ -309,12 +309,26 @@
   <div id="recordDialog" class="modal" hidden>
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="recordTitle">
       <h2 id="recordTitle">Ekran kaydını başlat</h2>
-      <p class="dialog-note">Sınav kayıtsız başlatıldı. Kaydı şimdi başlatırsanız <b>bu andan itibaren</b> öğrenci ekranları
-        sınav klasöründeki “Kayıtlar”a kaydedilir; şu ana kadarki süre kaydedilmemiştir.</p>
-      <p class="field-hint">Öğrenciler kaydın başladığını göremez. Kayıt, sınav bitene kadar sürer.</p>
+      <p class="dialog-note">Ekranlar şu an kaydedilmiyor. Kaydı başlatırsanız <b>bu andan itibaren</b> öğrenci ekranları
+        sınav klasöründeki “Kayıtlar”a kaydedilir; kaydın kapalı olduğu süre kaydedilmemiştir.</p>
+      <p class="field-hint">Öğrenciler kaydın başladığını göremez. İstediğiniz zaman yeniden durdurabilirsiniz.</p>
       <div class="dialog-actions">
         <button id="recordCancel" type="button">Vazgeç</button>
         <button id="recordGo" type="button" class="primary">Kaydı başlat</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kaydı durdur -->
+  <div id="recordStopDialog" class="modal" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="recordStopTitle">
+      <h2 id="recordStopTitle">Ekran kaydını durdur</h2>
+      <p class="dialog-note">Kaydı durdurursanız öğrenci ekranları <b>bu andan itibaren kaydedilmez</b>. Şu ana kadarki
+        kayıtlar sınav klasöründeki “Kayıtlar”da kalır; ekranları canlı izlemeye devam edersiniz.</p>
+      <p class="field-hint">Öğrenciler kaydın durduğunu göremez. İstediğiniz zaman yeniden başlatabilirsiniz.</p>
+      <div class="dialog-actions">
+        <button id="recordStopCancel" type="button">Vazgeç</button>
+        <button id="recordStopGo" type="button" class="danger">Kaydı durdur</button>
       </div>
     </div>
   </div>
@@ -350,12 +364,29 @@
           <p class="field-hint">Sınav sırasında yalnızca Packet Tracer açık kalabilir. Başka bir programa da izin
             vermek için adını ekleyin. Sınav sürerken de ekleyebilirsiniz; hemen geçerli olur.</p>
           <ul id="settingsPrograms" class="chips"></ul>
-          <div class="inline-field">
-            <input id="settingsProgram" type="text" maxlength="200" autocomplete="off" spellcheck="false"
-                   placeholder="ör. putty.exe" aria-label="Program adı">
-            <button id="settingsProgramAdd" type="button">Ekle</button>
-            <button id="settingsProgramPick" type="button">Bilgisayardan seç…</button>
-            <input id="settingsProgramFile" type="file" accept=".exe" hidden>
+          <button id="programPickerToggle" type="button" class="compact" aria-expanded="false"
+                  aria-controls="programPicker">+ Program ekle</button>
+          <!-- "Program ekle"ye basınca aşağı doğru açılır: üstte arama, altında programlar -->
+          <div id="programPicker" class="picker" hidden>
+            <input id="programSearch" type="search" maxlength="200" autocomplete="off" spellcheck="false"
+                   placeholder="Program ara ya da dosya adını yazın (ör. putty.exe)" aria-label="Program ara">
+            <ul id="programList" class="picker-list"></ul>
+            <div class="picker-foot">
+              <span id="programScan" class="soft"></span>
+              <button id="settingsProgramPick" type="button" class="link small">Listede yok mu? Bilgisayardan seç…</button>
+              <input id="settingsProgramFile" type="file" accept=".exe" hidden>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h3>Öğrencilerin gösterimi</h3>
+          <p class="field-hint">Ekranların altında ve listede öğrencinin nasıl yazılacağı. Dosya adlarında ve kayıtlarda
+            numara her zaman bulunur.</p>
+          <div class="choice-col">
+            <label class="choice"><input type="radio" name="settingsLabel" value="name"> Ad soyad</label>
+            <label class="choice"><input type="radio" name="settingsLabel" value="number"> Numara</label>
+            <label class="choice"><input type="radio" name="settingsLabel" value="both"> Numara ve ad soyad</label>
           </div>
         </section>
 

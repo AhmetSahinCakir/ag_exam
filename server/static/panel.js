@@ -22,14 +22,12 @@ const ROSTER_TEXT = {
   not_in_list: 'Listede yok',
 };
 const ROW_EVENT_LIMIT = 6;
-const ALERT_LIST_LIMIT = 200;
 const SIZE_MIN = 140;
 const SIZE_MAX = 900;
 const SIZE_STEP = 40;
 
 let S = null;                    // sunucudan gelen son durum
 let lastAlertId = null;          // sesli uyarı için
-let filter = 'all';              // 'all' (öğrenciler) | 'alerts' (uyarı listesi)
 let fitTiles = true;             // ekranları kaydırmadan sığdır
 let sideCollapsed = false;       // sağdaki öğrenci listesi daraltıldı
 let folderBusy = false;          // klasör seçme penceresi açık
@@ -311,10 +309,36 @@ function fullName(st) {
   return `${st.ad} ${st.soyad}`.trim();
 }
 
-/* Panelde öğrenci numarası gösterilmez; kutularda ve listede yalnızca ad soyad vardır (numara,
-   büyütülen ekrandaki "Bilgisayar bilgileri"nde durur). Sıra da bu yüzden ada göredir. */
+/* Öğrencinin panelde nasıl yazılacağı Ayarlar'da seçilir: yalnızca ad soyad ('name'), yalnızca
+   numara ('number') ya da ikisi ('both'). Dosya adlarında ve kayıtlarda numara her zaman vardır. */
+function labelMode() {
+  const mode = S && S.student_label;
+  return mode === 'number' || mode === 'both' ? mode : 'name';
+}
+
+function studentLabel(st) {
+  const mode = labelMode();
+  if (mode === 'number') return st.numara;
+  return mode === 'both' ? `${st.numara} ${fullName(st)}` : fullName(st);
+}
+
+/* Kutudaki ve satırdaki ad: numara kalın, ad soyad yanında (seçime göre biri gizlenir). */
+function setWho(num, name, st) {
+  const mode = labelMode();
+  num.hidden = mode === 'name';
+  name.hidden = mode === 'number';
+  setText(num, st.numara);
+  setText(name, fullName(st));
+}
+
 function byName(a, b) {
   return fullName(a).localeCompare(fullName(b), 'tr', { sensitivity: 'base' }) || a.numara.localeCompare(b.numara);
+}
+
+/* Yalnızca ad soyad gösterilirken sıra ada göredir; numara görünüyorsa numaraya göre (sunucudan
+   gelen sıra). */
+function inOrder(students) {
+  return labelMode() === 'name' ? students.slice().sort(byName) : students.slice();
 }
 
 /* Sınav bittikten sonra teslim edenler "geç teslim" sayılır. */
@@ -354,13 +378,21 @@ function isUnseen(alert) {
   return alert.id > (st ? st.ack_id || 0 : 0);
 }
 
-/* Her öğrencinin en son görülmemiş uyarısı (S.alerts en yeni üstte gelir). */
+/* Her öğrencinin en son görülmemiş uyarısı (S.alerts en yeni üstte gelir). Kopan bağlantı,
+   sürdüğü sürece kırmızı durumla gösterilir; düzeldikten sonra satırda not olarak kalmaz. */
 function latestAlerts() {
   const latest = new Map();
   for (const alert of warningAlerts()) {
-    if (alert.numara && !latest.has(alert.numara) && isUnseen(alert)) latest.set(alert.numara, alert);
+    if (!alert.numara || latest.has(alert.numara) || alert.type === 'disconnected' || !isUnseen(alert)) continue;
+    latest.set(alert.numara, alert);
   }
   return latest;
+}
+
+/* Belirli bir öğrenciye ait olmayan, görülmemiş uyarılar (ör. Teslimler klasöründe tanınmayan
+   dosya). Sürenin dolduğu zaten üst satırda yazar. */
+function generalAlerts() {
+  return warningAlerts().filter((alert) => !alert.numara && alert.type !== 'time_up' && isUnseen(alert));
 }
 
 /* ----------------------------------------------------------------- ekran kutuları */
@@ -380,14 +412,15 @@ function createTile(numara) {
 
   const cap = el('div', 'cap');
   const who = el('span', 'who');
+  const num = el('span', 'num');
   const name = el('span', 'name');
-  who.append(name);
+  who.append(num, name);
   cap.append(el('span', 'dot'), who);
   root.append(videoBox, cap);
 
   root.addEventListener('click', () => openModal(numara));
   const tile = {
-    root, video, noVideo, flag, name,
+    root, video, noVideo, flag, num, name,
     player: new Player(numara, video, videoBox),
     visible: true,
     data: null,
@@ -401,10 +434,10 @@ function renderTiles() {
   const grid = $('grid');
   const seen = new Set();
   let previous = null;
-  // Giriş yapanlar ad sırasıyla üstte durur; listede olup henüz giriş yapmayanlar onların
-  // ardından, teslim edenler en sonda gelir.
+  // Giriş yapanlar üstte durur; listede olup henüz giriş yapmayanlar onların ardından, teslim
+  // edenler en sonda gelir (her grubun içinde ada ya da numaraya göre).
   const rank = (st) => (st.status === 'done' ? 2 : st.status === 'absent' ? 1 : 0);
-  const ordered = S.students.slice().sort((a, b) => rank(a) - rank(b) || byName(a, b));
+  const ordered = inOrder(S.students).sort((a, b) => rank(a) - rank(b));
   for (const st of ordered) {
     seen.add(st.numara);
     let tile = tiles.get(st.numara);
@@ -424,9 +457,9 @@ function renderTiles() {
       tile.root.classList.add(statusClass);
       tile.statusClass = statusClass;
     }
-    setText(tile.name, fullName(st));
+    setWho(tile.num, tile.name, st);
     tile.root.classList.toggle('late', isLate(st));
-    tile.root.title = `${fullName(st)} — ${statusText(st)}`;
+    tile.root.title = `${studentLabel(st)} — ${statusText(st)}`;
     tile.flag.hidden = st.warn_count === 0;
     setText(tile.flag, String(st.warn_count));
     setText(tile.noVideo, noVideoText(st));
@@ -568,16 +601,19 @@ function renderHeader() {
   exam.classList.toggle('running', state === 'RUNNING');
   exam.classList.toggle('ended', state === 'ENDED');
 
+  const folder = S.exam.folder;
   $('setup').hidden = state !== 'WAITING';
   $('btnEnd').hidden = state !== 'RUNNING';
-  // Sınav kayıtsız başlatıldıysa kayıt sonradan başlatılabilir.
-  $('btnRecordStart').hidden = !(state === 'RUNNING' && !S.exam.record);
+  // Sınav başladıktan sonra kayıt istenildiği an başlatılır ya da durdurulur: aynı yerde, o an
+  // geçerli olan tek düğme görünür.
+  const canRecord = state !== 'WAITING' && Boolean(folder);
+  $('btnRecordStart').hidden = !(canRecord && !S.exam.record);
+  $('btnRecordStop').hidden = !(canRecord && S.exam.record);
   $('btnResetTop').hidden = state !== 'ENDED';
   $('btnReset').disabled = state === 'RUNNING';
   // Sınav sürerken ad değiştirilemez: öğrenciler bu adla bağlandı.
   $('btnIdentity').hidden = state === 'RUNNING';
 
-  const folder = S.exam.folder;
   $('btnOpenFolderTop').hidden = state !== 'ENDED' || !folder;
   $('btnOpenFolder').disabled = !folder;
   const folderInfo = $('folderInfo').firstElementChild;
@@ -660,103 +696,139 @@ function renderBanners() {
   if (!health.lan_ips.length) {
     messages.push('Bu bilgisayar bir ağa bağlı görünmüyor. Sınıf modemine bağlı olduğunuzdan emin olun.');
   }
+  // Belirli bir öğrenciye ait olmayan uyarılar burada durur; "Görüldü" ile kalkar.
+  const general = generalAlerts().slice(0, 3).reverse();
   const box = $('banners');
-  const signature = JSON.stringify(messages);
+  const signature = JSON.stringify([messages, general.map((alert) => alert.id)]);
   if (box.dataset.signature === signature) return;
   box.dataset.signature = signature;
-  box.replaceChildren(...messages.map((text) => el('div', 'banner', text)));
+  const nodes = messages.map((text) => el('div', 'banner', text));
+  general.forEach((alert, index) => {
+    const line = el('div', 'banner general');
+    line.append(el('span', '', `${fmtClock(alert.ts)} — ${alert.message}`));
+    if (index === general.length - 1) {
+      const seen = el('button', '', 'Görüldü');
+      seen.type = 'button';
+      seen.addEventListener('click', async () => {
+        try {
+          await api('/panel/api/ack', { json: { general: true } });
+        } catch (error) {
+          toast(error.message, true);
+        }
+      });
+      line.append(seen);
+    }
+    nodes.push(line);
+  });
+  box.replaceChildren(...nodes);
+}
+
+/* Üst satırdaki küçük başlıklı değerler: başlangıç, kalan süre, kayıt. */
+function statItem(label, value, className) {
+  const item = el('div', `stat${className ? ` ${className}` : ''}`);
+  item.append(el('span', 'stat-label', label), el('span', 'stat-value', value));
+  return item;
 }
 
 function renderTimer() {
   if (!S) return;
   const exam = S.exam;
-  const parts = [];
-  let ending = false;
-  let over = false;
+  // Sunucunun saatine göre hesaplanır; tarayıcı saati yanlış olsa da doğru kalır.
+  const serverNow = S.server_time + (Date.now() - receivedAt) / 1000;
+  const stats = [];          // [başlık, değer, sınıf]
   if (exam.state === 'WAITING' && exam.scheduled) {
-    parts.push(`başlangıç ${fmtClock(exam.scheduled.at)}`);
+    stats.push(['Planlanan başlangıç', fmtClock(exam.scheduled.at), '']);
   } else if (exam.state === 'RUNNING' && exam.started_at) {
-    parts.push(`başlangıç ${fmtClock(exam.started_at)}`);
+    stats.push(['Başlangıç', fmtClock(exam.started_at), 'secondary']);
     if (exam.ends_at) {
-      // Sunucunun saatine göre hesaplanır; tarayıcı saati yanlış olsa da doğru kalır.
-      const serverNow = S.server_time + (Date.now() - receivedAt) / 1000;
       const remaining = exam.ends_at - serverNow;
       if (remaining > 0) {
-        parts.push(`kalan ${fmtRemaining(remaining)}`);
-        ending = remaining <= 300;
+        stats.push(['Kalan süre', fmtRemaining(remaining), remaining <= 300 ? 'ending' : '']);
       } else {
         // Sınav kendiliğinden bitmez; süre dolduğu yalnızca burada görünür.
-        parts.push(`süre aşıldı (+${fmtRemaining(-remaining)})`);
-        over = true;
+        stats.push(['Süre aşıldı', `+${fmtRemaining(-remaining)}`, 'over']);
       }
+    } else {
+      stats.push(['Geçen süre', fmtRemaining(Math.max(0, serverNow - exam.started_at)), '']);
     }
-    parts.push(exam.record ? 'kayıt açık' : 'kayıt kapalı');
   } else if (exam.state === 'ENDED' && exam.started_at) {
-    parts.push(`${fmtClock(exam.started_at)} – ${fmtClock(exam.ended_at)}`);
+    stats.push(['Başlangıç', fmtClock(exam.started_at), 'secondary']);
+    stats.push(['Bitiş', fmtClock(exam.ended_at), '']);
   }
-  setText($('timer'), parts.join(' · '));
-  $('timer').classList.toggle('ending', ending);
-  $('timer').classList.toggle('over', over);
+  if (exam.state !== 'WAITING') stats.push(['Kayıt', exam.record ? 'Açık' : 'Kapalı', exam.record ? 'rec' : 'rec off']);
+
+  const box = $('examStats');
+  const shape = stats.map((item) => `${item[0]}|${item[2]}`).join(',');
+  if (box.dataset.shape !== shape) {
+    // Yalnızca yapı değişince yeniden kurulur; saniyede iki kez değişen yalnızca değerdir.
+    box.dataset.shape = shape;
+    box.replaceChildren(...stats.map(([label, value, className]) => {
+      const item = statItem(label, '', className);
+      if (className.startsWith('rec')) item.lastChild.append(el('span', 'rec-dot'), el('span', 'rec-text', value));
+      else setText(item.lastChild, value);
+      return item;
+    }));
+  } else {
+    stats.forEach(([, value, className], index) => {
+      const node = box.children[index].lastChild;
+      setText(className.startsWith('rec') ? node.lastChild : node, value);
+    });
+  }
 }
 setInterval(renderTimer, 500);
 
 /* ----------------------------------------------------------------- öğrenci listesi (sağ) */
 
-function summaryItem(dotColor, count, label) {
-  const item = el('span');
-  const dot = el('span', 'dot');
-  dot.style.background = dotColor;
-  item.append(dot, el('b', '', String(count)), document.createTextNode(` ${label}`));
-  return item;
+/* Durum sayıları: [sınıf, sayı, ad]. Sınav bittikten sonra kırmızı sayı "bağlantısı kopan"
+   değil, "teslim etmeyen"dir. "Giriş yapmadı" yalnızca öğrenci listesi varken gösterilir. */
+function summaryCells() {
+  const sum = S.summary;
+  const cells = [
+    ['ok', sum.connected, 'Bağlı'],
+    ['warn', sum.warned, 'Uyarılı'],
+    ['lost', sum.lost, S.exam.state === 'ENDED' ? 'Teslim etmedi' : 'Kopuk'],
+    ['done', sum.submitted, 'Teslim etti'],
+  ];
+  if (S.roster.count > 0) cells.push(['absent', sum.absent || 0, 'Giriş yapmadı']);
+  return cells;
 }
 
-function railItem(dotColor, count, label) {
-  const item = el('span');
-  item.title = `${count} ${label}`;
-  const dot = el('span', 'dot');
-  dot.style.background = dotColor;
-  item.append(dot, document.createTextNode(String(count)));
+function summaryCell([className, count, label]) {
+  const cell = el('div', `sum-cell ${className}${count ? '' : ' zero'}`);
+  const number = el('span', 'sum-count');
+  number.append(el('span', 'dot'), el('b', '', String(count)));
+  cell.append(number, el('span', 'sum-label', label));
+  cell.title = `${count} öğrenci: ${label.toLocaleLowerCase('tr')}`;
+  return cell;
+}
+
+function railItem([className, count, label]) {
+  const item = el('span', className);
+  item.title = `${count} ${label.toLocaleLowerCase('tr')}`;
+  item.append(el('span', 'dot'), document.createTextNode(String(count)));
   return item;
 }
 
 function renderSummary() {
-  const sum = S.summary;
-  // Sınav bittikten sonra kırmızı sayı "bağlantısı kopan" değil, "teslim etmeyen"dir.
-  const lostLabel = S.exam.state === 'ENDED' ? 'teslim etmedi' : 'kopuk';
-  const absent = sum.absent || 0;
-  const signature = `${sum.connected}|${sum.warned}|${sum.lost}|${sum.submitted}|${absent}|${lostLabel}`;
+  const cells = summaryCells();
+  const signature = JSON.stringify(cells);
   const box = $('summary');
   if (box.dataset.signature !== signature) {
     box.dataset.signature = signature;
-    box.replaceChildren(
-      summaryItem('var(--ok)', sum.connected, 'bağlı'),
-      summaryItem('var(--warn)', sum.warned, 'uyarılı'),
-      summaryItem('var(--lost)', sum.lost, lostLabel),
-      summaryItem('var(--done)', sum.submitted, 'teslim etti'),
-    );
-    // Yalnızca öğrenci listesi yüklüyse ve giriş yapmayan varsa gösterilir.
-    if (absent > 0) box.append(summaryItem('var(--absent)', absent, 'giriş yapmadı'));
+    box.style.setProperty('--cells', String(cells.length));
+    box.replaceChildren(...cells.map(summaryCell));
+    // Daraltılmış şerit: aynı sayılar alt alta.
+    $('railSummary').replaceChildren(...cells.map(railItem));
   }
-  // Daraltılmış şerit: aynı sayılar alt alta.
-  const rail = $('railSummary');
-  if (rail.dataset.signature !== signature) {
-    rail.dataset.signature = signature;
-    rail.replaceChildren(
-      railItem('var(--ok)', sum.connected, 'bağlı'),
-      railItem('var(--warn)', sum.warned, 'uyarılı'),
-      railItem('var(--lost)', sum.lost, lostLabel),
-      railItem('var(--done)', sum.submitted, 'teslim etti'),
-    );
-    if (absent > 0) rail.append(railItem('var(--absent)', absent, 'giriş yapmadı'));
-  }
-  const unseen = warningAlerts().filter(isUnseen).length;
-  $('railAlerts').hidden = unseen === 0;
-  setText($('railAlerts'), unseen > 99 ? '99+' : String(unseen));
-  $('railAlerts').title = `${unseen} görülmemiş uyarı`;
+  // Toplam: giriş yapanlar ve listede olup henüz giriş yapmayanlar.
   setText($('countAll'), String(S.students.length));
-  setText($('countAlerts'), unseen > 99 ? '99+' : String(unseen));
-  $('filterAlerts').classList.toggle('attention', unseen > 0);
-  $('ackAll').hidden = filter !== 'alerts' || unseen === 0;
+
+  const unseenStudents = S.summary.warned;
+  $('railAlerts').hidden = unseenStudents === 0;
+  setText($('railAlerts'), unseenStudents > 99 ? '99+' : String(unseenStudents));
+  $('railAlerts').title = `${unseenStudents} öğrencide görülmemiş uyarı`;
+  $('ackBar').hidden = unseenStudents === 0;
+  setText($('ackText'), `${unseenStudents} öğrencide görülmemiş uyarı var`);
 }
 
 function createRow(numara) {
@@ -767,8 +839,9 @@ function createRow(numara) {
   const head = el('button', 'row-head');
   head.type = 'button';
   const who = el('span', 'who');
+  const num = el('span', 'num');
   const name = el('span', 'name');
-  who.append(name);
+  who.append(num, name);
   const note = el('span', 'note');
   const count = el('span', 'count');
   count.hidden = true;
@@ -803,7 +876,7 @@ function createRow(numara) {
   remove.addEventListener('click', () => removeFromRoster(numara));
 
   return {
-    root, head, name, note, count, body, events, meta, ack, zoom, enlist, remove,
+    root, head, num, name, note, count, body, events, meta, ack, zoom, enlist, remove,
     statusClass: '', metaSignature: '', eventSignature: '',
   };
 }
@@ -835,11 +908,7 @@ function rowNote(st, alert) {
 
 function renderList() {
   renderSummary();
-  const showAlerts = filter === 'alerts';
-  $('studentList').hidden = showAlerts;
-  $('alertList').hidden = !showAlerts;
-  if (showAlerts) renderAlertList();
-  else renderStudentList();
+  renderStudentList();
 }
 
 function renderStudentList() {
@@ -847,7 +916,7 @@ function renderStudentList() {
   const list = $('studentList');
   const seen = new Set();
   let previous = null;
-  for (const st of S.students.slice().sort(byName)) {
+  for (const st of inOrder(S.students)) {
     seen.add(st.numara);
     let row = rows.get(st.numara);
     if (!row) {
@@ -870,34 +939,6 @@ function renderStudentList() {
   setText(emptyBox, 'Henüz giriş yapan öğrenci yok.');
 }
 
-/* "Uyarılar": bütün uyarılar tek satırlık, en yenisi üstte olan düz bir liste. */
-function renderAlertList() {
-  const alerts = warningAlerts().slice(0, ALERT_LIST_LIMIT);
-  const list = $('alertList');
-  const signature = alerts.map((a) => `${a.id}${isUnseen(a) ? '!' : ''}${tiles.has(a.numara) ? '' : '-'}`).join(',');
-  if (list.dataset.signature !== signature) {
-    list.dataset.signature = signature;
-    list.replaceChildren(...alerts.map(alertItem));
-  }
-  const emptyBox = $('listEmpty');
-  emptyBox.hidden = alerts.length > 0;
-  setText(emptyBox, 'Henüz uyarı yok.');
-}
-
-function alertItem(alert) {
-  const item = el('li', `alert sev-${alert.severity}${isUnseen(alert) ? '' : ' seen'}`);
-  const line = el('button', 'alert-line');
-  line.type = 'button';
-  const who = alert.numara ? (alert.name || alert.numara) : 'Genel';   // adı bilinmiyorsa numara
-  line.append(el('span', 'dot'), el('span', 'when', fmtClock(alert.ts)), el('span', 'who', who),
-    el('span', 'msg', alert.message));
-  line.title = `${fmtClockSeconds(alert.ts)} — ${who}: ${alert.message}`;
-  if (alert.numara && tiles.has(alert.numara)) line.addEventListener('click', () => openModal(alert.numara));
-  else line.disabled = true;
-  item.append(line);
-  return item;
-}
-
 function updateRow(row, st, alert) {
   const open = expanded.has(st.numara);
   const statusClass = `st-${st.status}`;
@@ -909,10 +950,10 @@ function updateRow(row, st, alert) {
   row.root.classList.toggle('open', open);
   row.root.classList.toggle('late', isLate(st));
   row.head.setAttribute('aria-expanded', open ? 'true' : 'false');
-  setText(row.name, fullName(st));
+  setWho(row.num, row.name, st);
   const note = rowNote(st, alert);
   setText(row.note, note);
-  row.head.title = note ? `${fullName(st)} — ${note}` : '';
+  row.head.title = note ? `${studentLabel(st)} — ${note}` : '';
   row.count.hidden = st.warn_count < 2;
   setText(row.count, String(st.warn_count));
 
@@ -1000,13 +1041,6 @@ async function loadEvents(numara, count) {
   }
 }
 
-function setFilter(next) {
-  filter = next;
-  $('filterAll').classList.toggle('active', next === 'all');
-  $('filterAlerts').classList.toggle('active', next === 'alerts');
-  if (S) renderList();
-}
-
 /* ----------------------------------------------------------------- sesli uyarı */
 
 function checkNewAlerts() {
@@ -1058,7 +1092,7 @@ function renderModal() {
   const st = tile.data;
   updatePlayback(tile);
 
-  setText($('modalTitle'), fullName(st));
+  setText($('modalTitle'), labelMode() === 'both' ? `${st.numara} — ${fullName(st)}` : studentLabel(st));
   const status = $('modalStatus');
   status.className = `modal-status st-${st.status}`;
   const statusSignature = `${statusText(st)}|${st.roster}`;
@@ -1090,6 +1124,7 @@ function renderModal() {
 
   const info = document.createDocumentFragment();
   infoRow(info, 'Öğrenci numarası', st.numara);
+  infoRow(info, 'Ad soyad', fullName(st));
   infoRow(info, 'IP adresi', st.ip);
   infoRow(info, 'Bilgisayar adı', st.hostname);
   infoRow(info, 'Ağ (MAC) adresi', st.mac);
@@ -1372,10 +1407,27 @@ async function uploadRoster() {
 /* ----------------------------------------------------------------- kaydı sonradan başlatma */
 
 function openRecordDialog() {
-  if (!S || S.exam.state !== 'RUNNING' || S.exam.record) return;
+  if (!S || S.exam.state === 'WAITING' || S.exam.record) return;
   closeMenu();
   $('recordDialog').hidden = false;
   $('recordCancel').focus();
+}
+
+function openRecordStopDialog() {
+  if (!S || S.exam.state === 'WAITING' || !S.exam.record) return;
+  closeMenu();
+  $('recordStopDialog').hidden = false;
+  $('recordStopCancel').focus();
+}
+
+async function stopRecording() {
+  try {
+    await api('/panel/api/record/stop');
+    closeDialogs();
+    toast('Ekran kaydı durduruldu. Canlı izleme sürüyor.');
+  } catch (error) {
+    toast(error.message, true);
+  }
 }
 
 async function startRecording() {
@@ -1415,7 +1467,7 @@ async function submitStudent(event) {
 
 async function removeFromRoster(numara) {
   const st = byNumara.get(numara);
-  const who = st ? fullName(st) : numara;
+  const who = st ? studentLabel(st) : numara;
   if (!confirm(`${who} listeden çıkarılsın mı?`)) return;
   try {
     await api('/panel/api/roster/remove', { json: { numara } });
@@ -1430,23 +1482,48 @@ async function removeFromRoster(numara) {
 
 let settingsInfo = null;          // sunucudan gelen: values, defaults, limits
 let settingsPrograms = [];        // penceredeki "izin verilen programlar" listesi
+let appCatalog = null;            // "Program ekle" listesi: { catalog, installed, scanning }
+let appPoll = 0;
+
+/* Adı bilinen programın dosya adından adına ("chrome.exe" -> "Google Chrome"). */
+function programTitle(exe) {
+  if (!appCatalog) return '';
+  const key = exe.toLowerCase();
+  for (const app of appCatalog.catalog) {
+    if (app.exe.some((name) => name.toLowerCase() === key)) return app.name;
+  }
+  const found = appCatalog.installed.find((app) => app.exe.toLowerCase() === key);
+  return found ? found.name : '';
+}
+
+function hasProgram(exe) {
+  return settingsPrograms.some((other) => other.toLowerCase() === exe.toLowerCase());
+}
 
 function renderSettingsPrograms() {
   const fixed = el('li', 'fixed');
   fixed.append(el('span', '', 'Packet Tracer'));
   fixed.title = 'Her zaman izinlidir';
-  const items = settingsPrograms.map((name) => {
+  // Bir program birden çok dosya adıyla biliniyorsa (ör. Hesap Makinesi) tek etiket olarak görünür.
+  const groups = new Map();
+  for (const name of settingsPrograms) {
+    const title = programTitle(name) || name;
+    if (!groups.has(title)) groups.set(title, []);
+    groups.get(title).push(name);
+  }
+  const items = Array.from(groups, ([title, names]) => {
     const item = el('li');
-    item.title = name;
+    item.title = names.join(', ') === title ? title : `${title} (${names.join(', ')})`;
     const remove = el('button', '', '×');
     remove.type = 'button';
-    remove.title = `${name} iznini kaldır`;
+    remove.title = `${title} iznini kaldır`;
     remove.setAttribute('aria-label', remove.title);
     remove.addEventListener('click', () => {
-      settingsPrograms = settingsPrograms.filter((other) => other !== name);
+      settingsPrograms = settingsPrograms.filter((other) => !names.includes(other));
       renderSettingsPrograms();
+      renderProgramList();
     });
-    item.append(el('span', '', name), remove);
+    item.append(el('span', '', title), remove);
     return item;
   });
   $('settingsPrograms').replaceChildren(fixed, ...items);
@@ -1457,15 +1534,133 @@ function addSettingsProgram(text) {
   let name = String(text || '').trim().replace(/^["']+|["']+$/g, '');
   if (!name) return;
   if (!/[\\/:%]/.test(name) && !name.includes('.')) name += '.exe';
-  if (!settingsPrograms.some((other) => other.toLowerCase() === name.toLowerCase())) settingsPrograms.push(name);
+  if (!hasProgram(name)) settingsPrograms.push(name);
   renderSettingsPrograms();
+  renderProgramList();
+}
+
+/* ---- "Program ekle": aşağı doğru açılan panel (arama + hazır liste + bu bilgisayardaki programlar) */
+
+/* Programın kendi simgesi bilinmiyorsa türüne göre sade bir çizim gösterilir. */
+const APP_GLYPHS = {
+  browser: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/>',
+  code: '<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14"/>',
+  terminal: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12.5 15H17"/>',
+  office: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',
+  network: '<circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="18" r="2.2"/><circle cx="19" cy="18" r="2.2"/><path d="M11 7l-5 9M13 7l5 9M7.2 18h9.6"/>',
+  text: '<path d="M6 3h12v18H6z"/><path d="M9 8h6M9 12h6M9 16h4"/>',
+  tool: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11h2M12 11h1M15 11h1M8 14.5h2M12 14.5h1M15 14.5h1M8 18h2M12 18h4"/>',
+  app: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>',
+};
+
+function appIcon(app) {
+  const box = el('span', 'app-icon');
+  if (app.icon) {
+    const image = document.createElement('img');
+    image.alt = '';
+    image.src = app.icon;          // sunucunun bu bilgisayardan okuduğu simge (data: adresi)
+    box.classList.add('real');
+    box.append(image);
+    return box;
+  }
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.6');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.innerHTML = APP_GLYPHS[app.kind] || APP_GLYPHS.app;   // sabit çizimler; dışarıdan metin içermez
+  box.append(svg);
+  return box;
+}
+
+function foldText(text) {
+  return String(text).toLocaleLowerCase('tr').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ı/g, 'i');
+}
+
+function appRow(app) {
+  const exes = Array.isArray(app.exe) ? app.exe : [app.exe];
+  const row = el('li', 'app');
+  const text = el('span', 'app-text');
+  text.append(el('span', 'app-name', app.name), el('span', 'app-exe', app.note || exes.join(', ')));
+  const added = exes.every(hasProgram);
+  const add = el('button', '', added ? 'Eklendi ✓' : 'Ekle');
+  add.type = 'button';
+  add.disabled = added;
+  add.setAttribute('aria-label', `${app.name}: ${added ? 'eklendi' : 'ekle'}`);
+  add.addEventListener('click', () => {
+    for (const exe of exes) if (!hasProgram(exe)) settingsPrograms.push(exe);
+    renderSettingsPrograms();
+    renderProgramList();
+  });
+  row.title = `${app.name} (${exes.join(', ')})`;
+  row.append(appIcon(app), text, add);
+  return row;
+}
+
+function renderProgramList() {
+  if ($('programPicker').hidden) return;
+  const list = $('programList');
+  if (!appCatalog) {
+    list.replaceChildren(el('li', 'none', 'Yükleniyor…'));
+    return;
+  }
+  const query = foldText($('programSearch').value.trim());
+  const match = (app) => !query || foldText(app.name).includes(query)
+    || (Array.isArray(app.exe) ? app.exe : [app.exe]).some((exe) => foldText(exe).includes(query));
+  const common = appCatalog.catalog.filter(match);
+  const installed = appCatalog.installed.filter(match);
+  const nodes = [];
+  if (common.length) nodes.push(el('li', 'head', 'Sık kullanılanlar'), ...common.map(appRow));
+  if (installed.length) nodes.push(el('li', 'head', 'Bu bilgisayardaki programlar'), ...installed.map(appRow));
+  // Listede olmayan bir program, dosya adı yazılarak eklenir.
+  const typed = $('programSearch').value.trim().replace(/^["']+|["']+$/g, '');
+  if (typed && !/[\\/:*?"<>|%\s]/.test(typed)) {
+    const exe = typed.includes('.') ? typed : `${typed}.exe`;
+    const known = [...common, ...installed].some((app) => (Array.isArray(app.exe) ? app.exe : [app.exe])
+      .some((name) => name.toLowerCase() === exe.toLowerCase()));
+    // Aramaya uyan program varken yalnızca tam dosya adı (….exe) yazıldıysa önerilir.
+    if (!known && /\.exe$/i.test(exe) && (!nodes.length || /\.exe$/i.test(typed))) {
+      nodes.push(el('li', 'head', 'Dosya adıyla ekle'),
+        appRow({ name: exe, exe: [exe], kind: 'app', icon: '', note: 'Listede yok; bu dosya adıyla eklenir' }));
+    }
+  }
+  if (!nodes.length) nodes.push(el('li', 'none', 'Bu adla bir program bulunamadı. Dosya adını yazın (ör. putty.exe).'));
+  list.replaceChildren(...nodes);
+  setText($('programScan'), appCatalog.scanning ? 'Bu bilgisayardaki programlar aranıyor…' : '');
+}
+
+/* Liste sunucudan bir kez alınır; bu bilgisayardaki programlar okunana kadar yeniden sorulur. */
+async function loadApps() {
+  clearTimeout(appPoll);
+  try {
+    appCatalog = await api('/panel/api/apps', { method: 'GET' });
+  } catch (_) {
+    if (!appCatalog) appCatalog = { catalog: [], installed: [], scanning: false };
+  }
+  renderSettingsPrograms();
+  renderProgramList();
+  if (appCatalog.scanning && !$('settingsDialog').hidden) appPoll = setTimeout(loadApps, 1500);
+}
+
+function setProgramPicker(open) {
+  $('programPicker').hidden = !open;
+  $('programPickerToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+  setText($('programPickerToggle'), open ? 'Listeyi kapat' : '+ Program ekle');
+  if (!open) return;
+  $('programSearch').value = '';
+  renderProgramList();
+  $('programSearch').focus();
+  $('programPicker').scrollIntoView({ block: 'nearest' });
 }
 
 function fillSettings(values) {
   settingsPrograms = values.programs.slice();
   renderSettingsPrograms();
-  $('settingsProgram').value = '';
+  renderProgramList();
   for (const radio of document.getElementsByName('settingsQuality')) radio.checked = radio.value === values.quality;
+  for (const radio of document.getElementsByName('settingsLabel')) radio.checked = radio.value === values.student_label;
   $('setForeground').value = values.foreground_tolerance_s;
   $('setKill').value = values.kill_countdown_s;
   $('setDisconnect').value = values.disconnect_s;
@@ -1488,22 +1683,25 @@ async function openSettings() {
     $(id).max = limits[key].max;
   }
   $('setNote').maxLength = settingsInfo.max_note;
-  fillSettings(settingsInfo.values);
   $('settingsDialog').hidden = false;
+  setProgramPicker(false);
+  fillSettings(settingsInfo.values);
   $('settingsCancel').focus();
+  loadApps();
 }
 
 async function saveSettings(event) {
   event.preventDefault();
-  // Kutuda yazılıp "Ekle"ye basılmamış bir program adı da sayılır.
-  addSettingsProgram($('settingsProgram').value);
-  $('settingsProgram').value = '';
-  const quality = Array.from(document.getElementsByName('settingsQuality')).find((radio) => radio.checked);
+  const checked = (name, fallback) => {
+    const radio = Array.from(document.getElementsByName(name)).find((item) => item.checked);
+    return radio ? radio.value : fallback;
+  };
   try {
     await api('/panel/api/settings', {
       json: {
         programs: settingsPrograms,
-        quality: quality ? quality.value : 'normal',
+        quality: checked('settingsQuality', 'normal'),
+        student_label: checked('settingsLabel', 'name'),
         foreground_tolerance_s: $('setForeground').value,
         kill_countdown_s: $('setKill').value,
         disconnect_s: $('setDisconnect').value,
@@ -1523,16 +1721,14 @@ function bindSettings() {
   $('settingsCancel').addEventListener('click', closeDialogs);
   $('settingsForm').addEventListener('submit', saveSettings);
   $('settingsDefaults').addEventListener('click', () => { if (settingsInfo) fillSettings(settingsInfo.defaults); });
-  $('settingsProgramAdd').addEventListener('click', () => {
-    addSettingsProgram($('settingsProgram').value);
-    $('settingsProgram').value = '';
-    $('settingsProgram').focus();
-  });
-  // Enter, formu kaydetmek yerine programı listeye ekler.
-  $('settingsProgram').addEventListener('keydown', (event) => {
+  $('programPickerToggle').addEventListener('click', () => setProgramPicker($('programPicker').hidden));
+  $('programSearch').addEventListener('input', renderProgramList);
+  // Enter, formu kaydetmek yerine listedeki ilk programı ekler.
+  $('programSearch').addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
-    $('settingsProgramAdd').click();
+    const first = $('programList').querySelector('li.app button:not(:disabled)');
+    if (first) first.click();
   });
   // Dosya yüklenmez: tarayıcıdan yalnızca seçilen programın adı alınır.
   $('settingsProgramPick').addEventListener('click', () => $('settingsProgramFile').click());
@@ -1553,7 +1749,7 @@ function openDialog(id, focusId, value) {
 }
 
 const DIALOGS = ['identityDialog', 'folderDialog', 'startDialog', 'endDialog', 'shutdownDialog', 'settingsDialog',
-  'studentDialog', 'rosterDialog', 'recordDialog'];
+  'studentDialog', 'rosterDialog', 'recordDialog', 'recordStopDialog'];
 
 function closeDialogs() {
   for (const id of DIALOGS) $(id).hidden = true;
@@ -1703,6 +1899,9 @@ function bindControls() {
   $('btnRecordStart').addEventListener('click', openRecordDialog);
   $('recordCancel').addEventListener('click', closeDialogs);
   $('recordGo').addEventListener('click', startRecording);
+  $('btnRecordStop').addEventListener('click', openRecordStopDialog);
+  $('recordStopCancel').addEventListener('click', closeDialogs);
+  $('recordStopGo').addEventListener('click', stopRecording);
 
   $('btnReset').addEventListener('click', resetExam);
   $('btnResetTop').addEventListener('click', resetExam);
@@ -1717,8 +1916,6 @@ function bindControls() {
   $('menu').addEventListener('click', (event) => event.stopPropagation());
   document.addEventListener('click', closeMenu);
 
-  $('filterAll').addEventListener('click', () => setFilter('all'));
-  $('filterAlerts').addEventListener('click', () => setFilter('alerts'));
 
   $('modalAck').addEventListener('click', () => { if (modalNumara) acknowledge(modalNumara); });
   $('modalClose').addEventListener('click', closeModal);

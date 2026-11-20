@@ -53,6 +53,7 @@ public sealed class Enforcer
                 ["title"] = order.Title,
                 ["display"] = display,
             };
+            if (WindowInspector.ProcessStartUnix(order.Pid) is { } started) details["started"] = started;
             var error = WindowInspector.Kill(order.Pid);
             if (error == null)
             {

@@ -97,6 +97,25 @@ public static class WindowInspector
     }
 
     /// <summary>Terminates a process. Returns null on success, otherwise the error text.</summary>
+    /// <summary>
+    /// When the process was started, in Unix seconds by this computer's clock; null when it
+    /// cannot be read. The server compares it with the moment the exam began for this student:
+    /// a program that was already open then is closed without a warning.
+    /// </summary>
+    public static double? ProcessStartUnix(int pid)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById(pid);
+            return new DateTimeOffset(process.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds() / 1000.0;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException
+                                       or NotSupportedException or System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+    }
+
     public static string? Kill(int pid)
     {
         var handle = NativeMethods.OpenProcess(NativeMethods.PROCESS_TERMINATE, false, (uint)pid);
