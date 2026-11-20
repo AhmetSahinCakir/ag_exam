@@ -1497,6 +1497,46 @@ def test_ending_the_exam_does_not_end_the_recording(env: Env):
     assert env.store.record_path == ""
 
 
+def test_recording_is_shown_as_over_once_everybody_has_handed_in(env: Env):
+    """A student's program closes when the file is handed in, so nothing is recorded any more
+    once everybody has: the panel must not go on saying that recording is on."""
+    def shown():
+        exam = env.panel.get("/panel/api/state").json()["exam"]
+        return exam["record_state"], exam["record"]
+
+    env.choose_folder()
+    env.upload_exam()
+    assert shown() == ("off", True)                       # before the exam nothing is recorded
+    env.panel.post("/panel/api/start", headers=PANEL, json={"record": True})
+    assert shown() == ("on", True)                        # nobody logged in yet: ready to record
+    first, _ = env.login()
+    second, _ = env.login(numara="2021000002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    env.submit(first, EXAM_BYTES + b"-bir")
+    assert shown() == ("on", True)                        # one student is still working
+    env.submit(second, EXAM_BYTES + b"-iki")
+    assert shown() == ("done", True)                      # everybody has handed in
+
+    # Somebody who comes late is recorded: the switch itself was never turned off.
+    third, _ = env.login(numara="2021000003", ad="Geç", soyad="Gelen", mac="AA:BB:CC:00:00:03", ip="192.168.1.52")
+    assert shown() == ("on", True)
+    # The same after the exam has ended: on while somebody has not handed in, over when all have.
+    env.panel.post("/panel/api/end", headers=PANEL)
+    assert shown() == ("on", True)
+    env.store.ended_at -= 60
+    env.submit(third, EXAM_BYTES + b"-uc")
+    assert shown() == ("done", True)
+
+    # Switched off by hand is "off", whoever is there.
+    env.panel.post("/panel/api/record/stop", headers=PANEL)
+    assert shown() == ("off", False)
+    env.panel.post("/panel/api/reset", headers=PANEL)
+    env.choose_folder()
+    env.upload_exam()
+    env.panel.post("/panel/api/start", headers=PANEL, json={"record": False})
+    env.login()
+    assert shown() == ("off", False)
+
+
 # ------------------------------------------------------- what is a warning and what is not
 
 

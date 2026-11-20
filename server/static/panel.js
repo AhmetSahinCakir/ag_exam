@@ -607,9 +607,10 @@ function renderHeader() {
   // Sınav başladıktan sonra kayıt istenildiği an başlatılır ya da durdurulur: aynı yerde, o an
   // geçerli olan tek düğme görünür. Sınavı bitirmek kaydı durdurmaz: teslim etmeyen öğrenci,
   // teslim edene ya da "Kaydı durdur"a basılana kadar kaydedilir.
+  // Herkes teslim ettiyse kaydedilen ekran kalmamıştır: durdurulacak bir kayıt da yoktur.
   const canRecord = state !== 'WAITING' && Boolean(folder);
-  $('btnRecordStart').hidden = !(canRecord && !S.exam.record);
-  $('btnRecordStop').hidden = !(canRecord && S.exam.record);
+  $('btnRecordStart').hidden = !(canRecord && recordState() === 'off');
+  $('btnRecordStop').hidden = !(canRecord && recordState() === 'on');
   $('btnResetTop').hidden = state !== 'ENDED';
   $('btnReset').disabled = state === 'RUNNING';
   // Sınav sürerken ad değiştirilemez: öğrenciler bu adla bağlandı.
@@ -724,6 +725,15 @@ function renderBanners() {
   box.replaceChildren(...nodes);
 }
 
+/* Kaydın durumu: 'on' kaydediliyor, 'off' kayıt kapalı, 'done' kayıt açık ama giriş yapan
+   herkes teslim etti (teslim edenin programı kapanır; kaydedilecek ekran kalmamıştır). */
+const RECORD_TEXT = { on: 'Açık', off: 'Kapalı', done: 'Bitti' };
+function recordState() {
+  const value = S.exam.record_state;
+  if (value === 'on' || value === 'off' || value === 'done') return value;
+  return S.exam.record ? 'on' : 'off';
+}
+
 /* Üst satırdaki küçük başlıklı değerler: başlangıç, kalan süre, kayıt. */
 function statItem(label, value, className) {
   const item = el('div', `stat${className ? ` ${className}` : ''}`);
@@ -756,7 +766,10 @@ function renderTimer() {
     stats.push(['Başlangıç', fmtClock(exam.started_at), 'secondary']);
     stats.push(['Bitiş', fmtClock(exam.ended_at), '']);
   }
-  if (exam.state !== 'WAITING') stats.push(['Kayıt', exam.record ? 'Açık' : 'Kapalı', exam.record ? 'rec' : 'rec off']);
+  if (exam.state !== 'WAITING') {
+    const recording = recordState();
+    stats.push(['Kayıt', RECORD_TEXT[recording], recording === 'on' ? 'rec' : `rec off ${recording}`]);
+  }
 
   const box = $('examStats');
   const shape = stats.map((item) => `${item[0]}|${item[2]}`).join(',');
@@ -767,6 +780,7 @@ function renderTimer() {
       const item = statItem(label, '', className);
       if (className.startsWith('rec')) item.lastChild.append(el('span', 'rec-dot'), el('span', 'rec-text', value));
       else setText(item.lastChild, value);
+      if (className.endsWith(' done')) item.title = 'Giriş yapan herkes teslim etti; kaydedilen ekran kalmadı.';
       return item;
     }));
   } else {
@@ -1415,7 +1429,7 @@ function openRecordDialog() {
 }
 
 function openRecordStopDialog() {
-  if (!S || S.exam.state === 'WAITING' || !S.exam.record) return;
+  if (!S || S.exam.state === 'WAITING' || recordState() !== 'on') return;
   closeMenu();
   $('recordStopDialog').hidden = false;
   $('recordStopCancel').focus();

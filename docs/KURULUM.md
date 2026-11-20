@@ -84,7 +84,8 @@ başlığının altında yazar.
 
 Bir öğrencinin kaydı, dosyasını teslim edince kendiliğinden biter. **Sınavı bitirmek kaydı
 durdurmaz:** teslim etmemiş öğrencinin ekranı, teslim edene ya da siz **Kaydı durdur**'a
-basana kadar kaydedilir.
+basana kadar kaydedilir. Giriş yapan herkes teslim edince kaydedilecek ekran kalmaz; üst
+satırda **Kayıt: Bitti** yazar.
 
 Sınav başlayınca öğrencilerde kısa bir geri sayımdan sonra izin verilmeyen programlar
 kapanır ve öğrencinin panelinde **Sınav dosyasını indir** düğmesi çıkar. Hiçbir şey

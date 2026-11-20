@@ -375,6 +375,21 @@ class Store:
             return ""
         return str(self.dir_recordings / "%path" / "%Y-%m-%d_%H-%M-%S_%z")
 
+    def record_state(self) -> str:
+        """What the panel shows next to "Kayıt".
+
+        "off": recording is switched off (or the exam has not started);
+        "on": screens are recorded;
+        "done": recording is switched on, but everybody who logged in has handed in. A student's
+        program closes when the file is handed in, so nobody is left to record. Should another
+        student log in, this is "on" again.
+        """
+        if self.state == WAITING or not self.record_enabled or self.dir_recordings is None:
+            return "off"
+        if self.students and all(self._status(st) in ("done", "nofile") for st in self.students.values()):
+            return "done"
+        return "on"
+
     @staticmethod
     def record_folder(st: Student) -> str:
         """The student's folder inside "Kayıtlar": <numara>_<AdSoyad>, like the submitted files."""
@@ -1730,6 +1745,7 @@ class Store:
                 "duration_min": self.duration_min,
                 "ends_at": self.ends_at,
                 "record": self.record_enabled,
+                "record_state": self.record_state(),
                 "scheduled": self.scheduled,
                 "file": self.exam_file,
                 "folder": str(self.exam_dir) if self.exam_dir else "",
