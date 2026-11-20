@@ -124,6 +124,8 @@ class SimAgent(threading.Thread):
         fps = int(stream.get("fps") or 5)
         width = int(stream.get("width") or 1280)
         kbps = int(stream.get("bitrate_kbps") or 500)
+        crf = int(stream.get("crf") or 26)
+        keyframe_s = int(stream.get("keyframe_s") or 10)
         label = f"{self.numara} {self.ad}".replace(":", " ").replace("'", " ")
         source = (f"testsrc2=size=1920x1080:rate={fps},"
                   f"drawbox=x=0:y=0:w=iw:h=120:color=black@0.6:t=fill")
@@ -132,9 +134,10 @@ class SimAgent(threading.Thread):
             vf = f"drawtext=text='{label}':x=40:y=30:fontsize=64:fontcolor=white,{vf}"
         cmd = [
             ffmpeg, "-hide_banner", "-loglevel", "error", "-re", "-f", "lavfi", "-i", source,
-            "-vf", vf, "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-            "-b:v", f"{kbps}k", "-maxrate", f"{kbps}k", "-bufsize", f"{kbps * 2}k",
-            "-g", str(fps * 2), "-pix_fmt", "yuv420p",
+            # The same encoding as the real agent (agent/Core/FfmpegCommand.cs).
+            "-vf", vf, "-c:v", "libx264", "-preset", "superfast", "-profile:v", "baseline",
+            "-tune", "zerolatency", "-crf", str(crf), "-maxrate", f"{kbps}k", "-bufsize", f"{kbps * 2}k",
+            "-g", str(fps * keyframe_s), "-pix_fmt", "yuv420p",
             "-f", "rtsp", "-rtsp_transport", "tcp", url,
         ]
         self.ffmpeg = subprocess.Popen(cmd, stdin=subprocess.DEVNULL)

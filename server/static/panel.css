@@ -178,8 +178,7 @@ main { flex: 1; min-height: 0; display: flex; }
 .playing > .novideo { display: none; }
 .tile .cap { display: flex; align-items: center; gap: 7px; padding: 7px 10px; min-width: 0; border-top: 1px solid var(--line); }
 .tile .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.tile .num { font-weight: 600; font-variant-numeric: tabular-nums; }
-.tile .name { color: var(--muted); margin-left: 4px; }
+.tile .name { font-weight: 600; }
 .tile .flag {
   position: absolute; top: 6px; right: 6px; min-width: 22px; height: 22px; padding: 0 6px;
   border-radius: 11px; background: var(--warn); color: #000; font-size: 12px; font-weight: 700;
@@ -199,7 +198,7 @@ main { flex: 1; min-height: 0; display: flex; }
 .tile.st-absent:hover { border-color: var(--line); }
 .tile.st-absent .video, .tile.st-absent .novideo { background: #000000; }
 .tile.st-absent .novideo { color: #5c5c5c; }
-.tile.st-absent .num, .tile.st-absent .name { color: #777777; }
+.tile.st-absent .name { color: #777777; }
 .tile.late .novideo { color: var(--warn); }
 
 /* ---------- student list (right) ---------- */
@@ -269,12 +268,11 @@ main.side-collapsed #sideResize { display: none; }
 }
 .row-head:hover { background: var(--raised); }
 .row .who { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row .num { font-weight: 600; font-variant-numeric: tabular-nums; }
-.row .name { margin-left: 6px; }
+.row .name { font-weight: 600; }
 .row .note { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--muted); font-size: 13px; }
 .row.st-warn .note, .row.late .note { color: var(--warn); }
 .row.st-lost .note, .row.st-nosubmit .note, .row.st-nofile .note { color: var(--lost); }
-.row.st-absent .num, .row.st-absent .name { color: #777777; }
+.row.st-absent .name { color: #777777; }
 .row.st-absent .note { color: #5c5c5c; }
 .row-events li.seen { color: #8a8a8a; }
 .row .count {

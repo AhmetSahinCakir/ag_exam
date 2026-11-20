@@ -82,6 +82,8 @@ class Config:
     stream_fps: int | None = None
     stream_width: int | None = None
     stream_bitrate_kbps: int | None = None
+    stream_crf: int | None = None
+    stream_keyframe_s: int | None = None
     mediamtx_api: str = "http://127.0.0.1:9997"
     mediamtx_webrtc: str = "http://127.0.0.1:8889"
     policy: Policy = field(default_factory=Policy)
@@ -191,6 +193,8 @@ def load_config(path: str | Path) -> Config:
         stream_fps=_opt_int(stream, "fps", 1, 30),
         stream_width=_opt_int(stream, "genislik", 320, 3840),
         stream_bitrate_kbps=_opt_int(stream, "bitrate_kbps", 50, 8000),
+        stream_crf=_opt_int(stream, "kalite_crf", 15, 40),
+        stream_keyframe_s=_opt_int(stream, "anahtar_kare_sn", 1, 30),
         mediamtx_api=str(mediamtx.get("api") or "http://127.0.0.1:9997").rstrip("/"),
         mediamtx_webrtc=str(mediamtx.get("webrtc") or "http://127.0.0.1:8889").rstrip("/"),
         policy=parse_policy(raw),

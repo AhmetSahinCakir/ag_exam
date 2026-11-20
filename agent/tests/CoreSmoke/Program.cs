@@ -406,8 +406,13 @@ internal static class Program
         var joined = string.Join(' ', FfmpegCommand.Build(settings));
         Check(joined.Contains("-f gdigrab -framerate 3 -i desktop"), "gdigrab girişi");
         Check(joined.Contains("-vf scale=1280:-2"), "ölçekleme");
-        Check(joined.Contains("-c:v libx264 -preset ultrafast -tune zerolatency"), "kodlayıcı");
-        Check(joined.Contains("-b:v 500k -maxrate 500k -bufsize 1000k -g 6 -pix_fmt yuv420p"), "bit hızı ve GOP");
+        Check(joined.Contains("-c:v libx264 -preset superfast -profile:v baseline -tune zerolatency"), "kodlayıcı");
+        Check(joined.Contains("-crf 26 -maxrate 500k -bufsize 1000k -g 30 -pix_fmt yuv420p"), "sabit kalite, bit hızı üst sınırı, 10 saniyede bir tam kare");
+        Check(!joined.Contains("-b:v"), "sabit bit hızı yok: duran ekran yer tutmuyor");
+        var tuned = StreamSettings.From(new StreamConfig(), new StreamDto { Url = "rtsp://h:8554/1", Fps = 6, BitrateKbps = 900, Crf = 24, KeyframeSeconds = 5 });
+        Check(string.Join(' ', FfmpegCommand.Build(tuned)).Contains("-crf 24 -maxrate 900k -bufsize 1800k -g 30 "), "kalite ve tam kare aralığı sunucudan gelebiliyor");
+        var wild = StreamSettings.From(new StreamConfig(), new StreamDto { Url = "rtsp://h:8554/1", Crf = 99, KeyframeSeconds = 0 });
+        Check(wild.Crf == 40 && wild.KeyframeSeconds == 1, "sunucudan gelen uç değerler sınırlanıyor");
         Check(joined.EndsWith("-f rtsp -rtsp_transport tcp rtsp://sinavajan:p%40ss%3A1%2F2@192.168.1.10:8554/2021000001"), "RTSP hedefi ve kodlanmış şifre");
         Check(!FfmpegCommand.ForLog(FfmpegCommand.Build(settings), settings.Pass).Contains("p%40ss"), "günlükte şifre gizli");
         var fallback = StreamSettings.From(new StreamConfig(), new StreamDto { Url = "rtsp://h:8554/1" });

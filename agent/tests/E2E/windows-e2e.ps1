@@ -325,6 +325,16 @@ function Curl-Text([string[]]$arguments) {
     return ($output -join "`n")
 }
 
+# Size of a file that another program is still writing (the folder listing lags behind).
+function Get-LiveFileSize([string]$path) {
+    try {
+        $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]'ReadWrite, Delete')
+        try { return $stream.Length } finally { $stream.Dispose() }
+    } catch {
+        return 0
+    }
+}
+
 function Get-Snapshot {
     $raw = Curl-Text @('-m', '5', "$base/panel/api/state")
     if (-not $raw) { return $null }
@@ -1210,15 +1220,18 @@ klasorler:
 
     Step 'Kayıtsız başlayan sınavda kaydı sonradan başlat'
     $lateRecord = Panel-Post '/panel/api/record/start'
-    Check ($lateRecord -match '"record":\s*true') "“Kaydı başlat”: kayıt sınav sürerken açıldı ($lateRecord)"
+    Check ($lateRecord -match '"record":\s*true') "Kaydı başlat: kayıt sınav sürerken açıldı ($lateRecord)"
     $recordingLate = Wait-Until { $s = Get-Snapshot; if ($s -and $s.health.recording -and $s.exam.record) { $s } } 15
     Check ([bool]$recordingLate) 'MediaMTX ekran kaydı sınav sürerken açıldı'
     $lateFolder = Join-Path (Join-Path $secondFolder 'Kayıtlar') "${fifth}_SonOgrenci"
+    # The file is still being written: its size in the folder listing stays 0 until it is closed,
+    # so the size is read from the open file itself.
     $lateVideo = Wait-Until {
-        $files = @(Get-ChildItem $lateFolder -Filter *.mp4 -ErrorAction SilentlyContinue)
-        if ($files.Count -ge 1 -and ($files | Measure-Object Length -Sum).Sum -gt 20000) { $files }
-    } 40
-    Check ([bool]$lateVideo) "o andan itibaren ekran öğrencinin adıyla kaydediliyor: Kayıtlar\${fifth}_SonOgrenci"
+        $bytes = 0
+        foreach ($file in @(Get-ChildItem $lateFolder -Filter *.mp4 -ErrorAction SilentlyContinue)) { $bytes += Get-LiveFileSize $file.FullName }
+        if ($bytes -gt 5000) { $bytes }
+    } 60
+    Check ([bool]$lateVideo) "o andan itibaren ekran öğrencinin adıyla kaydediliyor: Kayıtlar\${fifth}_SonOgrenci ($lateVideo bayt)"
     $again = Panel-Post '/panel/api/record/start'
     Check ($again -match '^HATA' -and $again -match '409') "kayıt açıkken yeniden başlatılamıyor ($again)"
     $recordLogged = Wait-Until { Get-Events '' | Where-Object { $_.type -eq 'recording_started' } | Select-Object -First 1 } 8

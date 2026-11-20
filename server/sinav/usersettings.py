@@ -17,11 +17,12 @@ MAX_PROGRAMS = 50
 MAX_NOTE = 400
 
 # Screen picture sent by the student program. "normal" leaves the base values alone (the
-# program's own: 5 pictures a second, 1280 px wide, 500 kbit/s).
+# program's own: 5 pictures a second, 1280 px wide, quality 26, at most 500 kbit/s).
+# bitrate_kbps is an upper limit; "crf" is the picture quality (lower = sharper, larger).
 QUALITY: dict[str, dict[str, int | None]] = {
-    "low": {"fps": 3, "width": 960, "bitrate_kbps": 300},
-    "normal": {"fps": None, "width": None, "bitrate_kbps": None},
-    "high": {"fps": 6, "width": 1600, "bitrate_kbps": 900},
+    "low": {"fps": 3, "width": 960, "bitrate_kbps": 300, "crf": 28},
+    "normal": {"fps": None, "width": None, "bitrate_kbps": None, "crf": None},
+    "high": {"fps": 6, "width": 1600, "bitrate_kbps": 900, "crf": 24},
 }
 
 # key -> (lowest, highest) of the numbers that can be entered in the panel
@@ -146,7 +147,7 @@ class Base:
         self.disconnect_s: float = cfg.disconnect_s
         self.close_after_busy_s: float = cfg.close_after_busy_s
         self.retention_note: str = cfg.retention_note
-        self.stream = (cfg.stream_fps, cfg.stream_width, cfg.stream_bitrate_kbps)
+        self.stream = (cfg.stream_fps, cfg.stream_width, cfg.stream_bitrate_kbps, cfg.stream_crf)
 
 
 def apply(cfg: Any, base: Base, settings: dict[str, Any]) -> None:
@@ -170,10 +171,11 @@ def apply(cfg: Any, base: Base, settings: dict[str, Any]) -> None:
     cfg.retention_note = settings.get("retention_note", base.retention_note)
 
     preset = QUALITY.get(settings.get("quality") or "normal", QUALITY["normal"])
-    fps, width, bitrate = base.stream
+    fps, width, bitrate, crf = base.stream
     cfg.stream_fps = preset["fps"] or fps
     cfg.stream_width = preset["width"] or width
     cfg.stream_bitrate_kbps = preset["bitrate_kbps"] or bitrate
+    cfg.stream_crf = preset["crf"] or crf
 
 
 def view(base: Base, settings: dict[str, Any]) -> dict[str, Any]:

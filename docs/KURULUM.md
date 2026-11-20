@@ -63,7 +63,7 @@ Panelin üstündeki üç adımı sırayla yapın:
 ### 3. Öğrenciler giriş yapar
 
 Öğrenciler modeme bağlanıp programı açar ve giriş yapar. Her öğrencinin ekranı solda, adı
-sağdaki listede görünür. Liste yüklediyseniz giriş yapan öğrencinin siyah kutusu canlı
+sağdaki listede görünür (ekranın gelmesi 10 saniye kadar sürebilir). Liste yüklediyseniz giriş yapan öğrencinin siyah kutusu canlı
 ekrana döner ve öne geçer; kimin eksik olduğunu kalan siyah kutulardan görürsünüz. Bu sırada
 hiçbir program kapatılmaz; öğrenciler Packet Tracer'ı açıp hesaplarına giriş yapsın.
 
@@ -87,6 +87,10 @@ kendiliğinden açılmaz ya da inmez; dosyayı öğrenci istediği yere kendisi 
 ### 5. Sınavı izleyin
 
 - **Renkler:** yeşil = bağlı, sarı = uyarı var, kırmızı = bağlantı yok, gri = teslim etti.
+- Ekranların altında ve listede öğrencinin **adı soyadı** yazar; öğrenciler ada göre
+  sıralanır. Numarası, ekranını büyütünce **Bilgisayar ve teslim bilgileri**nde görünür.
+  Teslim dosyalarının, kayıt klasörlerinin adlarında ve kayıt dosyalarında numara her zaman
+  vardır.
 - **Uyarılar** öğrencinin satırında, adının yanında görünür. Satırdaki oka basınca o
   öğrencinin uyarıları açılır. **Görüldü**'ye basınca kaç uyarının işaretlendiği yazılır ve
   o uyarılar soluklaşıp **✓** alır.
@@ -149,17 +153,21 @@ Her şey seçtiğiniz sınav klasöründedir (**Sınav klasörünü aç** düğm
 | **Uyarılar** | Her öğrenci için bir dosya (ör. `2021000001_AliVeli.csv`); Excel'de açılır. En üstte öğrencinin bilgileri (numara, ad soyad, bilgisayar adı, IP ve MAC adresi, teslim durumu), altında o öğrencinin **bütün kayıtları** vardır: uyarılar ve giriş, pencere geçişi gibi öteki kayıtlar. |
 | `olay-kaydi.csv` | Sınav boyunca olan her şeyin saatli dökümü; Excel'de açılır. |
 
-Ekran kayıtları yer kaplar ve kendiliğinden silinmez; saklama süresi dolunca *Kayıtlar*
-klasörünü siz silin. Kayıt, ekranda ne olduğuna bakmadan hep aynı hızda yer tutar:
+Ekran kayıtları kendiliğinden silinmez; saklama süresi dolunca *Kayıtlar* klasörünü siz
+silin. Ekran durduğu sürece kayıt çok az yer tutar; ne kadar yer tutacağı öğrencilerin
+ekranının ne kadar değiştiğine bağlıdır:
 
-| Ekran görüntüsü (Ayarlar) | Bir öğrenci, bir saat | 35 öğrenci, 100 dakika |
+| Ekran görüntüsü (Ayarlar) | 35 öğrenci, 100 dakika — genellikle | En çok (ekranlar sürekli değişirse) |
 |---|---|---|
-| Düşük (540p) | yaklaşık 135 MB | yaklaşık 8 GB |
-| Normal (720p) | yaklaşık 230 MB | yaklaşık 13,5 GB |
-| Yüksek (900p) | yaklaşık 410 MB | yaklaşık 24 GB |
+| Düşük (540p) | 1–2 GB | 8 GB |
+| Normal (720p) | 1,5–3 GB | 13,5 GB |
+| Yüksek (900p) | 2–4 GB | 24 GB |
 
-Sınavdan önce sınav klasörünün bulunduğu diskte bu kadar boş yer olduğuna bakın. Öteki
-dosyalar (*Uyarılar*, *Teslimler*, `olay-kaydi.csv`) birkaç MB'ı geçmez.
+Öteki dosyalar (*Uyarılar*, *Teslimler*, `olay-kaydi.csv`) birkaç MB'ı geçmez.
+
+Bu rakamlar öğrenci programının 1.0.3 ve sonraki sürümleri içindir. Daha eski sürümü
+kullanan öğrencinin kaydı her zaman “en çok” sütunundaki kadar yer tutar; öğrencilerin
+güncel kurulum dosyasını kurmuş olması yeterlidir.
 
 ## Öğrenci listesi (isteğe bağlı)
 
@@ -200,7 +208,8 @@ Panelde **Diğer → Ayarlar**:
   Sınav sürerken de eklenebilir; hemen geçerli olur.
 - **Ekran görüntüsü:** **Düşük** (540p), **Normal** (720p) ya da **Yüksek** (900p).
   Görüntüler takılıyorsa **Düşük**'ü seçin. Kalite arttıkça kayıtlar daha çok yer tutar
-  (aşağıdaki tabloya bakın). Değişiklik, öğrencinin bir sonraki girişinde geçerli olur.
+  (“Sınavdan sonra” bölümündeki tabloya bakın). Değişiklik, öğrencinin bir sonraki
+  girişinde geçerli olur.
 - **Uyarılar ve süreler:** Başka pencereye geçince kaç saniye sonra uyarı verileceği,
   sınav başlayınca programların kaç saniye sonra kapatılacağı gibi süreler.
 - **Öğrenciye gösterilen bilgilendirme:** Öğrencinin giriş yapmadan önce gördüğü yazı.

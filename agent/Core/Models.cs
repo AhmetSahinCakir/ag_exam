@@ -102,6 +102,8 @@ public sealed class StreamDto
     [JsonPropertyName("fps")] public int? Fps { get; set; }
     [JsonPropertyName("width")] public int? Width { get; set; }
     [JsonPropertyName("bitrate_kbps")] public int? BitrateKbps { get; set; }
+    [JsonPropertyName("crf")] public int? Crf { get; set; }
+    [JsonPropertyName("keyframe_s")] public int? KeyframeSeconds { get; set; }
 }
 
 public sealed class StudentDto

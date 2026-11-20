@@ -311,6 +311,12 @@ function fullName(st) {
   return `${st.ad} ${st.soyad}`.trim();
 }
 
+/* Panelde öğrenci numarası gösterilmez; kutularda ve listede yalnızca ad soyad vardır (numara,
+   büyütülen ekrandaki "Bilgisayar bilgileri"nde durur). Sıra da bu yüzden ada göredir. */
+function byName(a, b) {
+  return fullName(a).localeCompare(fullName(b), 'tr', { sensitivity: 'base' }) || a.numara.localeCompare(b.numara);
+}
+
 /* Sınav bittikten sonra teslim edenler "geç teslim" sayılır. */
 function isLate(st) {
   return st.status === 'done' && Boolean(st.submission && st.submission.late);
@@ -374,9 +380,8 @@ function createTile(numara) {
 
   const cap = el('div', 'cap');
   const who = el('span', 'who');
-  const num = el('span', 'num', numara);
   const name = el('span', 'name');
-  who.append(num, name);
+  who.append(name);
   cap.append(el('span', 'dot'), who);
   root.append(videoBox, cap);
 
@@ -396,10 +401,10 @@ function renderTiles() {
   const grid = $('grid');
   const seen = new Set();
   let previous = null;
-  // Giriş yapanlar numara sırasıyla üstte durur; listede olup henüz giriş yapmayanlar onların
+  // Giriş yapanlar ad sırasıyla üstte durur; listede olup henüz giriş yapmayanlar onların
   // ardından, teslim edenler en sonda gelir.
   const rank = (st) => (st.status === 'done' ? 2 : st.status === 'absent' ? 1 : 0);
-  const ordered = S.students.slice().sort((a, b) => rank(a) - rank(b));
+  const ordered = S.students.slice().sort((a, b) => rank(a) - rank(b) || byName(a, b));
   for (const st of ordered) {
     seen.add(st.numara);
     let tile = tiles.get(st.numara);
@@ -421,7 +426,7 @@ function renderTiles() {
     }
     setText(tile.name, fullName(st));
     tile.root.classList.toggle('late', isLate(st));
-    tile.root.title = `${st.numara} ${fullName(st)} — ${statusText(st)}`;
+    tile.root.title = `${fullName(st)} — ${statusText(st)}`;
     tile.flag.hidden = st.warn_count === 0;
     setText(tile.flag, String(st.warn_count));
     setText(tile.noVideo, noVideoText(st));
@@ -758,12 +763,12 @@ function createRow(numara) {
   const root = el('li', 'row');
   root.dataset.numara = numara;
 
-  // Tek satır: durum noktası, numara + ad, sağda (varsa) son uyarı ya da durum.
+  // Tek satır: durum noktası, ad soyad, sağda (varsa) son uyarı ya da durum.
   const head = el('button', 'row-head');
   head.type = 'button';
   const who = el('span', 'who');
   const name = el('span', 'name');
-  who.append(el('span', 'num', numara), name);
+  who.append(name);
   const note = el('span', 'note');
   const count = el('span', 'count');
   count.hidden = true;
@@ -842,7 +847,7 @@ function renderStudentList() {
   const list = $('studentList');
   const seen = new Set();
   let previous = null;
-  for (const st of S.students) {
+  for (const st of S.students.slice().sort(byName)) {
     seen.add(st.numara);
     let row = rows.get(st.numara);
     if (!row) {
@@ -883,7 +888,7 @@ function alertItem(alert) {
   const item = el('li', `alert sev-${alert.severity}${isUnseen(alert) ? '' : ' seen'}`);
   const line = el('button', 'alert-line');
   line.type = 'button';
-  const who = alert.numara ? `${alert.numara} ${alert.name}`.trim() : 'Genel';
+  const who = alert.numara ? (alert.name || alert.numara) : 'Genel';   // adı bilinmiyorsa numara
   line.append(el('span', 'dot'), el('span', 'when', fmtClock(alert.ts)), el('span', 'who', who),
     el('span', 'msg', alert.message));
   line.title = `${fmtClockSeconds(alert.ts)} — ${who}: ${alert.message}`;
@@ -907,7 +912,7 @@ function updateRow(row, st, alert) {
   setText(row.name, fullName(st));
   const note = rowNote(st, alert);
   setText(row.note, note);
-  row.head.title = note ? `${st.numara} ${fullName(st)} — ${note}` : '';
+  row.head.title = note ? `${fullName(st)} — ${note}` : '';
   row.count.hidden = st.warn_count < 2;
   setText(row.count, String(st.warn_count));
 
@@ -1053,7 +1058,7 @@ function renderModal() {
   const st = tile.data;
   updatePlayback(tile);
 
-  setText($('modalTitle'), `${st.numara} — ${fullName(st)}`);
+  setText($('modalTitle'), fullName(st));
   const status = $('modalStatus');
   status.className = `modal-status st-${st.status}`;
   const statusSignature = `${statusText(st)}|${st.roster}`;
@@ -1084,6 +1089,7 @@ function renderModal() {
   setText(noVideo, noVideoText(st));
 
   const info = document.createDocumentFragment();
+  infoRow(info, 'Öğrenci numarası', st.numara);
   infoRow(info, 'IP adresi', st.ip);
   infoRow(info, 'Bilgisayar adı', st.hostname);
   infoRow(info, 'Ağ (MAC) adresi', st.mac);
@@ -1401,7 +1407,7 @@ async function submitStudent(event) {
       json: { numara: $('studentNumara').value, ad: $('studentAd').value, soyad: $('studentSoyad').value },
     });
     closeDialogs();
-    toast(`${added.numara} ${added.ad} ${added.soyad} listeye eklendi.`);
+    toast(`${added.ad} ${added.soyad} listeye eklendi.`);
   } catch (error) {
     toast(error.message, true);
   }
@@ -1409,7 +1415,7 @@ async function submitStudent(event) {
 
 async function removeFromRoster(numara) {
   const st = byNumara.get(numara);
-  const who = st ? `${st.numara} ${fullName(st)}` : numara;
+  const who = st ? fullName(st) : numara;
   if (!confirm(`${who} listeden çıkarılsın mı?`)) return;
   try {
     await api('/panel/api/roster/remove', { json: { numara } });

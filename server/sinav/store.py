@@ -1167,6 +1167,10 @@ class Store:
             stream["width"] = self.cfg.stream_width
         if self.cfg.stream_bitrate_kbps:
             stream["bitrate_kbps"] = self.cfg.stream_bitrate_kbps
+        if self.cfg.stream_crf:
+            stream["crf"] = self.cfg.stream_crf
+        if self.cfg.stream_keyframe_s:
+            stream["keyframe_s"] = self.cfg.stream_keyframe_s
 
         response = {
             "token": st.token,

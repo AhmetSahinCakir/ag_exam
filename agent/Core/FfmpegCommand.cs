@@ -10,7 +10,12 @@ public sealed class StreamSettings
     public string Pass { get; init; } = "";
     public int Fps { get; init; } = 5;
     public int Width { get; init; } = 1280;
+    /// <summary>Upper limit of the stream; a screen that does not change uses far less.</summary>
     public int BitrateKbps { get; init; } = 500;
+    /// <summary>Picture quality (x264 CRF): lower is sharper and larger.</summary>
+    public int Crf { get; init; } = 26;
+    /// <summary>Seconds between two full pictures (keyframes).</summary>
+    public int KeyframeSeconds { get; init; } = 10;
 
     public static StreamSettings From(StreamConfig local, StreamDto server) => new()
     {
@@ -20,6 +25,8 @@ public sealed class StreamSettings
         Fps = Math.Clamp(server.Fps ?? local.Fps, 1, 30),
         Width = Math.Clamp(server.Width ?? local.Width, 320, 3840),
         BitrateKbps = Math.Clamp(server.BitrateKbps ?? local.BitrateKbps, 50, 8000),
+        Crf = Math.Clamp(server.Crf ?? 26, 15, 40),
+        KeyframeSeconds = Math.Clamp(server.KeyframeSeconds ?? 10, 1, 30),
     };
 }
 
@@ -28,6 +35,11 @@ public static class FfmpegCommand
     /// <summary>
     /// ffmpeg arguments that capture the whole desktop (all monitors, gdigrab) and publish
     /// it as H.264 over RTSP/TCP to MediaMTX.
+    ///
+    /// The picture is encoded to a fixed quality with an upper limit on the bitrate, not to a
+    /// fixed bitrate: an exam screen stands still most of the time, and a still screen then
+    /// costs almost nothing — on the classroom Wi-Fi and in the recording alike. Measured on a
+    /// Packet Tracer-like work session: about 60 kbit/s instead of a constant 500.
     /// </summary>
     public static List<string> Build(StreamSettings s)
     {
@@ -42,10 +54,12 @@ public static class FfmpegCommand
             "-f", "gdigrab", "-framerate", s.Fps.ToString(inv), "-i", "desktop",
 
             "-vf", $"scale={s.Width.ToString(inv)}:-2",
-            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-            "-b:v", bitrate, "-maxrate", bitrate, "-bufsize", (s.BitrateKbps * 2).ToString(inv) + "k",
-            // One keyframe every 2 seconds: quick start for the panel, clean recording segments.
-            "-g", (s.Fps * 2).ToString(inv),
+            // Constrained Baseline without B-frames: what every browser plays over WebRTC.
+            "-c:v", "libx264", "-preset", "superfast", "-profile:v", "baseline", "-tune", "zerolatency",
+            "-crf", s.Crf.ToString(inv), "-maxrate", bitrate, "-bufsize", (s.BitrateKbps * 2).ToString(inv) + "k",
+            // A full picture is what a still screen costs most. One every 10 seconds: the panel
+            // shows a screen at the latest that long after it connects to it.
+            "-g", (s.Fps * s.KeyframeSeconds).ToString(inv),
             "-pix_fmt", "yuv420p",
 
             "-f", "rtsp", "-rtsp_transport", "tcp", UrlWithCredentials(s.Url, s.User, s.Pass),

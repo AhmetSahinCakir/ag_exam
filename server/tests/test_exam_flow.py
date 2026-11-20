@@ -9,8 +9,9 @@ import json
 import os
 import time
 
+import pytest
 from conftest import EXAM_BYTES, PANEL, Env
-from sinav.config import load_config
+from sinav.config import ConfigError, load_config
 from openpyxl import Workbook
 
 from sinav.store import CLOSED, ENDED, RUNNING, WAITING, Store
@@ -882,6 +883,28 @@ def test_every_student_has_a_log_file_with_who_they_are_and_everything_recorded(
     assert path.exists() and other.exists()
 
 
+def test_stream_quality_values_reach_the_student_program(env: Env):
+    """What the student program is told about the picture: nothing extra by default (it uses its
+    own values), the panel's quality choice, or the values written in config.yaml."""
+    _, first = env.login()
+    assert set(first["stream"]) == {"url", "user", "pass"}
+
+    env.panel.post("/panel/api/settings", headers=PANEL, json={"quality": "high"})
+    _, high = env.login(numara="2021000002", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
+    assert {k: high["stream"][k] for k in ("fps", "width", "bitrate_kbps", "crf")} == {
+        "fps": 6, "width": 1600, "bitrate_kbps": 900, "crf": 24}
+
+    # config.yaml (yayin: kalite_crf / anahtar_kare_sn) is the base the panel's choice lies over.
+    text = env.cfg.path.read_text(encoding="utf-8")
+    assert "yayin:\n" in text
+    env.cfg.path.write_text(text.replace("yayin:\n", "yayin:\n  kalite_crf: 30\n  anahtar_kare_sn: 4\n", 1), encoding="utf-8")
+    fresh = load_config(env.cfg.path)
+    assert (fresh.stream_crf, fresh.stream_keyframe_s) == (30, 4)
+    env.cfg.path.write_text(text.replace("yayin:\n", "yayin:\n  kalite_crf: 99\n", 1), encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_config(env.cfg.path)
+
+
 def test_new_entries_are_added_at_the_end_of_the_student_file(env: Env, monkeypatch):
     """Ordinary entries are frequent: they are added at the end of the file. The file is written
     from the top only when something in its "ÖĞRENCİ" block changes."""
@@ -1172,6 +1195,7 @@ def test_settings_changed_in_the_panel_take_effect_at_once(env: Env):
     # The picture quality reaches a student at the next login.
     _, again = env.login(numara="2021000002", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
     assert (again["stream"]["fps"], again["stream"]["width"], again["stream"]["bitrate_kbps"]) == (3, 960, 300)
+    assert again["stream"]["crf"] == 28 and "keyframe_s" not in again["stream"]
 
     # Kept for the next start; class details and settings share the file without losing each other.
     env.panel.post("/panel/api/identity", headers=PANEL, json={"sinif_adi": "A-1", "ogretmen_adi": "Ada Kaya"})
