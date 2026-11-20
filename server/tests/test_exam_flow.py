@@ -892,7 +892,7 @@ def test_stream_quality_values_reach_the_student_program(env: Env):
     env.panel.post("/panel/api/settings", headers=PANEL, json={"quality": "high"})
     _, high = env.login(numara="2021000002", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
     assert {k: high["stream"][k] for k in ("fps", "width", "bitrate_kbps", "crf")} == {
-        "fps": 6, "width": 1600, "bitrate_kbps": 900, "crf": 24}
+        "fps": 6, "width": 1600, "bitrate_kbps": 900, "crf": 21}
 
     # config.yaml (yayin: kalite_crf / anahtar_kare_sn) is the base the panel's choice lies over.
     text = env.cfg.path.read_text(encoding="utf-8")
@@ -1195,7 +1195,7 @@ def test_settings_changed_in_the_panel_take_effect_at_once(env: Env):
     # The picture quality reaches a student at the next login.
     _, again = env.login(numara="2021000002", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
     assert (again["stream"]["fps"], again["stream"]["width"], again["stream"]["bitrate_kbps"]) == (3, 960, 300)
-    assert again["stream"]["crf"] == 28 and "keyframe_s" not in again["stream"]
+    assert again["stream"]["crf"] == 26 and "keyframe_s" not in again["stream"]
 
     # Kept for the next start; class details and settings share the file without losing each other.
     env.panel.post("/panel/api/identity", headers=PANEL, json={"sinif_adi": "A-1", "ogretmen_adi": "Ada Kaya"})

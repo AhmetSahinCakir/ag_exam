@@ -13,7 +13,7 @@ public sealed class StreamSettings
     /// <summary>Upper limit of the stream; a screen that does not change uses far less.</summary>
     public int BitrateKbps { get; init; } = 500;
     /// <summary>Picture quality (x264 CRF): lower is sharper and larger.</summary>
-    public int Crf { get; init; } = 26;
+    public int Crf { get; init; } = 23;
     /// <summary>Seconds between two full pictures (keyframes).</summary>
     public int KeyframeSeconds { get; init; } = 10;
 
@@ -25,7 +25,7 @@ public sealed class StreamSettings
         Fps = Math.Clamp(server.Fps ?? local.Fps, 1, 30),
         Width = Math.Clamp(server.Width ?? local.Width, 320, 3840),
         BitrateKbps = Math.Clamp(server.BitrateKbps ?? local.BitrateKbps, 50, 8000),
-        Crf = Math.Clamp(server.Crf ?? 26, 15, 40),
+        Crf = Math.Clamp(server.Crf ?? 23, 15, 40),
         KeyframeSeconds = Math.Clamp(server.KeyframeSeconds ?? 10, 1, 30),
     };
 }
@@ -39,7 +39,8 @@ public static class FfmpegCommand
     /// The picture is encoded to a fixed quality with an upper limit on the bitrate, not to a
     /// fixed bitrate: an exam screen stands still most of the time, and a still screen then
     /// costs almost nothing — on the classroom Wi-Fi and in the recording alike. Measured on a
-    /// Packet Tracer-like work session: about 60 kbit/s instead of a constant 500.
+    /// Packet Tracer-like work session and on a still Windows desktop: 40-50 kbit/s instead of
+    /// a constant 500.
     /// </summary>
     public static List<string> Build(StreamSettings s)
     {
@@ -53,10 +54,15 @@ public static class FfmpegCommand
 
             "-f", "gdigrab", "-framerate", s.Fps.ToString(inv), "-i", "desktop",
 
-            "-vf", $"scale={s.Width.ToString(inv)}:-2",
+            // Scaled down to the stream width; a smaller screen is sent as it is, not enlarged.
+            "-vf", $"scale='trunc(min({s.Width.ToString(inv)},iw)/2)*2':-2",
             // Constrained Baseline without B-frames: what every browser plays over WebRTC.
             "-c:v", "libx264", "-preset", "superfast", "-profile:v", "baseline", "-tune", "zerolatency",
-            "-crf", s.Crf.ToString(inv), "-maxrate", bitrate, "-bufsize", (s.BitrateKbps * 2).ToString(inv) + "k",
+            // qcomp 1: every picture gets the same quality. With the default, x264 sharpens the
+            // pictures after a full one although nothing on the screen changed, which made a
+            // still desktop cost three times as much.
+            "-crf", s.Crf.ToString(inv), "-qcomp", "1",
+            "-maxrate", bitrate, "-bufsize", (s.BitrateKbps * 2).ToString(inv) + "k",
             // A full picture is what a still screen costs most. One every 10 seconds: the panel
             // shows a screen at the latest that long after it connects to it.
             "-g", (s.Fps * s.KeyframeSeconds).ToString(inv),

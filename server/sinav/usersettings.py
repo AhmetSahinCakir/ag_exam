@@ -17,12 +17,12 @@ MAX_PROGRAMS = 50
 MAX_NOTE = 400
 
 # Screen picture sent by the student program. "normal" leaves the base values alone (the
-# program's own: 5 pictures a second, 1280 px wide, quality 26, at most 500 kbit/s).
+# program's own: 5 pictures a second, 1280 px wide, quality 23, at most 500 kbit/s).
 # bitrate_kbps is an upper limit; "crf" is the picture quality (lower = sharper, larger).
 QUALITY: dict[str, dict[str, int | None]] = {
-    "low": {"fps": 3, "width": 960, "bitrate_kbps": 300, "crf": 28},
+    "low": {"fps": 3, "width": 960, "bitrate_kbps": 300, "crf": 26},
     "normal": {"fps": None, "width": None, "bitrate_kbps": None, "crf": None},
-    "high": {"fps": 6, "width": 1600, "bitrate_kbps": 900, "crf": 24},
+    "high": {"fps": 6, "width": 1600, "bitrate_kbps": 900, "crf": 21},
 }
 
 # key -> (lowest, highest) of the numbers that can be entered in the panel

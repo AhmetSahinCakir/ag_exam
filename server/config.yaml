@@ -42,14 +42,14 @@ yayin:
   kullanici: "sinavajan"
   sifre: "sinav-yayin-2026"
   # Aşağıdakiler boş bırakılırsa ajan kendi değerlerini kullanır (5 fps, 1280 px,
-  # kalite 26, en çok 500 kbps, 10 saniyede bir tam kare). Değiştirirseniz ajanları
+  # kalite 23, en çok 500 kbps, 10 saniyede bir tam kare). Değiştirirseniz ajanları
   # yeniden dağıtmak gerekmez; öğrencinin yeniden giriş yapması yeterli.
   # Ekran durduğu sürece görüntü neredeyse hiç yer tutmaz; bitrate_kbps yalnızca üst
   # sınırdır (ekran sürekli değişirken geçilmeyecek hız).
   fps:              # ör. 3
   genislik:         # ör. 960
   bitrate_kbps:     # ör. 300
-  kalite_crf:       # 15–40; küçük sayı = daha net görüntü, daha büyük kayıt (ör. 28)
+  kalite_crf:       # 15–40; küçük sayı = daha net görüntü, daha büyük kayıt (ör. 26)
   anahtar_kare_sn:  # 1–30; panelin bir ekranı göstermeye başlaması en çok bu kadar sürer
 
 mediamtx:

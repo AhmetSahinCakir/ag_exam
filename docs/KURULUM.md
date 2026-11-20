@@ -159,9 +159,9 @@ ekranının ne kadar değiştiğine bağlıdır:
 
 | Ekran görüntüsü (Ayarlar) | 35 öğrenci, 100 dakika — genellikle | En çok (ekranlar sürekli değişirse) |
 |---|---|---|
-| Düşük (540p) | 1–2 GB | 8 GB |
-| Normal (720p) | 1,5–3 GB | 13,5 GB |
-| Yüksek (900p) | 2–4 GB | 24 GB |
+| Düşük (540p) | 0,5–2 GB | 8 GB |
+| Normal (720p) | 1–3 GB | 13,5 GB |
+| Yüksek (900p) | 1,5–4 GB | 24 GB |
 
 Öteki dosyalar (*Uyarılar*, *Teslimler*, `olay-kaydi.csv`) birkaç MB'ı geçmez.
 
