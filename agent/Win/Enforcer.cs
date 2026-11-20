@@ -98,7 +98,7 @@ public sealed class Enforcer
         if (WindowInspector.GetForeground() is { } fg)
         {
             var (pid, path) = Resolve(fg.Hwnd, fg.Pid);
-            foreground = new ForegroundSnapshot(pid, path, fg.Title);
+            foreground = new ForegroundSnapshot(pid, path, fg.Title, fg.ClassName);
         }
 
         var windows = new List<ProcWindow>();

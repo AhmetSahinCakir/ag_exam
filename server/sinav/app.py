@@ -19,7 +19,7 @@ from . import __version__
 from .config import Config, ConfigError, reload_policy
 from .discovery import DiscoveryResponder, lan_ips
 from .folderdialog import DialogUnavailable, open_folder, open_panel_window, pick_folder
-from .mediamtx import fetch_streams, kick_publishers, set_recording
+from .mediamtx import fetch_streams, kick_publishers, remove_path, set_path_record_path, set_recording
 from .roster import RosterError, parse_roster
 from .store import MAX_UPLOAD_BYTES, RUNNING, WAITING, ApiError, Store, Student
 
@@ -114,11 +114,25 @@ def create_app(cfg: Config) -> FastAPI:
             except Exception:  # noqa: BLE001 - the monitor loop must never die
                 log.exception("Arka plan denetiminde hata")
 
+    async def sync_record_paths() -> None:
+        """Each student's recordings go into a folder with the name in it (numara_AdSoyad)."""
+        wanted = store.record_paths()
+        applied = store.record_paths_applied
+        for numara, path in wanted.items():
+            if applied.get(numara) != path:
+                await asyncio.to_thread(set_path_record_path, cfg.mediamtx_api, numara, path)
+                applied[numara] = path
+        for numara in [n for n in applied if n not in wanted]:
+            await asyncio.to_thread(remove_path, cfg.mediamtx_api, numara)
+            applied.pop(numara, None)
+
     async def poller() -> None:
         while True:
             try:
                 ready, publishers = await asyncio.to_thread(fetch_streams, cfg.mediamtx_api)
                 store.apply_streams(ready, publishers)
+                # Before recording is switched on, so that nothing lands in a folder without a name.
+                await sync_record_paths()
                 # Recordings go into the exam folder the teacher chose (off until one is chosen).
                 wanted = store.record_path
                 if wanted != store.recording_applied:
@@ -128,6 +142,7 @@ def create_app(cfg: Config) -> FastAPI:
             except Exception:  # noqa: BLE001 - MediaMTX not running / restarting
                 store.mediamtx_down()
                 store.recording_applied = None  # a restarted MediaMTX has forgotten the folder
+                store.record_paths_applied.clear()
             else:
                 done = store.streams_to_stop()
                 if done:
@@ -298,7 +313,14 @@ def create_app(cfg: Config) -> FastAPI:
         body = await json_body(request)
         ip = request.client.host if request.client else ""
         server_host = request.url.hostname or ""
-        return store.login(body, ip, server_host)
+        response = store.login(body, ip, server_host)
+        try:
+            # Now, not at the next pass of the poller: the student's screen stream starts
+            # right after this answer, and its first recording belongs in the named folder.
+            await sync_record_paths()
+        except Exception:  # noqa: BLE001 - MediaMTX is not reachable; the poller tries again
+            pass
+        return response
 
     @app.post("/api/heartbeat")
     async def api_heartbeat(request: Request, st: Student = Depends(current_student)) -> dict[str, Any]:
@@ -477,6 +499,19 @@ def create_app(cfg: Config) -> FastAPI:
             raise ApiError(400, str(exc)) from exc
         return {"count": store.set_roster(entries, filename)}
 
+    @app.post("/panel/api/roster/add", dependencies=[Depends(local_only)])
+    async def panel_roster_add(request: Request) -> dict[str, Any]:
+        """“Öğrenci ekle”: one student, typed in the panel (any time, also during the exam)."""
+        body = await json_body(request)
+        entry = store.add_roster_entry(body.get("numara"), body.get("ad"), body.get("soyad"))
+        return {"numara": entry.numara, "ad": entry.ad, "soyad": entry.soyad}
+
+    @app.post("/panel/api/roster/remove", dependencies=[Depends(local_only)])
+    async def panel_roster_remove(request: Request) -> dict[str, Any]:
+        body = await json_body(request)
+        store.remove_roster_entry(body.get("numara"))
+        return {"ok": True}
+
     @app.post("/panel/api/start", dependencies=[Depends(local_only)])
     async def panel_start(request: Request) -> dict[str, Any]:
         """“Sınavı başlat”: now or at a planned time, with an optional time limit and recording choice.
@@ -526,8 +561,7 @@ def create_app(cfg: Config) -> FastAPI:
     async def panel_ack(request: Request) -> dict[str, Any]:
         body = await json_body(request)
         numara = body.get("numara")
-        store.ack(str(numara) if numara else None)
-        return {"ok": True}
+        return {"ok": True, "count": store.ack(str(numara) if numara else None)}
 
     return app
 

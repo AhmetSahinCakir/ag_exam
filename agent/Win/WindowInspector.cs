@@ -10,7 +10,7 @@ namespace SinavAjan.Win;
 /// True for a real application window: it has a title and is not a tool / no-activate
 /// helper window (those never appear on the taskbar or in Alt+Tab).
 /// </param>
-public readonly record struct WindowInfo(IntPtr Hwnd, int Pid, string Title, bool IsAppWindow);
+public readonly record struct WindowInfo(IntPtr Hwnd, int Pid, string Title, bool IsAppWindow, string ClassName = "");
 
 public static class WindowInspector
 {
@@ -25,7 +25,7 @@ public static class WindowInspector
         if (hwnd == IntPtr.Zero) return null;
         NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
         if (pid == 0) return null;
-        return new WindowInfo(hwnd, (int)pid, GetTitle(hwnd), true);
+        return new WindowInfo(hwnd, (int)pid, GetTitle(hwnd), true, GetClassName(hwnd));
     }
 
     /// <summary>All visible top-level windows (EnumWindows + IsWindowVisible).</summary>
@@ -125,6 +125,14 @@ public static class WindowInspector
         {
         }
         return Policy.FileName(path);
+    }
+
+    /// <summary>The window class, e.g. "Progman" for the desktop. Never localised.</summary>
+    private static string GetClassName(IntPtr hwnd)
+    {
+        var buffer = new char[256];
+        var copied = NativeMethods.GetClassNameW(hwnd, buffer, buffer.Length);
+        return copied > 0 ? new string(buffer, 0, copied) : "";
     }
 
     private static string GetTitle(IntPtr hwnd)

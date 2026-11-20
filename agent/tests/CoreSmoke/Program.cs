@@ -186,6 +186,52 @@ internal static class Program
         r = logic.Evaluate(new DesktopSnapshot(ptFg, new[] { ptWindow }, 1), policy, 5, T(47));
         Equal(1, CountEvents(r, "foreground_restored"), "izinli pencere geri döndü");
 
+        // Alt+Tab and the desktop: students switch between Packet Tracer's windows all the time.
+        // Logged like every switch, never a warning, however long they are in front.
+        var quiet = new EnforcementLogic(999);
+        var switcher11 = new ForegroundSnapshot(300, Explorer, "Görev Geçişi", "XamlExplorerHostIslandWindow");
+        var switcher10 = new ForegroundSnapshot(300, Explorer, "Task Switching", "MultitaskingViewFrame");
+        var desktop = new ForegroundSnapshot(300, Explorer, "Program Manager", "Progman");
+        var folder = new ForegroundSnapshot(300, Explorer, "Belgeler", "CabinetWClass");
+        EnforcementResult Front(EnforcementLogic l, ForegroundSnapshot fg, double at) =>
+            l.Evaluate(new DesktopSnapshot(fg, new[] { ptWindow }, 1), policy, 5, T(at));
+        Front(quiet, ptFg, 0);
+        r = Front(quiet, switcher11, 1);
+        Equal(1, CountEvents(r, "foreground_change"), "Alt+Tab olay kaydına yazılır");
+        Equal(true, r.Events.First(e => e.Type == "foreground_change").Details["shell"], "kayıtta 'shell' işareti");
+        r = Front(quiet, switcher11, 40);
+        Equal(0, CountEvents(r, "foreign_foreground"), "Alt+Tab 39 sn önde: uyarı yok");
+        r = Front(quiet, switcher10, 41);
+        Equal(0, r.Events.Count, "Windows 10 Alt+Tab penceresi de aynı");
+        r = Front(quiet, desktop, 42);
+        r = Front(quiet, desktop, 300);
+        Equal(0, CountEvents(r, "foreign_foreground"), "masaüstü dakikalarca önde: uyarı yok");
+        r = Front(quiet, ptFg, 301);
+        Equal(0, CountEvents(r, "foreground_restored"), "uyarı çıkmadıysa 'geri döndü' de yok (Alt+Tab)");
+        // A folder window is the same explorer.exe, but it IS another window.
+        r = Front(quiet, folder, 302);
+        Equal(1, CountEvents(r, "foreground_change"), "klasör penceresi ayrı bir geçiş olarak yazılır");
+        Equal(false, r.Events.First(e => e.Type == "foreground_change").Details["shell"], "klasör penceresi 'shell' değil");
+        r = Front(quiet, folder, 308);
+        Equal(1, CountEvents(r, "foreign_foreground"), "klasör penceresi 5 sn'den uzun önde: uyarı");
+        // Passing through Alt+Tab does not cancel a warning that is already counting.
+        var counting = new EnforcementLogic(999);
+        Front(counting, ptFg, 0);
+        Front(counting, folder, 1);
+        Front(counting, switcher11, 3);
+        r = Front(counting, folder, 4);
+        Equal(0, CountEvents(r, "foreign_foreground"), "başka pencere 3 sn: henüz uyarı yok");
+        r = Front(counting, folder, 6.5);
+        Equal(1, CountEvents(r, "foreign_foreground"), "araya Alt+Tab girse de başka pencerenin süresi işler");
+        // Recognised by class (any language) or, failing that, by title; only Windows' own Explorer.
+        Check(policy.IsShellSurface(Explorer, "Shell_TrayWnd", ""), "görev çubuğu");
+        Check(policy.IsShellSurface(@"c:\windows\EXPLORER.EXE", "progman", "Program Manager"), "büyük/küçük harf");
+        Check(policy.IsShellSurface(Explorer, "BilinmeyenSinif", "Görev Geçişi"), "sınıfı bilinmese de başlığından tanınır");
+        Check(!policy.IsShellSurface(Explorer, "CabinetWClass", "Belgeler"), "klasör penceresi kabuk yüzeyi değil");
+        Check(!policy.IsShellSurface(@"D:\indirilenler\explorer.exe", "Progman", "Program Manager"), "başka yerdeki explorer.exe sayılmaz");
+        Check(!policy.IsShellSurface(@"C:\Windows\System32\cmd.exe", "Progman", "Program Manager"), "başka program sayılmaz");
+        Check(!policy.IsShellSurface(null, "Progman", "Program Manager"), "yolu bilinmeyen süreç sayılmaz");
+
         // No foreground window at all is neutral.
         r = logic.Evaluate(new DesktopSnapshot(null, new[] { ptWindow }, 1), policy, 5, T(48));
         Equal(0, r.Events.Count, "öndeki pencere yokken olay yok");

@@ -108,6 +108,31 @@ public static class Native
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string className, string windowName);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hwnd, StringBuilder text, int max);
+
+    // Class of the window that is in front right now ("Progman" = the desktop).
+    public static string ForegroundClass()
+    {
+        var text = new StringBuilder(256);
+        GetClassName(GetForegroundWindow(), text, text.Capacity);
+        return text.ToString();
+    }
+
+    // Holds Alt+Tab like a student who looks for a window: the switcher stays in front.
+    public static string HoldAltTab(int milliseconds)
+    {
+        keybd_event(0x12, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(80);
+        keybd_event(0x09, 0, 0, UIntPtr.Zero);
+        Thread.Sleep(60);
+        keybd_event(0x09, 0, 2, UIntPtr.Zero);
+        Thread.Sleep(milliseconds / 2);
+        var seen = ForegroundClass();
+        Thread.Sleep(milliseconds / 2);
+        keybd_event(0x12, 0, 2, UIntPtr.Zero);
+        return seen;
+    }
 
     public static bool IsTopMost(IntPtr hwnd)
     {
@@ -858,6 +883,41 @@ klasorler:
     if (-not $winver.HasExited) { $winver.Kill() }
     Check ((Count-Events $numara 'foreground_change') -ge 2) 'öndeki pencere değişimleri olay kaydına yazılıyor'
 
+    # --------------------------------------------- the desktop and Alt+Tab are not warnings
+    Step 'Masaüstü ve Alt+Tab: olay kaydına yazılır, uyarı olmaz'
+    # Students switch between Packet Tracer's windows all the time; the switcher and the desktop
+    # are Windows' own Explorer and must never count as "another window in front".
+    $foreignBefore = Count-Events $numara 'foreign_foreground'
+    # [NullString]: PowerShell would pass $null to a string parameter as "" (a window with an empty title).
+    $desktopWindow = [Native]::FindWindow('Progman', [NullString]::Value)
+    if ($desktopWindow -ne [IntPtr]::Zero) {
+        [Native]::Focus($desktopWindow)
+        Start-Sleep -Milliseconds 800
+        $frontClass = [Native]::ForegroundClass()
+        Write-Host "  masaüstü öne alındı; öndeki pencerenin sınıfı: $frontClass"
+        Start-Sleep -Seconds 9                                  # the tolerance is 5 s
+        if ($frontClass -in @('Progman', 'WorkerW')) {
+            $shellLogged = Wait-Until { @(Get-Events $numara | Where-Object { $_.type -eq 'foreground_change' -and $_.details.shell -eq $true }) } 6
+            Check ([bool]$shellLogged) 'masaüstünün öne geçmesi olay kaydına yazıldı (uyarı olarak değil)'
+            if ($shellLogged) { Write-Host "  kayıt: $($shellLogged[-1].message) [sınıf: $($shellLogged[-1].details.class)]" }
+        } else {
+            Write-Host '  (masaüstü öne alınamadı; yalnızca uyarı çıkmadığına bakılıyor)'
+        }
+        Check ((Count-Events $numara 'foreign_foreground') -eq $foreignBefore) 'masaüstü 9 sn önde kaldı: uyarı yok'
+        Shot 'masaustu-onde'
+    } else {
+        Write-Host '  (masaüstü penceresi bulunamadı; adım atlandı)'
+    }
+    if ($agentWindow) { Focus-Window $agentWindow $script:agent.Id; Start-Sleep -Seconds 1 }
+    $switcherClass = [Native]::HoldAltTab(8000)
+    Write-Host "  Alt+Tab 8 sn basılı tutuldu; o sırada öndeki pencerenin sınıfı: $switcherClass"
+    if ($agentWindow) { Focus-Window $agentWindow $script:agent.Id }
+    Start-Sleep -Seconds 3
+    Check ((Count-Events $numara 'foreign_foreground') -eq $foreignBefore) 'Alt+Tab 8 sn basılı tutuldu: uyarı yok'
+    Get-Events $numara | Where-Object { $_.type -eq 'foreground_change' -and $_.details.shell -eq $true } |
+        ForEach-Object { Write-Host "  kabuk yüzeyi kaydı: sınıf=$($_.details.class) başlık=$($_.details.title)" }
+    Check ((Get-Student $numara).status -ne 'lost') 'öğrenci bağlı kalmaya devam ediyor'
+
     # --------------------------------------------------------- virtual desktops
     Step 'Başka masaüstüne geçiş'
     if ($agentWindow -and [Desk]::State($agentWindow) -eq 1) {
@@ -1094,8 +1154,12 @@ klasorler:
     Check (@($fileNames | Where-Object { $_ -notmatch '^\d+_[A-Za-z]+\.csv$' }).Count -eq 0) 'uyarı dosyalarının adı <numara>_<AdSoyad>.csv biçiminde'
 
     Step 'Kayıtlar'
-    $recordings = @(Get-ChildItem (Join-Path $recordingsDir $numara) -Filter *.mp4 -ErrorAction SilentlyContinue)
-    Check ($recordings.Count -ge 1 -and ($recordings | Measure-Object Length -Sum).Sum -gt 20000) "ekran kaydı sınav klasöründe: Kayıtlar\$numara ($($recordings.Count) dosya)"
+    $recordingFolder = "${numara}_SukruCagriIsik"          # like the submitted file: number + name
+    $recordings = @(Get-ChildItem (Join-Path $recordingsDir $recordingFolder) -Filter *.mp4 -ErrorAction SilentlyContinue)
+    Check ($recordings.Count -ge 1 -and ($recordings | Measure-Object Length -Sum).Sum -gt 20000) "ekran kaydı sınav klasöründe, öğrencinin adıyla: Kayıtlar\$recordingFolder ($($recordings.Count) dosya)"
+    $recordingFolders = @(Get-ChildItem $recordingsDir -Directory | ForEach-Object { $_.Name })
+    Write-Host "  kayıt klasörleri: $($recordingFolders -join ', ')"
+    Check (-not ($recordingFolders | Where-Object { $_ -notmatch '_' })) 'yalnızca numarayla adlandırılmış kayıt klasörü yok'
     Check (Test-Path (Join-Path $examFolder 'olay-kaydi.csv')) 'olay kaydı sınav klasörüne yazıldı (olay-kaydi.csv)'
     Check (Test-Path (Join-Path $submissionsDir 'index.csv')) 'teslim dökümü: Teslimler\index.csv'
     Write-Host '  sınav klasörü:'

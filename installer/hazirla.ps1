@@ -19,7 +19,7 @@ param(
     [Parameter(Mandatory = $true)][string]$AgentExe,
     # Kurulum dosyalarının yazılacağı klasör (varsayılan: publish\)
     [string]$OutDir = '',
-    [string]$Version = '1.0.1',
+    [string]$Version = '1.0.2',
     # Kopyası kuruluma konacak Python
     [string]$Python = 'python'
 )

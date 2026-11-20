@@ -3,7 +3,7 @@ namespace SinavAjan.Core;
 /// <summary>A visible top-level window and the process that owns its content.</summary>
 public sealed record ProcWindow(int Pid, string? Path, string Title, bool IsAppWindow);
 
-public sealed record ForegroundSnapshot(int Pid, string? Path, string Title)
+public sealed record ForegroundSnapshot(int Pid, string? Path, string Title, string WindowClass = "")
 {
     public string Name => Path != null ? Policy.FileName(Path) : $"pid {Pid}";
 }
@@ -29,7 +29,10 @@ public sealed class EnforcementResult
 /// Windows folder is terminated.
 /// Foreground rule: when the foreground window belongs to anything that is not on the
 /// allowlist (Windows' own UI included) for longer than the tolerance, a warning is
-/// raised. Short switches (Start menu, Alt+Tab, notifications, UAC) stay silent.
+/// raised. Short switches (Start menu, notifications, UAC) stay silent.
+/// The Alt+Tab switcher, the desktop and the taskbar never raise a warning, however long they
+/// are in front: students switch between Packet Tracer's windows all the time. They are
+/// written to the event log like every other switch.
 /// </summary>
 public sealed class EnforcementLogic
 {
@@ -113,7 +116,9 @@ public sealed class EnforcementLogic
 
         var kind = policy.Classify(foreground.Path);
         var allowed = kind == PathClass.Allowed;
-        var key = $"{foreground.Pid}|{foreground.Path}";
+        var shell = !allowed && policy.IsShellSurface(foreground.Path, foreground.WindowClass, foreground.Title);
+        // A folder window and the desktop are the same process: the key tells them apart.
+        var key = $"{foreground.Pid}|{foreground.Path}|{(shell ? "shell" : "")}";
         if (key != _lastForegroundKey)
         {
             _lastForegroundKey = key;
@@ -123,9 +128,16 @@ public sealed class EnforcementLogic
                 ["name"] = foreground.Name,
                 ["path"] = foreground.Path ?? "",
                 ["title"] = foreground.Title,
+                ["class"] = foreground.WindowClass,
                 ["allowed"] = allowed,
+                ["shell"] = shell,
             }));
         }
+
+        // Alt+Tab, the desktop, the taskbar: logged above, otherwise as if nothing were in
+        // front. A warning that is already counting (another window was in front just before)
+        // keeps counting.
+        if (shell) return;
 
         if (allowed)
         {
@@ -158,6 +170,7 @@ public sealed class EnforcementLogic
             ["name"] = foreground.Name,
             ["path"] = foreground.Path ?? "",
             ["title"] = foreground.Title,
+            ["class"] = foreground.WindowClass,
             ["seconds"] = Math.Round(elapsed),
         }));
     }

@@ -77,6 +77,24 @@ def set_recording(api_base: str, record_path: str) -> None:
     _call(f"{api_base}/v3/config/pathdefaults/patch", "PATCH", body)
 
 
+def set_path_record_path(api_base: str, name: str, record_path: str) -> None:
+    """Give one stream (path name = student number) its own recording folder.
+
+    Everything else, also whether recording is on, keeps following the defaults. Can be
+    changed while the stream runs: the recorder moves on to the new folder, the stream is
+    not interrupted.
+    """
+    _call(f"{api_base}/v3/config/paths/replace/{name}", "POST", {"recordPath": record_path})
+
+
+def remove_path(api_base: str, name: str) -> None:
+    """Forget a stream's own recording folder (it follows the defaults again)."""
+    try:
+        _call(f"{api_base}/v3/config/paths/delete/{name}", "DELETE")
+    except urllib.error.HTTPError:
+        pass  # not there (any more)
+
+
 def kick_publishers(api_base: str, paths: list[str]) -> int:
     """Stop the publishers of the given paths. Returns how many were stopped."""
     wanted = set(paths)

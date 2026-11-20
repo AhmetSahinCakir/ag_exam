@@ -95,6 +95,38 @@ public sealed class Policy
         return PathClass.Forbidden;
     }
 
+    // Windows' own surfaces that are in front for a moment whenever a student switches between
+    // Packet Tracer's windows. Window classes, not titles: they are the same in every language.
+    private static readonly HashSet<string> ShellSurfaceClasses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Progman", "WorkerW",                                   // the desktop
+        "Shell_TrayWnd", "Shell_SecondaryTrayWnd",              // the taskbar
+        "MultitaskingViewFrame",                                // Alt+Tab, Task View (Windows 10)
+        "XamlExplorerHostIslandWindow",                         // Alt+Tab, Task View (Windows 11)
+        "TaskSwitcherWnd", "TaskSwitcherOverlayWnd",            // the classic Alt+Tab
+        "ForegroundStaging",                                    // in front for an instant while switching
+        "NotifyIconOverflowWindow", "TopLevelWindowForOverflowXamlIsland",  // hidden tray icons
+    };
+
+    // The same surfaces by title, for a Windows build whose class is not in the list above.
+    private static readonly HashSet<string> ShellSurfaceTitles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Program Manager", "Task Switching", "Task View",
+        "Görev Geçişi", "Görev Değiştirme", "Görev Değiştirici", "Görev Görünümü",
+    };
+
+    /// <summary>
+    /// True for the Alt+Tab switcher, the desktop and the taskbar: Windows' own Explorer, showing
+    /// no window of its own. Being there is neither "in Packet Tracer" nor "in another window".
+    /// A folder window (also Explorer) is NOT one of these.
+    /// </summary>
+    public bool IsShellSurface(string? processPath, string? windowClass, string? title)
+    {
+        if (string.IsNullOrWhiteSpace(processPath)) return false;
+        if (!Normalise(processPath).Equals(_windowsDir + "explorer.exe", StringComparison.OrdinalIgnoreCase)) return false;
+        return ShellSurfaceClasses.Contains(windowClass ?? "") || ShellSurfaceTitles.Contains((title ?? "").Trim());
+    }
+
     public static string FileName(string path)
     {
         var index = path.LastIndexOfAny(new[] { '\\', '/' });

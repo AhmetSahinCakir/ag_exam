@@ -43,6 +43,7 @@
           <button id="btnExtend" type="button" class="menu-item" hidden>Ek süre ver…</button>
           <button id="btnOpenFolder" type="button" class="menu-item">Sınav klasörünü aç</button>
           <button id="btnRosterMenu" type="button" class="menu-item">Öğrenci listesi yükle (Excel)</button>
+          <button id="btnAddStudentMenu" type="button" class="menu-item">Öğrenci ekle…</button>
           <a id="btnExport" class="menu-item" href="/panel/api/export.csv">Olay kaydını indir (CSV)</a>
           <button id="btnReset" type="button" class="menu-item">Yeni sınav hazırla</button>
           <button id="btnSettings" type="button" class="menu-item">Ayarlar…</button>
@@ -117,7 +118,10 @@
       <div class="side-head">
         <div class="side-title">
           <h2>Öğrenciler</h2>
-          <button id="sideCollapse" type="button" class="icon" title="Listeyi daralt" aria-label="Listeyi daralt"><span class="chev"></span></button>
+          <span class="side-title-actions">
+            <button id="btnAddStudent" type="button" class="compact" title="Listeye elle bir öğrenci ekle">+ Öğrenci ekle</button>
+            <button id="sideCollapse" type="button" class="icon" title="Listeyi daralt" aria-label="Listeyi daralt"><span class="chev"></span></button>
+          </span>
         </div>
         <div id="summary" class="summary"></div>
         <div class="filters" role="tablist">
@@ -149,11 +153,16 @@
           <button id="modalClose" type="button" class="icon" aria-label="Kapat">✕</button>
         </div>
         <div class="modal-section-title">
-          <span>Olaylar</span>
+          <span>Uyarılar</span>
           <button id="modalAck" type="button" class="link">Uyarıları görüldü yap</button>
         </div>
-        <ol id="modalEvents"></ol>
-        <details id="modalDetails">
+        <ol id="modalEvents" class="event-list"></ol>
+        <!-- Giriş, pencere geçişi gibi uyarı olmayan kayıtlar: okunabilirlik için ayrı ve kapalı. -->
+        <details id="modalLogDetails" class="modal-fold">
+          <summary>Diğer kayıtlar <span id="modalLogCount"></span></summary>
+          <ol id="modalLog" class="event-list"></ol>
+        </details>
+        <details id="modalDetails" class="modal-fold">
           <summary>Bilgisayar ve teslim bilgileri</summary>
           <dl id="modalInfo"></dl>
         </details>
@@ -259,6 +268,25 @@
       <div class="dialog-actions">
         <button id="folderCancel" type="button">Vazgeç</button>
         <button type="submit" class="primary">Kullan</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Öğrenci ekle -->
+  <div id="studentDialog" class="modal" hidden>
+    <form id="studentForm" class="dialog" role="dialog" aria-modal="true" aria-labelledby="studentTitle">
+      <h2 id="studentTitle">Öğrenci ekle</h2>
+      <p class="dialog-note">Öğrenciyi listeye elle ekleyin. Sınavdan önce, sınav sürerken ya da sonra eklenebilir;
+        giriş yapana kadar “Giriş yapmadı” görünür.</p>
+      <label for="studentNumara">Numara</label>
+      <input id="studentNumara" type="text" maxlength="20" required autocomplete="off" spellcheck="false">
+      <label for="studentAd">Ad</label>
+      <input id="studentAd" type="text" maxlength="60" required autocomplete="off">
+      <label for="studentSoyad">Soyad</label>
+      <input id="studentSoyad" type="text" maxlength="60" required autocomplete="off">
+      <div class="dialog-actions">
+        <button id="studentCancel" type="button">Vazgeç</button>
+        <button type="submit" class="primary">Ekle</button>
       </div>
     </form>
   </div>

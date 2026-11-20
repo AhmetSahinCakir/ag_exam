@@ -23,7 +23,7 @@ from typing import Any
 
 from . import usersettings
 from .config import Config
-from .naming import NUMARA_RE, name_key, natural_key, normalise_mac, submission_basename
+from .naming import NUMARA_RE, camel_name, name_key, natural_key, normalise_mac, submission_basename
 from .roster import RosterEntry
 
 log = logging.getLogger("sinav")
@@ -166,6 +166,23 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+# Windows' own surfaces a student passes through all the time while switching between Packet
+# Tracer's windows: the Alt+Tab switcher, the desktop. They are logged, never a warning.
+# (The student program marks them itself with "shell"; the titles cover older programs.)
+SHELL_SURFACE_TITLES = {
+    "program manager", "task switching", "task view",
+    "görev geçişi", "görev değiştirme", "görev değiştirici", "görev görünümü",
+}
+
+
+def is_shell_surface(d: dict[str, Any]) -> bool:
+    if d.get("shell") is True:
+        return True
+    name = str(d.get("name") or "").strip().casefold()
+    title = " ".join(str(d.get("title") or "").split()).casefold()
+    return name == "explorer.exe" and title in SHELL_SURFACE_TITLES
+
+
 def describe_agent_event(kind: str, d: dict[str, Any]) -> tuple[str, bool, bool, str]:
     """Map an agent event to (severity, show_in_alert_feed, counts_as_warning, message)."""
     name = _clean(d.get("name") or d.get("process") or "?", 120)
@@ -179,6 +196,8 @@ def describe_agent_event(kind: str, d: dict[str, Any]) -> tuple[str, bool, bool,
     if kind == "foreign_foreground":
         seconds = d.get("seconds")
         extra = f" ({int(seconds)} sn){title_part}" if isinstance(seconds, (int, float)) else title_part
+        if is_shell_surface(d):
+            return INFO, False, False, f"Masaüstü ya da pencere geçişi önde: {name}{extra}"
         return WARNING, True, True, f"Packet Tracer dışında bir pencere önde: {name}{extra}"
     if kind == "foreground_change":
         return INFO, False, False, f"Öndeki pencere: {name}{title_part}"
@@ -244,6 +263,8 @@ class Store:
         # belong to any student: never treated as a submission.
         self.ignored_files: set[str] = set()
         self.recording_applied: str | None = None  # record path last sent to MediaMTX
+        # numara -> recordPath last sent to MediaMTX for that student's own folder
+        self.record_paths_applied: dict[str, str] = {}
         self.folder_error = ""
         self.closing = False  # agents are being told that the exam is closed
         self.panel_clients = 0  # panel windows that are open right now
@@ -312,6 +333,24 @@ class Store:
         if self.dir_recordings is None or self.state == WAITING or not self.record_enabled:
             return ""
         return str(self.dir_recordings / "%path" / "%Y-%m-%d_%H-%M-%S_%z")
+
+    @staticmethod
+    def record_folder(st: Student) -> str:
+        """The student's folder inside "Kayıtlar": <numara>_<AdSoyad>, like the submitted files."""
+        return submission_basename(st.numara, st.ad, st.soyad)
+
+    def record_paths(self) -> dict[str, str]:
+        """MediaMTX recordPath of every logged-in student ({} until an exam folder is chosen).
+
+        MediaMTX insists on "%path" (the stream name = the student number) in the pattern, so
+        the name is appended to it: Kayıtlar/%path_AdSoyad/...
+        """
+        if self.dir_recordings is None:
+            return {}
+        return {
+            st.numara: str(self.dir_recordings / f"%path_{camel_name(st.ad, st.soyad)}" / "%Y-%m-%d_%H-%M-%S_%z")
+            for st in self.students.values()
+        }
 
     @property
     def index_path(self) -> Path | None:
@@ -533,17 +572,23 @@ class Store:
         # BOM so that Excel opens Turkish characters correctly.
         return ("\ufeff" + buffer.getvalue()).encode("utf-8")
 
-    def ack(self, numara: str | None) -> None:
-        """Mark the alerts of one student (or, with None, every alert) as seen."""
+    def ack(self, numara: str | None) -> int:
+        """Mark the alerts of one student (or, with None, every alert) as seen.
+
+        Returns how many warnings were waiting (shown to the person who pressed "Görüldü").
+        """
         targets = [self.students[numara]] if numara and numara in self.students else (
             list(self.students.values()) if numara is None else [])
         seen = self.next_event_id - 1
+        count = 0
         for st in targets:
+            count += st.warn_count
             st.warn_count = 0
             st.ack_id = seen
         if numara is None:
             self.general_ack_id = seen
         self.changed()
+        return count
 
     # --------------------------------------------------------------- settings
 
@@ -669,7 +714,10 @@ class Store:
         return self.exam_file
 
     def set_roster(self, entries: list[RosterEntry], filename: str) -> int:
+        added_by_hand = [e for e in self.roster.values() if e.manual]
         self.roster = {e.numara: e for e in entries}
+        for entry in added_by_hand:  # students added in the panel stay, unless the file has them
+            self.roster.setdefault(entry.numara, entry)
         self.roster_name = _clean(Path(filename).name, 120)
         self.add_event("", "roster_uploaded", INFO,
                        f"Öğrenci listesi yüklendi: {self.roster_name} ({len(entries)} öğrenci)")
@@ -679,6 +727,40 @@ class Store:
         self.write_all_student_alerts()  # the file names follow the names in the list
         self.changed()
         return len(entries)
+
+    def add_roster_entry(self, numara: Any, ad: Any, soyad: Any) -> RosterEntry:
+        """“Öğrenci ekle”: put one student on the list by hand — before, during or after the exam."""
+        numara = _clean(numara, 40)
+        ad = _clean(ad, 60)
+        soyad = _clean(soyad, 60)
+        if not NUMARA_RE.match(numara):
+            raise ApiError(422, "Öğrenci numarası yalnızca harf ve rakam içerebilir (en fazla 20 karakter).")
+        if not ad or not soyad:
+            raise ApiError(422, "Ad ve soyad boş bırakılamaz.")
+        existing = self.roster.get(numara)
+        if existing is not None:
+            raise ApiError(409, f"{numara} numaralı öğrenci listede zaten var: {existing.ad} {existing.soyad}.")
+        entry = RosterEntry(numara, ad, soyad, manual=True)
+        self.roster[numara] = entry
+        st = self.students.get(numara)
+        self.add_event(numara if st else "", "roster_added", INFO, f"Öğrenci listeye elle eklendi: {numara} {ad} {soyad}")
+        if st is not None:  # already logged in: the name on the list is the one that is shown
+            self._apply_roster(st, st.typed_ad or st.ad, st.typed_soyad or st.soyad)
+            self.write_all_student_alerts()
+        self.changed()
+        return entry
+
+    def remove_roster_entry(self, numara: Any) -> None:
+        """Take a student who has not logged in off the list (a wrong number, for example)."""
+        numara = _clean(numara, 40)
+        entry = self.roster.get(numara)
+        if entry is None:
+            raise ApiError(404, "Bu numara listede yok.")
+        if numara in self.students:
+            raise ApiError(409, "Giriş yapmış bir öğrenci listeden çıkarılamaz.")
+        del self.roster[numara]
+        self.add_event("", "roster_removed", INFO, f"Öğrenci listeden çıkarıldı: {numara} {entry.ad} {entry.soyad}")
+        self.changed()
 
     def start_exam(self, duration_min: Any = None, record: Any = True, start_at: Any = None) -> None:
         """“Sınavı başlat”: the exam file becomes downloadable and the allowlist is enforced.
@@ -819,7 +901,9 @@ class Store:
 
         keep = {key: getattr(self, key) for key in (
             "roster", "roster_name", "_waiters", "mediamtx_ok", "mediamtx_checked",
-            "discovery_error", "config_error", "recording_applied", "panel_clients")}
+            "discovery_error", "config_error", "recording_applied", "record_paths_applied", "panel_clients",
+            # entered in the panel once, not per exam
+            "identity_saved", "settings_base", "user_settings")}
         self.__init__(self.cfg)
         for key, value in keep.items():
             setattr(self, key, value)
@@ -831,18 +915,19 @@ class Store:
     def _apply_roster(self, st: Student, typed_ad: str, typed_soyad: str) -> None:
         """Set display name and roster status; emit a warning when the status changes."""
         previous = st.roster
-        if not self.roster:
-            status = "no_roster"
+        entry = self.roster.get(st.numara)
+        if entry is not None:
+            same = name_key(f"{entry.ad} {entry.soyad}") == name_key(f"{typed_ad} {typed_soyad}")
+            status = "ok" if same else "name_mismatch"
+            st.ad, st.soyad = entry.ad, entry.soyad
+        elif self.roster_name:
+            # A list file is loaded: whoever is not on it is reported. (Students added by hand
+            # alone do not make a list that everybody else is missing from.)
+            status = "not_in_list"
             st.ad, st.soyad = typed_ad, typed_soyad
         else:
-            entry = self.roster.get(st.numara)
-            if entry is None:
-                status = "not_in_list"
-                st.ad, st.soyad = typed_ad, typed_soyad
-            else:
-                same = name_key(f"{entry.ad} {entry.soyad}") == name_key(f"{typed_ad} {typed_soyad}")
-                status = "ok" if same else "name_mismatch"
-                st.ad, st.soyad = entry.ad, entry.soyad
+            status = "no_roster"
+            st.ad, st.soyad = typed_ad, typed_soyad
         st.roster = status
         if status == previous:
             return
@@ -946,10 +1031,16 @@ class Store:
                 others = list(seen)
                 seen.append(numara)
                 if others:
+                    # Who they were: number and the name typed at that login.
+                    names = []
+                    for other in others:
+                        earlier = self.students.get(other)
+                        typed = f"{earlier.typed_ad or earlier.ad} {earlier.typed_soyad or earlier.soyad}".strip() if earlier else ""
+                        names.append(f"{other} {typed}".strip())
                     self.add_event(
                         numara, "mac_reuse", CRITICAL,
-                        f"Bu bilgisayardan daha önce {', '.join(others)} giriş yapmıştı (MAC {mac})",
-                        {"mac": mac, "others": others},
+                        f"Bu bilgisayardan daha önce {', '.join(names)} giriş yapmıştı (MAC {mac})",
+                        {"mac": mac, "others": others, "other_names": names},
                     )
 
         self.changed()
@@ -1417,6 +1508,7 @@ class Store:
                 "ack_id": st.ack_id,
                 "submission": asdict(last) if last else None,
                 "submission_count": len(st.submissions),
+                "record_folder": self.record_folder(st),
             })
         missing = [
             asdict(entry)
@@ -1434,7 +1526,8 @@ class Store:
                 "fg_process": "", "fg_title": "", "monitors": 0, "ffmpeg_alive": False,
                 "exam_state_seen": "", "stream_ready": False,
                 "warn_count": 0, "ev_count": 0, "ack_id": 0,
-                "submission": None, "submission_count": 0,
+                "submission": None, "submission_count": 0, "record_folder": "",
+                "manual": bool(entry.get("manual")),
             })
         summary["absent"] = len(missing)
         if missing:
@@ -1457,7 +1550,8 @@ class Store:
                 "file": self.exam_file,
                 "folder": str(self.exam_dir) if self.exam_dir else "",
             },
-            "roster": {"name": self.roster_name, "count": len(self.roster), "missing": missing},
+            "roster": {"name": self.roster_name, "count": len(self.roster), "missing": missing,
+                       "manual": sum(1 for e in self.roster.values() if e.manual)},
             "health": {
                 "mediamtx_ok": self.mediamtx_ok or not self.mediamtx_checked,
                 "discovery_error": self.discovery_error,

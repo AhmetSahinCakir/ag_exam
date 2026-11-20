@@ -78,6 +78,9 @@ internal static class NativeMethods
     [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     public static extern int GetWindowTextW(IntPtr hWnd, [Out] char[] text, int maxCount);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    public static extern int GetClassNameW(IntPtr hWnd, [Out] char[] className, int maxCount);
+
     [DllImport("user32.dll", ExactSpelling = true)]
     public static extern IntPtr GetWindowLongPtrW(IntPtr hWnd, int index);
 

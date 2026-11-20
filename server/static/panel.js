@@ -37,7 +37,7 @@ let byNumara = new Map();        // numara -> öğrenci (son durum)
 let receivedAt = 0;              // son durumun geldiği an (Date.now())
 let systemClosed = false;        // "Sistemi kapat" istendi: sunucu duruyor
 let modalNumara = null;
-let modalEvCount = -1;
+let modalEvSignature = '';       // büyük görünümdeki olay listelerinin son çizilen hâli
 const tiles = new Map();         // numara -> kutu
 const rows = new Map();          // numara -> liste satırı
 const expanded = new Set();      // açık satırlar
@@ -531,9 +531,14 @@ function renderHeader() {
   $('examFileInfo').title = file ? file.name : '';
   $('btnExamFile').parentElement.classList.toggle('done', Boolean(file));
   setText($('btnExamFile'), file ? 'Değiştir' : 'Dosya seç');
-  setText($('rosterInfo'), S.roster.count ? `${S.roster.count} öğrenci — ${S.roster.name}` : 'Yüklenmedi');
+  // Liste dosyadan, elle eklenenlerden ya da ikisinden oluşabilir.
+  const byHand = S.roster.manual || 0;
+  let rosterInfo = 'Yüklenmedi';
+  if (S.roster.name) rosterInfo = `${S.roster.count} öğrenci — ${S.roster.name}${byHand ? ` + ${byHand} elle` : ''}`;
+  else if (S.roster.count) rosterInfo = `${S.roster.count} öğrenci — elle eklendi`;
+  setText($('rosterInfo'), rosterInfo);
   $('btnRoster').parentElement.classList.toggle('done', S.roster.count > 0);
-  setText($('btnRoster'), S.roster.count ? 'Değiştir' : 'Dosya seç');
+  setText($('btnRoster'), S.roster.name ? 'Değiştir' : 'Dosya seç');
   $('btnStart').disabled = !file || !folder;
   let startHint = 'Başlangıç saatini, süreyi ve ekran kaydını seçersiniz';
   if (!folder) startHint = 'Önce sınav klasörünü seçin';
@@ -715,22 +720,42 @@ function createRow(numara) {
   zoom.type = 'button';
   const ack = el('button', '', 'Görüldü');
   ack.type = 'button';
-  actions.append(zoom, ack);
+  // Yalnızca "listede yok" uyarısı alan öğrencide görünür.
+  const enlist = el('button', '', 'Listeye ekle');
+  enlist.type = 'button';
+  // Yalnızca listede olup giriş yapmayan öğrencide görünür.
+  const remove = el('button', 'danger-link', 'Listeden çıkar');
+  remove.type = 'button';
+  actions.append(zoom, ack, enlist, remove);
   body.append(events, meta, actions);
   root.append(head, body);
 
   head.addEventListener('click', () => toggleRow(numara));
   zoom.addEventListener('click', () => openModal(numara));
-  ack.addEventListener('click', async () => {
-    try { await api('/panel/api/ack', { json: { numara } }); } catch (error) { toast(error.message, true); }
+  ack.addEventListener('click', () => acknowledge(numara));
+  enlist.addEventListener('click', () => {
+    const st = byNumara.get(numara);
+    if (st) openStudentDialog({ numara: st.numara, ad: st.ad, soyad: st.soyad });
   });
+  remove.addEventListener('click', () => removeFromRoster(numara));
 
-  return { root, head, name, note, count, body, events, meta, ack, statusClass: '', metaSignature: '', eventSignature: '' };
+  return {
+    root, head, name, note, count, body, events, meta, ack, zoom, enlist, remove,
+    statusClass: '', metaSignature: '', eventSignature: '',
+  };
+}
+
+/* "Görüldü": kaç uyarının işaretlendiği söylenir; listelerde o uyarılar soluklaşıp ✓ alır. */
+async function acknowledge(numara) {
+  try {
+    const data = await api('/panel/api/ack', { json: numara ? { numara } : {} });
+    toast(data.count > 0 ? `${data.count} uyarı görüldü olarak işaretlendi.` : 'Görülmemiş uyarı yoktu.');
+  } catch (error) {
+    toast(error.message, true);
+  }
 }
 
 function toggleRow(numara) {
-  const st = byNumara.get(numara);
-  if (st && st.status === 'absent') return;       // giriş yapmayanın gösterilecek ayrıntısı yok
   if (expanded.has(numara)) expanded.delete(numara);
   else expanded.add(numara);
   renderList();
@@ -811,7 +836,6 @@ function alertItem(alert) {
 }
 
 function updateRow(row, st, alert) {
-  if (st.status === 'absent') expanded.delete(st.numara);
   const open = expanded.has(st.numara);
   const statusClass = `st-${st.status}`;
   if (row.statusClass !== statusClass) {
@@ -831,6 +855,25 @@ function updateRow(row, st, alert) {
 
   row.body.hidden = !open;
   if (!open) return;
+
+  const absent = st.status === 'absent';
+  row.zoom.hidden = absent;
+  row.remove.hidden = !absent;
+  row.enlist.hidden = st.roster !== 'not_in_list';
+  if (absent) {
+    // Giriş yapmayan öğrenci: gösterilecek olay ya da bilgisayar bilgisi yok.
+    row.ack.hidden = true;
+    const text = st.manual ? 'Elle eklendi; henüz giriş yapmadı.' : 'Henüz giriş yapmadı.';
+    if (row.eventSignature !== `absent:${text}`) {
+      row.eventSignature = `absent:${text}`;
+      row.events.replaceChildren(el('li', 'none', text));
+    }
+    if (row.metaSignature !== '') {
+      row.metaSignature = '';
+      row.meta.replaceChildren();
+    }
+    return;
+  }
 
   row.ack.hidden = st.warn_count === 0;
   const metaLines = [[st.ip, st.hostname, st.mac].filter(Boolean).join(' · ')];
@@ -855,7 +898,8 @@ function updateRow(row, st, alert) {
   const events = cached
     ? cached.events.filter((e) => e.alert && e.severity !== 'info').slice(-ROW_EVENT_LIMIT).reverse()
     : null;
-  const eventSignature = events ? events.map((e) => e.id).join(',') : 'loading';
+  const ackId = st.ack_id || 0;
+  const eventSignature = events ? `${events.map((e) => e.id).join(',')}|${ackId}` : 'loading';
   if (row.eventSignature !== eventSignature) {
     row.eventSignature = eventSignature;
     if (!events) {
@@ -864,9 +908,11 @@ function updateRow(row, st, alert) {
       row.events.replaceChildren(el('li', 'none', 'Bu öğrenci için uyarı yok.'));
     } else {
       row.events.replaceChildren(...events.map((event) => {
-        const li = el('li');
-        li.title = `${fmtClockSeconds(event.ts)} — ${event.message}`;
+        const seen = event.id <= ackId;
+        const li = el('li', seen ? 'seen' : '');
+        li.title = `${fmtClockSeconds(event.ts)} — ${event.message}${seen ? ' (görüldü)' : ''}`;
         li.append(el('span', 'when', fmtClock(event.ts)), el('span', 'msg', event.message));
+        if (seen) li.append(el('span', 'seen-mark', '✓'));
         return li;
       }));
     }
@@ -913,11 +959,13 @@ function checkNewAlerts() {
 
 function openModal(numara) {
   if (!tiles.has(numara)) return;
-  const st = byNumara.get(numara);
-  if (st && st.status === 'absent') return;       // giriş yapmayanın ekranı ve bilgisi yok
+  const absent = byNumara.get(numara);
+  if (absent && absent.status === 'absent') return;       // giriş yapmayanın ekranı ve bilgisi yok
   modalNumara = numara;
-  modalEvCount = -1;
+  modalEvSignature = '';
   $('modalEvents').replaceChildren();
+  $('modalLog').replaceChildren();
+  $('modalLogDetails').open = false;
   $('modalDetails').open = false;
   $('modal').hidden = false;
   renderModal();
@@ -950,12 +998,18 @@ function renderModal() {
   setText($('modalTitle'), `${st.numara} — ${fullName(st)}`);
   const status = $('modalStatus');
   status.className = `modal-status st-${st.status}`;
-  const statusSignature = statusText(st);
+  const statusSignature = `${statusText(st)}|${st.roster}`;
   if (status.dataset.signature !== statusSignature) {
     status.dataset.signature = statusSignature;
-    status.replaceChildren(el('span', 'dot'), document.createTextNode(statusSignature));
+    status.replaceChildren(el('span', 'dot'), document.createTextNode(statusText(st)));
+    if (st.roster === 'not_in_list') {
+      // Listede olmayan öğrenci buradan tek tıkla listeye alınır.
+      const enlist = el('button', 'link small', 'Listeye ekle');
+      enlist.type = 'button';
+      enlist.addEventListener('click', () => openStudentDialog({ numara: st.numara, ad: st.ad, soyad: st.soyad }));
+      status.append(enlist);
+    }
   }
-  $('modalAck').disabled = st.warn_count === 0;
 
   // Büyük görüntü, kutudaki akışın aynısını paylaşır (ikinci bağlantı açılmaz).
   const big = $('bigVideo');
@@ -987,20 +1041,40 @@ function renderModal() {
   if (st.status === 'nofile') infoRow(info, 'Uyarı', 'Teslim dosyası Teslimler klasöründe bulunamıyor');
   if (S.paths.recordings) {
     const sep = S.paths.recordings.includes('\\') ? '\\' : '/';
-    infoRow(info, 'Kayıt klasörü', `${S.paths.recordings}${sep}${st.numara}`);
+    infoRow(info, 'Kayıt klasörü', `${S.paths.recordings}${sep}${st.record_folder || st.numara}`);
   }
   $('modalInfo').replaceChildren(info);
 
   const cached = eventCache.get(st.numara);
   if (!cached || cached.count !== st.ev_count) loadEvents(st.numara, st.ev_count);
-  if (cached && modalEvCount !== cached.events.length) {
-    modalEvCount = cached.events.length;
-    const items = cached.events.slice().reverse().map((event) => {
-      const li = el('li', `sev-${event.severity}${event.alert ? '' : ' minor'}`);
+  // Üstte yalnızca uyarılar (renkli olanlar); giriş, pencere geçişi gibi öteki kayıtlar
+  // "Diğer kayıtlar" başlığı altında, kapalı durur.
+  const ackId = st.ack_id || 0;
+  const isWarning = (event) => event.alert && event.severity !== 'info';
+  const warnings = cached ? cached.events.filter(isWarning) : [];
+  const ack = $('modalAck');
+  ack.hidden = warnings.length === 0;
+  ack.disabled = st.warn_count === 0;
+  ack.classList.toggle('done', st.warn_count === 0);
+  setText(ack, st.warn_count === 0 ? '✓ Hepsi görüldü' : `Uyarıları görüldü yap (${st.warn_count})`);
+
+  const signature = cached ? `${cached.events.length}|${ackId}` : '';
+  if (cached && modalEvSignature !== signature) {
+    modalEvSignature = signature;
+    const item = (event, minor) => {
+      const seen = !minor && event.id <= ackId;
+      const li = el('li', minor ? 'minor' : `sev-${event.severity}${seen ? ' seen' : ''}`);
       li.append(el('span', 'when', fmtClockSeconds(event.ts)), document.createTextNode(event.message));
+      if (seen) li.append(el('span', 'seen-mark', '✓ görüldü'));
       return li;
-    });
-    $('modalEvents').replaceChildren(...items);
+    };
+    const others = cached.events.filter((event) => !isWarning(event));
+    $('modalEvents').replaceChildren(...(warnings.length
+      ? warnings.slice().reverse().map((event) => item(event, false))
+      : [el('li', 'none', 'Bu öğrenci için uyarı yok.')]));
+    $('modalLog').replaceChildren(...others.slice().reverse().map((event) => item(event, true)));
+    setText($('modalLogCount'), others.length ? `(${others.length})` : '');
+    $('modalLogDetails').hidden = others.length === 0;
   }
 }
 
@@ -1198,6 +1272,44 @@ async function openExamFolder() {
   }
 }
 
+/* ----------------------------------------------------------------- elle öğrenci ekleme */
+
+/* prefill: "listede yok" uyarısı alan öğrencinin girişte yazdıkları (tek tıkla eklemek için). */
+function openStudentDialog(prefill) {
+  closeMenu();
+  $('studentNumara').value = prefill ? prefill.numara : '';
+  $('studentAd').value = prefill ? prefill.ad : '';
+  $('studentSoyad').value = prefill ? prefill.soyad : '';
+  $('studentDialog').hidden = false;
+  (prefill ? $('studentAd') : $('studentNumara')).focus();
+}
+
+async function submitStudent(event) {
+  event.preventDefault();
+  try {
+    const added = await api('/panel/api/roster/add', {
+      json: { numara: $('studentNumara').value, ad: $('studentAd').value, soyad: $('studentSoyad').value },
+    });
+    closeDialogs();
+    toast(`${added.numara} ${added.ad} ${added.soyad} listeye eklendi.`);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function removeFromRoster(numara) {
+  const st = byNumara.get(numara);
+  const who = st ? `${st.numara} ${fullName(st)}` : numara;
+  if (!confirm(`${who} listeden çıkarılsın mı?`)) return;
+  try {
+    await api('/panel/api/roster/remove', { json: { numara } });
+    expanded.delete(numara);
+    toast(`${who} listeden çıkarıldı.`);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
 /* ----------------------------------------------------------------- ayarlar penceresi */
 
 let settingsInfo = null;          // sunucudan gelen: values, defaults, limits
@@ -1324,7 +1436,8 @@ function openDialog(id, focusId, value) {
   input.select();
 }
 
-const DIALOGS = ['identityDialog', 'folderDialog', 'startDialog', 'endDialog', 'shutdownDialog', 'settingsDialog'];
+const DIALOGS = ['identityDialog', 'folderDialog', 'startDialog', 'endDialog', 'shutdownDialog', 'settingsDialog',
+  'studentDialog'];
 
 function closeDialogs() {
   for (const id of DIALOGS) $(id).hidden = true;
@@ -1456,10 +1569,12 @@ function bindControls() {
   $('btnFolder').addEventListener('click', chooseFolder);
   $('btnOpenFolder').addEventListener('click', openExamFolder);
   bindSettings();
+  $('btnAddStudent').addEventListener('click', () => openStudentDialog(null));
+  $('btnAddStudentMenu').addEventListener('click', () => openStudentDialog(null));
+  $('studentCancel').addEventListener('click', closeDialogs);
+  $('studentForm').addEventListener('submit', submitStudent);
   $('btnOpenFolderTop').addEventListener('click', openExamFolder);
-  $('ackAll').addEventListener('click', async () => {
-    try { await api('/panel/api/ack', { json: {} }); } catch (error) { toast(error.message, true); }
-  });
+  $('ackAll').addEventListener('click', () => acknowledge(null));
   $('btnExamFile').addEventListener('click', () => $('fileExam').click());
   $('fileExam').addEventListener('change', () => uploadFile(
     $('fileExam'), '/panel/api/exam-file', (file) => `Sınav dosyası yüklendi: ${file.name}`));
@@ -1486,10 +1601,7 @@ function bindControls() {
   $('filterAll').addEventListener('click', () => setFilter('all'));
   $('filterAlerts').addEventListener('click', () => setFilter('alerts'));
 
-  $('modalAck').addEventListener('click', async () => {
-    if (!modalNumara) return;
-    try { await api('/panel/api/ack', { json: { numara: modalNumara } }); } catch (error) { toast(error.message, true); }
-  });
+  $('modalAck').addEventListener('click', () => { if (modalNumara) acknowledge(modalNumara); });
   $('modalClose').addEventListener('click', closeModal);
   $('modal').addEventListener('click', (event) => { if (event.target === $('modal')) closeModal(); });
   document.addEventListener('keydown', (event) => {

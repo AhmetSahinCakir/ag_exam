@@ -130,7 +130,9 @@ def test_same_mac_different_number_raises_red_alert(env: Env):
     alerts = env.alerts("mac_reuse")
     assert len(alerts) == 1
     assert alerts[0]["numara"] == "2021002" and alerts[0]["severity"] == "critical"
-    assert "Bu bilgisayardan daha önce 2021001 giriş yapmıştı" in alerts[0]["message"]
+    # ... with the name the earlier student typed, also in the log files.
+    assert "Bu bilgisayardan daha önce 2021001 Ali Veli giriş yapmıştı (MAC AA:BB:CC:00:00:01)" in alerts[0]["message"]
+    assert alerts[0]["details"]["other_names"] == ["2021001 Ali Veli"]
     # Logging in again with the same number does not repeat the alert.
     env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:01")
     assert len(env.alerts("mac_reuse")) == 1
@@ -1106,3 +1108,193 @@ def test_panel_settings_stay_in_force_when_the_settings_file_is_read_again(env: 
     env.store.policy_file_reloaded()
     assert env.cfg.policy.patterns == ["D:\\Araclar\\", "**\\putty.exe"]
     assert env.cfg.policy.kill_countdown_s == 3
+
+
+
+def test_same_computer_warning_names_everybody_who_used_it_before(env: Env):
+    upload_roster(env, [[2021001, "Ali", "Veli"]])
+    env.login(numara="2021001", ad="Alican", soyad="Velioğlu", mac="AA:BB:CC:00:00:01")   # typed another name
+    env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:01", ip="192.168.1.51")
+    env.login(numara="2021003", ad="Ece", soyad="Su", mac="AA:BB:CC:00:00:01", ip="192.168.1.52")
+    message = next(a["message"] for a in env.alerts("mac_reuse") if a["numara"] == "2021003")
+    # What was typed at the login, not the name on the list.
+    assert "daha önce 2021001 Alican Velioğlu, 2021002 Can Er giriş yapmıştı" in message
+    env.choose_folder()
+    env.store.write_all_student_alerts()
+    log_file = next(env.store.dir_alerts.glob("2021003_*.csv")).read_text(encoding="utf-8-sig")
+    assert "2021001 Alican Velioğlu, 2021002 Can Er" in log_file
+
+
+# ------------------------------------------------------------- adding a student by hand
+
+
+def test_a_student_can_be_added_to_the_list_by_hand_at_any_time(env: Env):
+    upload_roster(env, [[2021001, "Ali", "Veli"]])
+    stranger, session = env.login(numara="2021005", ad="Elif", soyad="Şahin", ip="192.168.1.55",
+                                  mac="AA:BB:CC:00:00:05")
+    assert env.snapshot_student("2021005")["roster"] == "not_in_list"
+
+    # Before the exam: somebody who is not here yet.
+    added = env.panel.post("/panel/api/roster/add", headers=PANEL,
+                           json={"numara": " 2021009 ", "ad": "  zeynep ", "soyad": "Ak"})
+    assert added.status_code == 200 and added.json() == {"numara": "2021009", "ad": "zeynep", "soyad": "Ak"}
+    waiting = env.snapshot_student("2021009")
+    assert waiting["status"] == "absent" and waiting["manual"] is True
+
+    # During the exam: the student who was reported as "not on the list".
+    env.choose_folder()
+    env.upload_exam()
+    env.start()
+    assert env.panel.post("/panel/api/roster/add", headers=PANEL,
+                          json={"numara": "2021005", "ad": "Elif", "soyad": "Şahin"}).status_code == 200
+    assert env.snapshot_student("2021005")["roster"] == "ok"
+    # After the exam as well.
+    env.panel.post("/panel/api/end", headers=PANEL)
+    assert env.panel.post("/panel/api/roster/add", headers=PANEL,
+                          json={"numara": "2021010", "ad": "Jale", "soyad": "Arslan"}).status_code == 200
+
+    snapshot = env.store.snapshot()
+    assert snapshot["roster"]["count"] == 4 and snapshot["roster"]["manual"] == 3
+    assert [s["numara"] for s in snapshot["students"]] == ["2021001", "2021005", "2021009", "2021010"]
+    messages = [e.message for e in env.store.events if e.type == "roster_added"]
+    assert messages[0] == "Öğrenci listeye elle eklendi: 2021009 zeynep Ak" and len(messages) == 3
+
+    for bad, status, text in (
+        ({"numara": "2021009", "ad": "Zeynep", "soyad": "Ak"}, 409, "zaten var"),
+        ({"numara": "20 21", "ad": "A", "soyad": "B"}, 422, "harf ve rakam"),
+        ({"numara": "2021011", "ad": "", "soyad": "B"}, 422, "boş bırakılamaz"),
+    ):
+        response = env.panel.post("/panel/api/roster/add", headers=PANEL, json=bad)
+        assert response.status_code == status and text in response.json()["error"], response.text
+    assert env.student().post("/panel/api/roster/add", headers=PANEL, json={}).status_code == 403
+
+    # A new list file replaces the list but keeps who was added by hand.
+    upload_roster(env, [[2021001, "Ali", "Veli"], [2021002, "Ayşe", "Yılmaz"], [2021009, "Zeynep", "Ak"]])
+    assert sorted(env.store.roster) == ["2021001", "2021002", "2021005", "2021009", "2021010"]
+    assert env.store.roster["2021009"].manual is False and env.store.roster["2021009"].ad == "Zeynep"
+
+    # Survives a restart.
+    env.store.save()
+    restored = Store(env.cfg)
+    restored.load()
+    assert restored.roster["2021010"].manual is True and restored.roster["2021001"].manual is False
+
+
+def test_students_added_by_hand_alone_do_not_flag_everybody_else(env: Env):
+    env.login(numara="2021001")
+    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021002", "ad": "Ayşe", "soyad": "Yılmaz"})
+    env.login(numara="2021003", ad="Can", soyad="Demir", ip="192.168.1.53", mac="AA:BB:CC:00:00:03")
+    assert env.snapshot_student("2021001")["roster"] == "no_roster"
+    assert env.snapshot_student("2021003")["roster"] == "no_roster"
+    assert not env.alerts("not_in_roster")
+    # The name typed at the login is checked against the hand-made entry.
+    env.login(numara="2021002", ad="Başka", soyad="Biri", ip="192.168.1.52", mac="AA:BB:CC:00:00:02")
+    assert env.snapshot_student("2021002")["roster"] == "name_mismatch"
+    assert env.snapshot_student("2021002")["ad"] == "Ayşe"
+
+
+def test_a_student_who_has_not_logged_in_can_be_taken_off_the_list(env: Env):
+    upload_roster(env, [[2021001, "Ali", "Veli"], [2021002, "Ayşe", "Yılmaz"]])
+    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021099", "ad": "Yanlış", "soyad": "Numara"})
+    env.login(numara="2021001")
+
+    assert env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021099"}).status_code == 200
+    assert env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021002"}).status_code == 200
+    assert [s["numara"] for s in env.store.snapshot()["students"]] == ["2021001"]
+    assert [e.message for e in env.store.events if e.type == "roster_removed"][0] == \
+        "Öğrenci listeden çıkarıldı: 2021099 Yanlış Numara"
+
+    logged_in = env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021001"})
+    assert logged_in.status_code == 409 and "Giriş yapmış" in logged_in.json()["error"]
+    assert env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021500"}).status_code == 404
+
+
+# ------------------------------------------------------------ Alt+Tab and the desktop
+
+
+def test_switching_windows_and_the_desktop_are_logged_but_never_a_warning(env: Env):
+    client, _ = env.login()
+    env.choose_folder()
+    env.upload_exam()
+    env.start()
+
+    def report(**details):
+        return client.post("/api/event", json={"type": "foreign_foreground", "details": details, "ts": time.time()})
+
+    # Marked by the student program itself ...
+    report(name="explorer.exe", title="Görev Geçişi", seconds=7, shell=True)
+    report(name="explorer.exe", title="", seconds=9, shell=True)
+    # ... or recognised by its title (student programs installed before this change).
+    report(name="explorer.exe", title="Program Manager", seconds=12)
+    report(name="Explorer.EXE", title="Task Switching", seconds=6)
+    student = env.snapshot_student("2021001")
+    assert student["status"] == "ok" and student["warn_count"] == 0
+    assert not env.alerts("foreign_foreground")
+    logged = [e for e in env.store.events if e.type == "foreign_foreground"]
+    assert len(logged) == 4 and all(e.severity == "info" and not e.alert for e in logged)
+    assert logged[0].message == "Masaüstü ya da pencere geçişi önde: explorer.exe (7 sn) — pencere: “Görev Geçişi”"
+
+    # A real window in front is still a warning: a folder window, another program.
+    report(name="explorer.exe", title="Belgeler", seconds=6)
+    report(name="winver.exe", title="Windows Hakkında", seconds=6)
+    assert len(env.alerts("foreign_foreground")) == 2
+    assert env.snapshot_student("2021001")["status"] == "warn"
+    assert "Packet Tracer dışında bir pencere önde: explorer.exe (6 sn) — pencere: “Belgeler”" in \
+        [a["message"] for a in env.alerts("foreign_foreground")]
+
+
+# --------------------------------------------------------------------- "Görüldü"
+
+
+def test_marking_as_seen_tells_how_many_warnings_there_were(env: Env):
+    client, _ = env.login()
+    env.login(numara="2021002", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
+    for _ in range(3):
+        client.post("/api/event", json={"type": "process_killed", "details": {"name": "chrome.exe"}, "ts": time.time()})
+    assert env.panel.post("/panel/api/ack", headers=PANEL, json={"numara": "2021002"}).json() == {"ok": True, "count": 0}
+    assert env.panel.post("/panel/api/ack", headers=PANEL, json={"numara": "2021001"}).json() == {"ok": True, "count": 3}
+    assert env.panel.post("/panel/api/ack", headers=PANEL, json={}).json()["count"] == 0
+    assert env.snapshot_student("2021001")["status"] == "ok"
+
+
+# ------------------------------------------------------------- recording folders
+
+
+def test_recordings_go_into_a_folder_with_the_students_name(env: Env, monkeypatch):
+    import sinav.app as app_module
+
+    calls = []
+    monkeypatch.setattr(app_module, "set_path_record_path", lambda api, name, path: calls.append((name, path)))
+
+    env.login(numara="2021001", ad="Şükrü Çağrı", soyad="Işık")
+    assert env.store.record_paths() == {} and calls == []          # no exam folder yet: nothing to record into
+    env.choose_folder()
+    recordings = env.exam_dir.resolve() / "Kayıtlar"
+    expected = str(recordings / "%path_SukruCagriIsik" / "%Y-%m-%d_%H-%M-%S_%z")
+    assert env.store.record_paths() == {"2021001": expected}
+    assert env.snapshot_student("2021001")["record_folder"] == "2021001_SukruCagriIsik"
+
+    # A student who logs in gets the folder at once (before the screen stream starts).
+    env.login(numara="2021002", ad="Ayşe", soyad="Yılmaz", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
+    assert ("2021002", str(recordings / "%path_AyseYilmaz" / "%Y-%m-%d_%H-%M-%S_%z")) in calls
+    assert ("2021001", expected) in calls
+    # The name on the list is the one that is used.
+    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021002", "ad": "Ayşe Nur", "soyad": "Yılmaz"})
+    assert env.snapshot_student("2021002")["record_folder"] == "2021002_AyseNurYilmaz"
+
+
+def test_new_exam_keeps_what_was_entered_in_the_panel(env: Env):
+    env.panel.post("/panel/api/identity", headers=PANEL, json={"sinif_adi": "A-1", "ogretmen_adi": "Ada Kaya"})
+    env.panel.post("/panel/api/settings", headers=PANEL, json={"programs": ["putty.exe"], "kill_countdown_s": 3})
+    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021002", "ad": "Ayşe", "soyad": "Yılmaz"})
+    env.panel.post("/panel/api/reset", headers=PANEL)
+
+    assert env.panel.get("/panel/api/state").json()["class"]["saved"] is True   # not asked again
+    view = env.panel.get("/panel/api/settings").json()
+    assert view["values"]["programs"] == ["putty.exe"] and view["defaults"]["programs"] == []
+    assert view["defaults"]["kill_countdown_s"] == 10 and view["values"]["kill_countdown_s"] == 3
+    assert env.cfg.policy.patterns[-1] == "**\\putty.exe"
+    assert env.store.roster["2021002"].manual is True
+    # Saving something else afterwards does not lose the settings.
+    env.panel.post("/panel/api/identity", headers=PANEL, json={"sinif_adi": "A-2", "ogretmen_adi": "Ada Kaya"})
+    assert json.loads(env.store.settings_path.read_text(encoding="utf-8"))["ayarlar"]["programs"] == ["putty.exe"]

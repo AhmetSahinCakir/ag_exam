@@ -84,9 +84,14 @@ kendiliğinden açılmaz ya da inmez; dosyayı öğrenci istediği yere kendisi 
 
 - **Renkler:** yeşil = bağlı, sarı = uyarı var, kırmızı = bağlantı yok, gri = teslim etti.
 - **Uyarılar** öğrencinin satırında, adının yanında görünür. Satırdaki oka basınca o
-  öğrencinin uyarıları açılır; **Görüldü** uyarıyı kapatır.
+  öğrencinin uyarıları açılır. **Görüldü**'ye basınca kaç uyarının işaretlendiği yazılır ve
+  o uyarılar soluklaşıp **✓** alır.
 - **Uyarılar** sekmesi bütün uyarıları tek liste hâlinde gösterir.
-- Bir ekrana tıklayınca büyür.
+- Bir ekrana tıklayınca büyür. Sağında yalnızca o öğrencinin **uyarıları** görünür; giriş,
+  pencere geçişi gibi öteki kayıtlar altındaki **Diğer kayıtlar** başlığına basınca açılır.
+- Öğrencinin Packet Tracer pencereleri arasında geçiş yapması (Alt+Tab) ve masaüstüne
+  bakması uyarı sayılmaz; yalnızca “Diğer kayıtlar”a yazılır. Öne başka bir pencere gelirse
+  uyarı çıkar.
 - **Ekran boyutu:** üst satırdaki **− / +** ile ekranları büyütüp küçültün; **Sığdır**
   hepsini ekrana sığdırır.
 - **Listeyi daraltmak:** “Öğrenciler” başlığının yanındaki oka basın; listeyi geri açmak için
@@ -134,7 +139,7 @@ Her şey seçtiğiniz sınav klasöründedir (**Sınav klasörünü aç** düğm
 | Klasör / dosya | İçinde ne var |
 |---|---|
 | **Teslimler** | Teslim edilen dosyalar: `numara_AdSoyad.pka`. `index.csv` dosyası kimin ne zaman teslim ettiğini ve geç teslimleri listeler. |
-| **Kayıtlar** | Her öğrencinin ekran kaydı, numarasıyla adlandırılmış klasörlerde. Video oynatıcıyla (ör. VLC) açılır. |
+| **Kayıtlar** | Her öğrencinin ekran kaydı, numarası ve adıyla adlandırılmış klasörlerde (ör. `2021001_AliVeli`). Video oynatıcıyla (ör. VLC) açılır. |
 | **Uyarılar** | Uyarı alan her öğrenci için bir dosya; Excel'de açılır. |
 | `olay-kaydi.csv` | Sınav boyunca olan her şeyin saatli dökümü; Excel'de açılır. |
 
@@ -150,6 +155,12 @@ Sütunları **numara, ad, soyad** olan bir Excel dosyası. Liste yüklüyse:
 - Listedeki bütün öğrenciler, sınav başlamadan da, siyah ekranlı kutular olarak ve sağdaki
   listede görünür. Giriş yapmayanların yanında **Giriş yapmadı** yazar; üstteki sayılarda
   kaç kişinin giriş yapmadığını görürsünüz.
+
+**Elle öğrenci eklemek:** “Öğrenciler” başlığının yanındaki **+ Öğrenci ekle**'ye basıp
+numarasını, adını ve soyadını yazın. Sınavdan önce, sınav sürerken ya da sonra eklenebilir;
+liste dosyası yüklemeden de kullanılabilir. “Numara listede yok” uyarısı alan bir öğrenciyi
+satırını açıp **Listeye ekle** ile tek tıkla ekleyebilirsiniz. Yanlış eklediğiniz ya da
+gelmeyecek bir öğrenciyi, giriş yapmadıysa, satırını açıp **Listeden çıkar** ile silin.
 
 ## Ayarlar
 
@@ -176,7 +187,7 @@ Panelde **Diğer → Ayarlar**:
 | Monitör sayısı: 2 | İkinci bir ekran takılı. |
 | Bağlantı koptu | Wi-Fi koptu ya da bilgisayar uyudu. Bağlantı gelince kendiliğinden düzelir. |
 | Ajan öğrenci tarafından kapatıldı | Öğrenci programı kapattı. |
-| Bu bilgisayardan daha önce … giriş yapmıştı | Aynı bilgisayardan başka bir numarayla giriş yapıldı. |
+| Bu bilgisayardan daha önce … giriş yapmıştı | Aynı bilgisayardan başka bir numarayla giriş yapıldı. Uyarıda önceki girişin numarası ve yazılan ad soyad da yer alır. |
 | Aynı numarayla ikinci oturum açma girişimi | Bu numara başka bir bilgisayarda zaten açık. |
 | Ad uyuşmuyor / Numara listede yok | Girişteki bilgiler öğrenci listesiyle uyuşmuyor. |
 | Teslim edilen dosya sınav dosyasının kendisi | Öğrenci hiçbir şey kaydetmeden teslim etti. |

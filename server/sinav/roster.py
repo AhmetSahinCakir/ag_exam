@@ -31,6 +31,8 @@ class RosterEntry:
     numara: str
     ad: str
     soyad: str
+    # Added by hand in the panel ("Öğrenci ekle"), not read from the list file.
+    manual: bool = False
 
 
 def _cell_text(value: object) -> str:
