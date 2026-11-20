@@ -17,7 +17,10 @@ _TR_MAP = str.maketrans(
     }
 )
 
-NUMARA_RE = re.compile(r"^[A-Za-z0-9]{1,20}$")
+# A student number is exactly this many digits, nothing else.
+NUMARA_DIGITS = 10
+NUMARA_RE = re.compile(rf"^[0-9]{{{NUMARA_DIGITS}}}$")
+NUMARA_RULE = f"Öğrenci numarası {NUMARA_DIGITS} haneli olmalı ve yalnızca rakamlardan oluşmalı."
 
 
 def ascii_fold(text: str) -> str:

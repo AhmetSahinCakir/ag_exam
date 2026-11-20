@@ -34,6 +34,8 @@
         <button id="fit" type="button" class="toggle" aria-pressed="true"
                 title="Bütün ekranlar kaydırmadan görünecek şekilde boyutlandırılır">Sığdır</button>
       </div>
+      <button id="btnRecordStart" type="button" hidden
+              title="Sınav kayıtsız başlatıldı; ekran kaydını şimdi başlatır">Kaydı başlat</button>
       <button id="btnEnd" type="button" class="danger" hidden>Sınavı bitir</button>
       <button id="btnOpenFolderTop" type="button" hidden>Sınav klasörünü aç</button>
       <button id="btnResetTop" type="button" class="primary" hidden>Yeni sınav</button>
@@ -107,6 +109,9 @@
       </div>
     </section>
 
+    <!-- Fareyle sürüklenerek öğrenci listesinin genişliği değiştirilir. -->
+    <div id="sideResize" role="separator" aria-orientation="vertical" aria-label="Liste genişliği"
+         title="Sürükleyerek listenin genişliğini değiştirin; çift tıklayınca eski hâline döner"></div>
     <aside id="side">
       <!-- Liste daraltıldığında görünen ince şerit: sayılar ve "aç" düğmesi -->
       <button id="sideRail" type="button" title="Öğrenci listesini aç" aria-label="Öğrenci listesini aç">
@@ -150,7 +155,7 @@
             <h2 id="modalTitle"></h2>
             <div id="modalStatus" class="modal-status"></div>
           </div>
-          <button id="modalClose" type="button" class="icon" aria-label="Kapat">✕</button>
+          <button id="modalClose" type="button" class="close" aria-label="Kapat" title="Kapat (Esc)">✕</button>
         </div>
         <div class="modal-section-title">
           <span>Uyarılar</span>
@@ -272,6 +277,48 @@
     </form>
   </div>
 
+  <!-- Öğrenci listesi: dosyanın nasıl olması gerektiği ve dosya seçme -->
+  <div id="rosterDialog" class="modal" hidden>
+    <div class="dialog roster" role="dialog" aria-modal="true" aria-labelledby="rosterTitle">
+      <h2 id="rosterTitle">Öğrenci listesi</h2>
+      <p class="dialog-note">Excel (<b>.xlsx</b>) ya da <b>.csv</b> dosyası. İlk satır başlık olmalı; şu üç sütun yeterlidir:</p>
+      <table class="sample">
+        <thead><tr><th>Numara</th><th>Ad</th><th>Soyad</th></tr></thead>
+        <tbody>
+          <tr><td>2021000001</td><td>Ali</td><td>Veli</td></tr>
+          <tr><td>2021000002</td><td>Ayşe</td><td>Yılmaz</td></tr>
+        </tbody>
+      </table>
+      <ul class="plain-list">
+        <li>Numara <b>10 haneli</b> olmalı ve yalnızca rakamlardan oluşmalıdır.</li>
+        <li>Sütunların sırası önemli değildir; başka sütunlar varsa dikkate alınmaz.</li>
+        <li>Ad ve soyad tek sütunda (<b>Ad Soyad</b>) da olabilir.</li>
+        <li>Dosyada birden çok sayfa varsa ilk sayfa okunur.</li>
+      </ul>
+      <p id="rosterCurrent" class="field-hint"></p>
+      <div class="dialog-actions">
+        <a class="button link small" href="/panel/api/roster/template.xlsx" download>Örnek dosyayı indir</a>
+        <span class="spacer"></span>
+        <button id="rosterCancel" type="button">Vazgeç</button>
+        <button id="rosterChoose" type="button" class="primary">Dosya seç</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kaydı sınav sürerken başlat -->
+  <div id="recordDialog" class="modal" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="recordTitle">
+      <h2 id="recordTitle">Ekran kaydını başlat</h2>
+      <p class="dialog-note">Sınav kayıtsız başlatıldı. Kaydı şimdi başlatırsanız <b>bu andan itibaren</b> öğrenci ekranları
+        sınav klasöründeki “Kayıtlar”a kaydedilir; şu ana kadarki süre kaydedilmemiştir.</p>
+      <p class="field-hint">Öğrenciler kaydın başladığını göremez. Kayıt, sınav bitene kadar sürer.</p>
+      <div class="dialog-actions">
+        <button id="recordCancel" type="button">Vazgeç</button>
+        <button id="recordGo" type="button" class="primary">Kaydı başlat</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Öğrenci ekle -->
   <div id="studentDialog" class="modal" hidden>
     <form id="studentForm" class="dialog" role="dialog" aria-modal="true" aria-labelledby="studentTitle">
@@ -279,7 +326,8 @@
       <p class="dialog-note">Öğrenciyi listeye elle ekleyin. Sınavdan önce, sınav sürerken ya da sonra eklenebilir;
         giriş yapana kadar “Giriş yapmadı” görünür.</p>
       <label for="studentNumara">Numara</label>
-      <input id="studentNumara" type="text" maxlength="20" required autocomplete="off" spellcheck="false">
+      <input id="studentNumara" type="text" maxlength="10" required autocomplete="off" spellcheck="false"
+             inputmode="numeric" placeholder="10 haneli">
       <label for="studentAd">Ad</label>
       <input id="studentAd" type="text" maxlength="60" required autocomplete="off">
       <label for="studentSoyad">Soyad</label>
@@ -315,12 +363,15 @@
           <h3>Ekran görüntüsü</h3>
           <div class="choice-col">
             <label class="choice"><input type="radio" name="settingsQuality" value="low"> Düşük
-              <span class="soft">— yavaş ya da kalabalık ağlar için</span></label>
-            <label class="choice"><input type="radio" name="settingsQuality" value="normal"> Normal</label>
+              <span class="soft">— 540p, saniyede 3 kare · yavaş ya da kalabalık ağlar için</span></label>
+            <label class="choice"><input type="radio" name="settingsQuality" value="normal"> Normal
+              <span class="soft">— 720p, saniyede 5 kare</span></label>
             <label class="choice"><input type="radio" name="settingsQuality" value="high"> Yüksek
-              <span class="soft">— az öğrenci ya da güçlü ağ için</span></label>
+              <span class="soft">— 900p, saniyede 6 kare · az öğrenci ya da güçlü ağ için</span></label>
           </div>
-          <p class="field-hint">Değişiklik, öğrencinin bir sonraki girişinde geçerli olur.</p>
+          <p class="field-hint">Değişiklik, öğrencinin bir sonraki girişinde geçerli olur. Kayıt açıkken bir
+            öğrencinin bir saatlik kaydı yaklaşık: Düşük 135 MB, Normal 230 MB, Yüksek 410 MB
+            (35 öğrenci, 100 dakika: yaklaşık 8 GB, 13,5 GB, 24 GB).</p>
         </section>
 
         <section>

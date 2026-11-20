@@ -20,7 +20,7 @@ from .config import Config, ConfigError, reload_policy
 from .discovery import DiscoveryResponder, lan_ips
 from .folderdialog import DialogUnavailable, open_folder, open_panel_window, pick_folder
 from .mediamtx import fetch_streams, kick_publishers, remove_path, set_path_record_path, set_recording
-from .roster import RosterError, parse_roster
+from .roster import RosterError, parse_roster, template_xlsx
 from .store import MAX_UPLOAD_BYTES, RUNNING, WAITING, ApiError, Store, Student
 
 log = logging.getLogger("sinav")
@@ -90,6 +90,8 @@ def create_app(cfg: Config) -> FastAPI:
                     # A student counts as "teslim etti" only while the file is really in the folder.
                     store.check_submission_folder()
                     store.save_if_dirty()
+                if count % 4 == 0:
+                    store.flush_student_logs()
                 if count % 3 == 0:
                     try:
                         read_before, version_before = cfg.mtime, cfg.policy.version
@@ -180,7 +182,7 @@ def create_app(cfg: Config) -> FastAPI:
             store.end_exam()
         store.add_event("", "system_shutdown", "info", "Sistem kapatıldı")
         store.write_events_csv()
-        store.write_all_student_alerts()
+        store.write_all_student_logs()
         app.state.exit_code = EXIT_CLOSED_BY_TEACHER
         stop = getattr(app.state, "stop_server", None)
         if stop is not None:
@@ -499,6 +501,15 @@ def create_app(cfg: Config) -> FastAPI:
             raise ApiError(400, str(exc)) from exc
         return {"count": store.set_roster(entries, filename)}
 
+    @app.get("/panel/api/roster/template.xlsx", dependencies=[Depends(local_only)])
+    async def panel_roster_template() -> Response:
+        """An example list file (shown in the "Öğrenci listesi" window)."""
+        return Response(
+            content=template_xlsx(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="ogrenci-listesi-ornek.xlsx"'},
+        )
+
     @app.post("/panel/api/roster/add", dependencies=[Depends(local_only)])
     async def panel_roster_add(request: Request) -> dict[str, Any]:
         """“Öğrenci ekle”: one student, typed in the panel (any time, also during the exam)."""
@@ -526,6 +537,12 @@ def create_app(cfg: Config) -> FastAPI:
     async def panel_cancel_start() -> dict[str, Any]:
         store.cancel_schedule()
         return {"state": store.state}
+
+    @app.post("/panel/api/record/start", dependencies=[Depends(local_only)])
+    async def panel_record_start() -> dict[str, Any]:
+        """“Kaydı başlat”: the exam runs without recording; record the screens from now on."""
+        store.start_recording()
+        return {"record": True}
 
     @app.post("/panel/api/extend", dependencies=[Depends(local_only)])
     async def panel_extend(request: Request) -> dict[str, Any]:

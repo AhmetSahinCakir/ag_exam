@@ -22,7 +22,7 @@ aktarır, sınav dosyasını indirmenizi ve sonunda dosyanızı teslim etmenizi 
 2. Masaüstündeki **Sınav Ajanı** simgesine çift tıklayın ve izin sorusuna **Evet** deyin.
 3. Ekranda **sınıfınızın adı** görünür. Doğruysa **Doğru**'ya basın. Yanlışsa başka bir Wi-Fi
    ağına bağlısınız: **Yanlış**'a basın, doğru ağa bağlanıp **Tekrar ara** deyin.
-4. **Numaranızı, adınızı ve soyadınızı** yazıp **Giriş yap**'a basın.
+4. **Öğrenci numaranızı (10 haneli), adınızı ve soyadınızı** yazıp **Giriş yap**'a basın.
 5. **“Sınavın başlamasını bekleyin”** ekranı gelir. Beklerken:
    - **Packet Tracer'ı açın, giriş yapın ve açık bırakın.**
    - Başka programlardaki işlerinizi kaydedip kapatın.
@@ -96,6 +96,9 @@ Packet Tracer'ı kapatmayın.
 **İndirdiğim dosyayı bulamıyorum.**
 Panelde dosyanın adı yazar. Bulamazsanız **Sınav dosyasını yeniden indir**'e basın; yeni
 inen dosya boştur, önceki çalışmanızı içermez.
+
+**“Öğrenci numarası 10 haneli olmalı.”**
+Numaranızı eksik ya da fazla yazdınız. Yalnızca rakamlarla, 10 hane olarak yazın.
 
 **“Bu numarayla başka bir bilgisayarda açık bir oturum var.”**
 Numaranızı yanlış yazmış olabilirsiniz.

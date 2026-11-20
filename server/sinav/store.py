@@ -23,7 +23,7 @@ from typing import Any
 
 from . import usersettings
 from .config import Config
-from .naming import NUMARA_RE, camel_name, name_key, natural_key, normalise_mac, submission_basename
+from .naming import NUMARA_RE, NUMARA_RULE, camel_name, name_key, natural_key, normalise_mac, submission_basename
 from .roster import RosterEntry
 
 log = logging.getLogger("sinav")
@@ -55,6 +55,12 @@ SIZE_RATIO_MAX = 5
 INFO = "info"
 WARNING = "warning"
 CRITICAL = "critical"
+
+# Events of the exam itself that are also written into every student's own log file.
+EXAM_LOG_KINDS = {"exam_started", "exam_extended", "exam_ended", "time_up", "recording_started", "system_shutdown"}
+ROSTER_TEXT = {"no_roster": "Liste yüklü değil", "ok": "Listede", "name_mismatch": "Listede, ad uyuşmuyor",
+               "not_in_list": "Listede yok"}
+LOG_KIND_TEXT = {INFO: "bilgi", WARNING: "UYARI", CRITICAL: "KRİTİK"}
 
 
 class ApiError(Exception):
@@ -265,6 +271,15 @@ class Store:
         self.recording_applied: str | None = None  # record path last sent to MediaMTX
         # numara -> recordPath last sent to MediaMTX for that student's own folder
         self.record_paths_applied: dict[str, str] = {}
+        # The file each student has in "Uyarılar". New entries wait in _log_pending and are added
+        # at the end of the file every few seconds; _log_written is what the file held when it was
+        # last written from the top (path, the "ÖĞRENCİ" block, number of warnings). A file that
+        # could not be written is in _logs_dirty (written from the top at the next try) and in
+        # _log_failed (so that the problem is reported once).
+        self._logs_dirty: set[str] = set()
+        self._log_pending: dict[str, list[Event]] = {}
+        self._log_written: dict[str, tuple[Path, list[tuple[str, Any]], int]] = {}
+        self._log_failed: set[str] = set()
         self.folder_error = ""
         self.closing = False  # agents are being told that the exam is closed
         self.panel_clients = 0  # panel windows that are open right now
@@ -513,42 +528,128 @@ class Store:
                 handle.write(json.dumps(event.to_json(), ensure_ascii=False) + "\n")
         except OSError as exc:
             log.error("Olay kaydı yazılamadı: %s", exc)
-        if st is not None and alert and severity != INFO:
-            self.write_student_alerts(numara)
+        if st is not None:
+            if alert and severity != INFO:
+                self.write_student_log(numara)   # a warning is in the file at once
+            else:
+                self._log_pending.setdefault(numara, []).append(event)  # the rest within a few seconds
+        elif kind in EXAM_LOG_KINDS:
+            for everybody in self.students:      # start, extra time, end: in everybody's file
+                self._log_pending.setdefault(everybody, []).append(event)
         self.changed()
         return event
 
-    # ----------------------------------------------- warnings, one file per student
+    # ------------------------------------------------------- one log file per student
 
-    def write_student_alerts(self, numara: str) -> None:
-        """(Re)write "Uyarılar/<numara>_<AdSoyad>.csv" with every warning of that student."""
+    def _student_log_info(self, st: Student, warnings: int) -> list[tuple[str, Any]]:
+        """The "ÖĞRENCİ" block at the top of the student's file."""
+        typed = f"{st.typed_ad} {st.typed_soyad}".strip()
+        last = st.submissions[-1] if st.submissions else None
+        if last is None:
+            submitted = "Teslim etmedi"
+        else:
+            submitted = f"{last.filename} — {_fmt_time(last.ts)}" + (" (geç teslim)" if last.late else "")
+            if not st.file_present:
+                submitted += " — dosya Teslimler klasöründe yok"
+        return [
+            ("Numara", st.numara),
+            ("Ad soyad", st.full_name),
+            ("Girişte yazılan ad soyad", typed or st.full_name),
+            ("Öğrenci listesi", ROSTER_TEXT.get(st.roster, st.roster)),
+            ("Bilgisayar adı", st.hostname),
+            ("IP adresi", st.ip),
+            ("MAC adresi", st.mac),
+            ("Program sürümü", st.agent_version),
+            ("İlk giriş", _fmt_time(st.login_ts) if st.login_ts else ""),
+            ("Giriş sayısı", st.login_count),
+            ("Teslim", submitted),
+            ("Uyarı sayısı", warnings),
+            ("Sınıf", self.cfg.sinif_adi),
+        ]
+
+    @staticmethod
+    def _student_log_row(e: Event) -> list[str]:
+        # "sınav": what applied to everybody (start, extra time, end).
+        kind = "sınav" if not e.numara else (LOG_KIND_TEXT[e.severity] if e.alert else "bilgi")
+        return [_fmt_time(e.ts), kind, e.message]
+
+    def write_student_log(self, numara: str) -> None:
+        """Write "Uyarılar/<numara>_<AdSoyad>.csv" from the top: who the student is, then
+        everything that was recorded about them — warnings and ordinary entries alike."""
+        self._logs_dirty.discard(numara)
+        self._log_pending.pop(numara, None)
         folder = self.dir_alerts
         st = self.students.get(numara)
         if folder is None or st is None:
             return
-        rows = [e for e in self.events if e.numara == numara and e.alert and e.severity != INFO]
-        name = f"{submission_basename(st.numara, st.ad, st.soyad)}.csv"
+        rows = [e for e in self.events if e.numara == numara or (not e.numara and e.type in EXAM_LOG_KINDS)]
+        warnings = sum(1 for e in rows if e.numara and e.alert and e.severity != INFO)
+        info = self._student_log_info(st, warnings)
+        path = folder / f"{submission_basename(st.numara, st.ad, st.soyad)}.csv"
         try:
             folder.mkdir(parents=True, exist_ok=True)
             for old in folder.glob(f"{numara}_*.csv"):
-                if old.name != name:
+                if old.name != path.name:
                     old.unlink()  # the student's name changed (list uploaded later)
-            if not rows:
-                return
             buffer = io.StringIO()
             writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
-            writer.writerow(["zaman", "numara", "ad_soyad", "onem", "uyari"])
+            writer.writerow(["ÖĞRENCİ"])
+            for label, value in info:
+                writer.writerow([label, value])
+            writer.writerow([])
+            writer.writerow(["KAYITLAR"])
+            writer.writerow(["Zaman", "Tür", "Kayıt"])
             for e in rows:
-                writer.writerow([_fmt_time(e.ts), st.numara, st.full_name,
-                                 "kritik" if e.severity == CRITICAL else "uyarı", e.message])
+                writer.writerow(self._student_log_row(e))
             # BOM so that Excel opens Turkish characters correctly.
-            (folder / name).write_bytes(("\ufeff" + buffer.getvalue()).encode("utf-8"))
+            path.write_bytes(("\ufeff" + buffer.getvalue()).encode("utf-8"))
         except OSError as exc:
-            log.error("Uyarı dosyası yazılamadı (%s): %s", name, exc)
+            self._student_log_failed(numara, path, exc)
+            return
+        self._log_written[numara] = (path, info, warnings)
+        self._log_failed.discard(numara)
 
-    def write_all_student_alerts(self) -> None:
+    def _student_log_failed(self, numara: str, path: Path, exc: OSError) -> None:
+        """The file could not be written (for example it is open in Excel): it is written from
+        the top at the next try, a few seconds later. Reported once, not every time."""
+        self._log_written.pop(numara, None)
+        self._logs_dirty.add(numara)
+        if numara not in self._log_failed:
+            self._log_failed.add(numara)
+            log.error("Öğrenci kayıt dosyası yazılamadı (%s): %s — yeniden denenecek", path.name, exc)
+
+    def _update_student_log(self, numara: str) -> None:
+        """Put the new entries into the student's file: at its end when nothing at its top
+        changed (the usual case), otherwise by writing the file again."""
+        pending = self._log_pending.get(numara) or []
+        st = self.students.get(numara)
+        written = self._log_written.get(numara)
+        folder = self.dir_alerts
+        if pending and st is not None and written is not None and folder is not None and numara not in self._logs_dirty:
+            path, info, warnings = written
+            same_file = path == folder / f"{submission_basename(st.numara, st.ad, st.soyad)}.csv"
+            if same_file and info == self._student_log_info(st, warnings) and path.is_file():
+                try:
+                    with path.open("a", encoding="utf-8", newline="") as handle:
+                        writer = csv.writer(handle, delimiter=";", lineterminator="\r\n")
+                        for e in pending:
+                            writer.writerow(self._student_log_row(e))
+                except OSError as exc:
+                    self._log_pending.pop(numara, None)
+                    self._student_log_failed(numara, path, exc)
+                    return
+                self._log_pending.pop(numara, None)
+                return
+        self.write_student_log(numara)
+
+    def write_all_student_logs(self) -> None:
         for numara in list(self.students):
-            self.write_student_alerts(numara)
+            self.write_student_log(numara)
+
+    def flush_student_logs(self) -> None:
+        """Bring the files of students with new entries up to date (called every few seconds)."""
+        for numara in list(self._log_pending.keys() | self._logs_dirty):
+            self._update_student_log(numara)
 
     def events_for(self, numara: str) -> list[dict[str, Any]]:
         return [e.to_json() for e in self.events if e.numara == numara]
@@ -694,7 +795,7 @@ class Store:
         # Whatever is already in "Teslimler" is not a submission of this exam.
         self.ignored_files = {item.name for item in self.dir_submissions.iterdir() if item.is_file()}
         self.add_event("", "exam_dir_selected", INFO, f"Sınav klasörü seçildi: {self.exam_dir}")
-        self.write_all_student_alerts()  # warnings from before the folder was chosen
+        self.write_all_student_logs()  # warnings from before the folder was chosen
         return self.exam_dir
 
     def set_exam_file(self, filename: str, data: bytes) -> dict[str, Any]:
@@ -724,7 +825,7 @@ class Store:
         # Re-check everyone who is already logged in.
         for st in self.students.values():
             self._apply_roster(st, st.typed_ad or st.ad, st.typed_soyad or st.soyad)
-        self.write_all_student_alerts()  # the file names follow the names in the list
+        self.write_all_student_logs()  # the file names follow the names in the list
         self.changed()
         return len(entries)
 
@@ -734,7 +835,7 @@ class Store:
         ad = _clean(ad, 60)
         soyad = _clean(soyad, 60)
         if not NUMARA_RE.match(numara):
-            raise ApiError(422, "Öğrenci numarası yalnızca harf ve rakam içerebilir (en fazla 20 karakter).")
+            raise ApiError(422, NUMARA_RULE)
         if not ad or not soyad:
             raise ApiError(422, "Ad ve soyad boş bırakılamaz.")
         existing = self.roster.get(numara)
@@ -746,7 +847,7 @@ class Store:
         self.add_event(numara if st else "", "roster_added", INFO, f"Öğrenci listeye elle eklendi: {numara} {ad} {soyad}")
         if st is not None:  # already logged in: the name on the list is the one that is shown
             self._apply_roster(st, st.typed_ad or st.ad, st.typed_soyad or st.soyad)
-            self.write_all_student_alerts()
+            self.write_all_student_logs()
         self.changed()
         return entry
 
@@ -855,6 +956,15 @@ class Store:
                        "saatinde doluyor")
         return self.ends_at
 
+    def start_recording(self) -> None:
+        """“Kaydı başlat”: the exam was started without recording; record from now on."""
+        if self.state == WAITING:
+            raise ApiError(409, "Sınav başlamadı. Kaydı, sınavı başlatırken “Ekranları kaydet” ile açın.")
+        if self.record_enabled:
+            raise ApiError(409, "Ekran kaydı zaten açık.")
+        self.record_enabled = True
+        self.add_event("", "recording_started", INFO, "Ekran kaydı sınav sürerken başlatıldı")
+
     def end_exam(self) -> None:
         if self.state != RUNNING:
             raise ApiError(409, "Devam eden bir sınav yok.")
@@ -862,6 +972,7 @@ class Store:
         self.ended_at = time.time()
         self.add_event("", "exam_ended", INFO, "Sınav bitirildi")
         self.write_events_csv()
+        self.write_all_student_logs()
 
     def check_clock(self) -> None:
         """Planned start and time limit; called once per second."""
@@ -891,7 +1002,8 @@ class Store:
         """Forget the finished exam and return to WAITING. Nothing in the exam folder is touched."""
         if self.state == RUNNING:
             raise ApiError(409, "Sınav sürerken sıfırlanamaz. Önce sınavı bitirin.")
-        self.write_events_csv()  # includes what happened after the exam ended (automatic submissions)
+        self.write_events_csv()  # includes what happened after the exam ended (late submissions)
+        self.write_all_student_logs()
         if self.events_path.exists():
             # The raw log is never deleted: it moves next to the server data.
             archive = self.cfg.dir_data / "arsiv"
@@ -948,7 +1060,7 @@ class Store:
         ad = _clean(body.get("ad"), 60)
         soyad = _clean(body.get("soyad"), 60)
         if not NUMARA_RE.match(numara):
-            raise ApiError(422, "Öğrenci numarası yalnızca harf ve rakam içerebilir (en fazla 20 karakter).")
+            raise ApiError(422, NUMARA_RULE)
         if not ad or not soyad:
             raise ApiError(422, "Ad ve soyad boş bırakılamaz.")
         hostname = _clean(body.get("hostname"), 64)

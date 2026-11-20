@@ -53,11 +53,12 @@ Panelin üstündeki üç adımı sırayla yapın:
 
 1. **Sınav klasörü → Klasör seç.** Bu sınavın dosyalarının duracağı klasörü seçin. İçinde üç
    klasör açılır: **Kayıtlar** (ekran kayıtları), **Teslimler** (teslim edilen dosyalar),
-   **Uyarılar** (her öğrencinin uyarıları). Her sınav için ayrı bir klasör seçin.
+   **Uyarılar** (her öğrencinin kayıt dosyası). Her sınav için ayrı bir klasör seçin.
 2. **Sınav dosyası → Dosya seç.** Öğrencilere verilecek `.pka` dosyası.
-3. **Öğrenci listesi → Dosya seç.** İsteğe bağlıdır (aşağıya bakın). Listeyi yüklediğiniz anda
-   bütün öğrenciler siyah ekranlı kutular olarak ve sağdaki listede “Giriş yapmadı” diye
-   görünür.
+3. **Öğrenci listesi → Dosya seç.** İsteğe bağlıdır. Açılan pencere dosyanın nasıl olması
+   gerektiğini gösterir (aşağıya bakın); oradaki **Dosya seç** ile listeyi yükleyin. Listeyi
+   yüklediğiniz anda bütün öğrenciler siyah ekranlı kutular olarak ve sağdaki listede
+   “Giriş yapmadı” diye görünür.
 
 ### 3. Öğrenciler giriş yapar
 
@@ -75,6 +76,9 @@ hiçbir program kapatılmaz; öğrenciler Packet Tracer'ı açıp hesaplarına g
   sınav kendiliğinden bitmez;** panelde “süre aşıldı” yazar ve sınavı siz bitirirsiniz.
 - **Ekranları kaydet:** işaretliyse ekranlar *Kayıtlar* klasörüne kaydedilir. İşaretli
   değilse ekranları yalnızca canlı izlersiniz. Öğrenci bu seçimi göremez.
+
+Sınavı kayıtsız başlattıysanız, sınav sürerken üstte **Kaydı başlat** düğmesi görünür. Basıp
+onaylayınca ekranlar **o andan itibaren** kaydedilir; öncesi kaydedilmemiştir.
 
 Sınav başlayınca öğrencilerde kısa bir geri sayımdan sonra izin verilmeyen programlar
 kapanır ve öğrencinin panelinde **Sınav dosyasını indir** düğmesi çıkar. Hiçbir şey
@@ -94,6 +98,8 @@ kendiliğinden açılmaz ya da inmez; dosyayı öğrenci istediği yere kendisi 
   uyarı çıkar.
 - **Ekran boyutu:** üst satırdaki **− / +** ile ekranları büyütüp küçültün; **Sığdır**
   hepsini ekrana sığdırır.
+- **Listenin genişliği:** listenin sol kenarını fareyle tutup sürükleyin; kenara çift
+  tıklayınca ilk genişliğine döner.
 - **Listeyi daraltmak:** “Öğrenciler” başlığının yanındaki oka basın; listeyi geri açmak için
   sağdaki şeride tıklayın.
 - Teslim edenlerin ekranı kendiliğinden en alta gider.
@@ -108,7 +114,7 @@ kendiliğinden açılmaz ya da inmez; dosyayı öğrenci istediği yere kendisi 
 - Öğrenci indirdiği sınav dosyasını hiç değiştirmeden ya da eski bir dosyayı teslim etmeye
   çalışırsa önce kendisi uyarılır; yine de teslim ederse size uyarı düşer.
 - Elden aldığınız bir dosyayı *Teslimler* klasörüne kendiniz koyabilirsiniz. Dosyanın adı
-  öğrencinin numarasıyla başlamalıdır (ör. `2021001_ali.pka`); öğrenci “Teslim etti” olur.
+  öğrencinin numarasıyla başlamalıdır (ör. `2021000001_ali.pka`); öğrenci “Teslim etti” olur.
 - Sistem dosyanın içini değerlendiremez; çözümü görmek için dosyayı Packet Tracer'da açın.
 
 ### 7. Sınavı bitirin
@@ -139,16 +145,39 @@ Her şey seçtiğiniz sınav klasöründedir (**Sınav klasörünü aç** düğm
 | Klasör / dosya | İçinde ne var |
 |---|---|
 | **Teslimler** | Teslim edilen dosyalar: `numara_AdSoyad.pka`. `index.csv` dosyası kimin ne zaman teslim ettiğini ve geç teslimleri listeler. |
-| **Kayıtlar** | Her öğrencinin ekran kaydı, numarası ve adıyla adlandırılmış klasörlerde (ör. `2021001_AliVeli`). Video oynatıcıyla (ör. VLC) açılır. |
-| **Uyarılar** | Uyarı alan her öğrenci için bir dosya; Excel'de açılır. |
+| **Kayıtlar** | Her öğrencinin ekran kaydı, numarası ve adıyla adlandırılmış klasörlerde (ör. `2021000001_AliVeli`). Video oynatıcıyla (ör. VLC) açılır. |
+| **Uyarılar** | Her öğrenci için bir dosya (ör. `2021000001_AliVeli.csv`); Excel'de açılır. En üstte öğrencinin bilgileri (numara, ad soyad, bilgisayar adı, IP ve MAC adresi, teslim durumu), altında o öğrencinin **bütün kayıtları** vardır: uyarılar ve giriş, pencere geçişi gibi öteki kayıtlar. |
 | `olay-kaydi.csv` | Sınav boyunca olan her şeyin saatli dökümü; Excel'de açılır. |
 
-Ekran kayıtları yer kaplar (öğrenci başına saatte yaklaşık 225 MB) ve kendiliğinden
-silinmez; saklama süresi dolunca *Kayıtlar* klasörünü siz silin.
+Ekran kayıtları yer kaplar ve kendiliğinden silinmez; saklama süresi dolunca *Kayıtlar*
+klasörünü siz silin. Kayıt, ekranda ne olduğuna bakmadan hep aynı hızda yer tutar:
+
+| Ekran görüntüsü (Ayarlar) | Bir öğrenci, bir saat | 35 öğrenci, 100 dakika |
+|---|---|---|
+| Düşük (540p) | yaklaşık 135 MB | yaklaşık 8 GB |
+| Normal (720p) | yaklaşık 230 MB | yaklaşık 13,5 GB |
+| Yüksek (900p) | yaklaşık 410 MB | yaklaşık 24 GB |
+
+Sınavdan önce sınav klasörünün bulunduğu diskte bu kadar boş yer olduğuna bakın. Öteki
+dosyalar (*Uyarılar*, *Teslimler*, `olay-kaydi.csv`) birkaç MB'ı geçmez.
 
 ## Öğrenci listesi (isteğe bağlı)
 
-Sütunları **numara, ad, soyad** olan bir Excel dosyası. Liste yüklüyse:
+Excel (`.xlsx`) ya da `.csv` dosyası. İlk satır başlık olmalı; şu üç sütun yeterlidir:
+
+| Numara | Ad | Soyad |
+|---|---|---|
+| 2021000001 | Ali | Veli |
+| 2021000002 | Ayşe | Yılmaz |
+
+- **Numara 10 haneli** olmalı ve yalnızca rakamlardan oluşmalıdır. Uymayan satır varsa liste
+  yüklenmez; hangi satırların uymadığı yazılır.
+- Sütunların sırası önemli değildir; başka sütunlar (sıra no, bölüm…) varsa dikkate alınmaz.
+- Ad ve soyad tek sütunda (**Ad Soyad**) da olabilir.
+- Dosyada birden çok sayfa varsa ilk sayfa okunur.
+- Liste penceresindeki **Örnek dosyayı indir** ile boş bir örnek alıp doldurabilirsiniz.
+
+Liste yüklüyse:
 
 - Listede olmayan bir numarayla ya da farklı bir adla giriş yapılırsa uyarı çıkar (giriş yine
   kabul edilir).
@@ -169,8 +198,9 @@ Panelde **Diğer → Ayarlar**:
 - **İzin verilen programlar:** Sınavda Packet Tracer dışında bir programa da izin vermek
   için adını ekleyin (ör. `putty.exe`) ya da **Bilgisayardan seç** ile programı gösterin.
   Sınav sürerken de eklenebilir; hemen geçerli olur.
-- **Ekran görüntüsü:** Görüntüler takılıyorsa **Düşük**'ü seçin. Değişiklik, öğrencinin bir
-  sonraki girişinde geçerli olur.
+- **Ekran görüntüsü:** **Düşük** (540p), **Normal** (720p) ya da **Yüksek** (900p).
+  Görüntüler takılıyorsa **Düşük**'ü seçin. Kalite arttıkça kayıtlar daha çok yer tutar
+  (aşağıdaki tabloya bakın). Değişiklik, öğrencinin bir sonraki girişinde geçerli olur.
 - **Uyarılar ve süreler:** Başka pencereye geçince kaç saniye sonra uyarı verileceği,
   sınav başlayınca programların kaç saniye sonra kapatılacağı gibi süreler.
 - **Öğrenciye gösterilen bilgilendirme:** Öğrencinin giriş yapmadan önce gördüğü yazı.

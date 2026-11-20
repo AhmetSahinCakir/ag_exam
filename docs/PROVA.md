@@ -18,6 +18,7 @@ bölümüne bakın.
 ## Giriş
 
 - [ ] Öğrenci bilgisayarları modeme bağlanıp programı açınca sınıf adınızı görüyor.
+- [ ] Öğrenci numarasını eksik yazınca (10 haneden az) giriş yapılamıyor.
 - [ ] Giriş yapan her öğrencinin ekranı birkaç saniye içinde panelde görünüyor.
 - [ ] Öğrenciler Packet Tracer'ı açıp hesaplarına giriş yapabiliyor.
 
@@ -25,6 +26,8 @@ bölümüne bakın.
 
 - [ ] **Sınavı başlat** → kısa bir süre (ör. 15 dakika) yazıp başlatın. Öğrencide geri sayım
       görünüyor.
+- [ ] “Ekranları kaydet”i işaretlemeden başlattıysanız üstte **Kaydı başlat** görünüyor;
+      basınca kayıt o andan itibaren başlıyor.
 - [ ] Öğrenci **Sınav dosyasını indir** ile dosyayı indirip **Packet Tracer'da açabiliyor.**
 - [ ] Öğrenci Packet Tracer'da çalışırken (cihaz ekleme, komut penceresi açma) uyarı
       **çıkmıyor.**
@@ -49,9 +52,9 @@ bölümüne bakın.
 
 ## Kapanış
 
-- [ ] **Sınav klasörünü aç** ile klasöre bakın: *Teslimler*'de dosyalar, *Uyarılar*'da uyarı
-      alan öğrencilerin dosyaları var. “Ekranları kaydet” işaretliyse *Kayıtlar*'daki
-      videolar oynuyor.
+- [ ] **Sınav klasörünü aç** ile klasöre bakın: *Teslimler*'de dosyalar, *Uyarılar*'da her
+      öğrencinin kayıt dosyası (başında bilgileri, altında bütün kayıtları) var. Ekranlar
+      kaydedildiyse *Kayıtlar*'daki videolar oynuyor.
 - [ ] Panel penceresini kapatın: sistem kendiliğinden kapanıyor.
 - [ ] Öğrenci bilgisayarında program kapandıktan sonra çalışan bir şey kalmıyor.
 

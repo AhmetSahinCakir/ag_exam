@@ -38,6 +38,7 @@ internal static class Program
         FfmpegProviderTests();
         DiscoveryParseTests();
         SubmissionRuleTests();
+        StudentNumberTests();
 
         string? server = null;
         var discover = false;
@@ -379,12 +380,26 @@ internal static class Program
         }
     }
 
+    private static void StudentNumberTests()
+    {
+        Console.WriteLine("öğrenci numarası");
+        Check(StudentNumber.IsValid("2021000001"), "10 rakam geçerli");
+        Check(StudentNumber.IsValid("0000000000"), "sıfırla başlayan 10 rakam geçerli");
+        Check(!StudentNumber.IsValid("202100001"), "9 hane geçersiz");
+        Check(!StudentNumber.IsValid("20210000011"), "11 hane geçersiz");
+        Check(!StudentNumber.IsValid("20210000A1"), "harf içeren geçersiz");
+        Check(!StudentNumber.IsValid("2021 00001"), "boşluk içeren geçersiz");
+        Check(!StudentNumber.IsValid("٢٠٢١٠٠٠٠٠١"), "başka yazının rakamları geçersiz");
+        Check(!StudentNumber.IsValid("") && !StudentNumber.IsValid(null), "boş geçersiz");
+        Check(StudentNumber.Rule.Contains("10 haneli"), "kural öğrenciye açıkça söyleniyor");
+    }
+
     private static void FfmpegTests()
     {
         Console.WriteLine("ffmpeg komutu");
         var settings = StreamSettings.From(
             new StreamConfig { User = "yerel", Pass = "yerel", Fps = 5, Width = 1280, BitrateKbps = 500 },
-            new StreamDto { Url = "rtsp://192.168.1.10:8554/2021001", User = "sinavajan", Pass = "p@ss:1/2", Fps = 3 });
+            new StreamDto { Url = "rtsp://192.168.1.10:8554/2021000001", User = "sinavajan", Pass = "p@ss:1/2", Fps = 3 });
         Equal("sinavajan", settings.User, "sunucunun kullanıcısı öncelikli");
         Equal(3, settings.Fps, "sunucunun fps değeri öncelikli");
         Equal(1280, settings.Width, "genişlik agent.json'dan");
@@ -393,7 +408,7 @@ internal static class Program
         Check(joined.Contains("-vf scale=1280:-2"), "ölçekleme");
         Check(joined.Contains("-c:v libx264 -preset ultrafast -tune zerolatency"), "kodlayıcı");
         Check(joined.Contains("-b:v 500k -maxrate 500k -bufsize 1000k -g 6 -pix_fmt yuv420p"), "bit hızı ve GOP");
-        Check(joined.EndsWith("-f rtsp -rtsp_transport tcp rtsp://sinavajan:p%40ss%3A1%2F2@192.168.1.10:8554/2021001"), "RTSP hedefi ve kodlanmış şifre");
+        Check(joined.EndsWith("-f rtsp -rtsp_transport tcp rtsp://sinavajan:p%40ss%3A1%2F2@192.168.1.10:8554/2021000001"), "RTSP hedefi ve kodlanmış şifre");
         Check(!FfmpegCommand.ForLog(FfmpegCommand.Build(settings), settings.Pass).Contains("p%40ss"), "günlükte şifre gizli");
         var fallback = StreamSettings.From(new StreamConfig(), new StreamDto { Url = "rtsp://h:8554/1" });
         Equal("sinavajan", fallback.User, "sunucu vermezse agent.json kullanıcısı");

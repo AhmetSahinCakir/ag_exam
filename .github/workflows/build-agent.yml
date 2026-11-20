@@ -60,7 +60,7 @@ jobs:
       - name: Kurulum dosyalarını üret (sistem + öğrenci)
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '1.0.2' }
+          $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '1.0.3' }
           ./installer/hazirla.ps1 -AgentExe publish/SinavAjan.exe -OutDir publish -Version $version
 
       # Zip'lenmeden yüklenir: indirilen dosya doğrudan çalıştırılabilir.

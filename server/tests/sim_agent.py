@@ -7,7 +7,7 @@ gerçek ajan gibi açık kalır; öğretmen sınavı kapatınca çıkar (otomati
 
 Örnek (öğretmen bilgisayarında, sunucu çalışırken):
     python server/tests/sim_agent.py --count 5 --stream
-    python server/tests/sim_agent.py --numara 2021001 --ad Ayşe --soyad Yılmaz --stream --submit
+    python server/tests/sim_agent.py --numara 2021000001 --ad Ayşe --soyad Yılmaz --stream --submit
 """
 
 from __future__ import annotations
@@ -246,7 +246,7 @@ def main() -> int:
     parser.add_argument("--hostname", default="")
     parser.add_argument("--mac", default="")
     parser.add_argument("--count", type=int, default=1, help="sahte öğrenci sayısı")
-    parser.add_argument("--first", type=int, default=20210001, help="ilk öğrenci numarası")
+    parser.add_argument("--first", type=int, default=2021000001, help="ilk öğrenci numarası")
     parser.add_argument("--stream", action="store_true", help="ffmpeg ile test görüntüsü yayınla")
     parser.add_argument("--label", action="store_true",
                         help="görüntüye numarayı yaz (ffmpeg'de drawtext/font desteği gerekir)")

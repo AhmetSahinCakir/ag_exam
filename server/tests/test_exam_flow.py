@@ -69,9 +69,9 @@ def test_api_requires_token(env: Env):
 
 
 def test_login_returns_everything_the_agent_needs(env: Env):
-    _, body = env.login(numara="2021001")
+    _, body = env.login(numara="2021000001")
     assert body["exam_state"] == WAITING
-    assert body["stream"]["url"] == "rtsp://192.168.1.10:8554/2021001"
+    assert body["stream"]["url"] == "rtsp://192.168.1.10:8554/2021000001"
     assert body["stream"]["user"] == "sinavajan" and body["stream"]["pass"]
     assert any("Cisco Packet Tracer" in p for p in body["allowlist"]["patterns"])
     assert "notepad.exe" in body["allowlist"]["windows_kill"]
@@ -79,7 +79,7 @@ def test_login_returns_everything_the_agent_needs(env: Env):
     assert body["settings"]["foreground_tolerance_s"] == 5
     assert body["settings"]["kill_countdown_s"] == 10
 
-    st = env.snapshot_student("2021001")
+    st = env.snapshot_student("2021000001")
     assert (st["ip"], st["hostname"], st["mac"]) == ("192.168.1.50", "PC-01", "AA:BB:CC:00:00:01")
     assert st["status"] == "ok"
 
@@ -90,17 +90,25 @@ def test_login_validation(env: Env):
         {"numara": "", "ad": "A", "soyad": "B"},
         {"numara": "12 34", "ad": "A", "soyad": "B"},
         {"numara": "../x", "ad": "A", "soyad": "B"},
-        {"numara": "1", "ad": "", "soyad": "B"},
+        {"numara": "202100001", "ad": "A", "soyad": "B"},      # 9 digits
+        {"numara": "20210000011", "ad": "A", "soyad": "B"},    # 11 digits
+        {"numara": "20210000A1", "ad": "A", "soyad": "B"},     # a letter in it
+        {"numara": "２０２１００００１１", "ad": "A", "soyad": "B"},  # digits of another script
+        {"numara": "2021000001", "ad": "", "soyad": "B"},
     ]
     for body in bad:
         response = client.post("/api/login", json=body)
         assert response.status_code == 422 and response.json()["error"], body
+    # The student is told what the number has to look like.
+    response = client.post("/api/login", json=bad[3])
+    assert response.json()["error"] == "Öğrenci numarası 10 haneli olmalı ve yalnızca rakamlardan oluşmalı."
+    assert not env.store.students
     assert client.post("/api/login", content=b"not json").status_code == 400
 
 
 def test_second_active_session_is_rejected_with_alert(env: Env):
-    env.login(numara="2021001", ip="192.168.1.50", mac="AA:BB:CC:00:00:01")
-    _, body = env.login(numara="2021001", ip="192.168.1.51", mac="AA:BB:CC:00:00:02", hostname="PC-02",
+    env.login(numara="2021000001", ip="192.168.1.50", mac="AA:BB:CC:00:00:01")
+    _, body = env.login(numara="2021000001", ip="192.168.1.51", mac="AA:BB:CC:00:00:02", hostname="PC-02",
                         expect=409)
     assert "başka bir bilgisayarda" in body["error"]
     alert = env.alerts("duplicate_login")
@@ -108,8 +116,8 @@ def test_second_active_session_is_rejected_with_alert(env: Env):
 
 
 def test_relogin_from_same_machine_replaces_the_session(env: Env):
-    first, _ = env.login(numara="2021001")
-    second, _ = env.login(numara="2021001")
+    first, _ = env.login(numara="2021000001")
+    second, _ = env.login(numara="2021000001")
     assert first.post("/api/heartbeat", json={}).status_code == 401  # old session dropped
     assert second.post("/api/heartbeat", json={}).status_code == 200
     assert any(e.type == "relogin" and "Yeniden bağlandı" in e.message for e in env.store.events)
@@ -117,24 +125,24 @@ def test_relogin_from_same_machine_replaces_the_session(env: Env):
 
 
 def test_stale_session_can_be_taken_over_from_another_machine(env: Env):
-    env.login(numara="2021001", mac="AA:BB:CC:00:00:01")
-    env.store.students["2021001"].last_hb_mono -= 60  # no heartbeat for a minute
-    env.login(numara="2021001", ip="192.168.1.77", mac="AA:BB:CC:00:00:09", hostname="PC-09")
+    env.login(numara="2021000001", mac="AA:BB:CC:00:00:01")
+    env.store.students["2021000001"].last_hb_mono -= 60  # no heartbeat for a minute
+    env.login(numara="2021000001", ip="192.168.1.77", mac="AA:BB:CC:00:00:09", hostname="PC-09")
     assert env.alerts("machine_change")
 
 
 def test_same_mac_different_number_raises_red_alert(env: Env):
-    env.login(numara="2021001", mac="AA:BB:CC:00:00:01")
-    env.store.students["2021001"].last_hb_mono -= 60
-    env.login(numara="2021002", ad="Can", soyad="Er", mac="aa-bb-cc-00-00-01")
+    env.login(numara="2021000001", mac="AA:BB:CC:00:00:01")
+    env.store.students["2021000001"].last_hb_mono -= 60
+    env.login(numara="2021000002", ad="Can", soyad="Er", mac="aa-bb-cc-00-00-01")
     alerts = env.alerts("mac_reuse")
     assert len(alerts) == 1
-    assert alerts[0]["numara"] == "2021002" and alerts[0]["severity"] == "critical"
+    assert alerts[0]["numara"] == "2021000002" and alerts[0]["severity"] == "critical"
     # ... with the name the earlier student typed, also in the log files.
-    assert "Bu bilgisayardan daha önce 2021001 Ali Veli giriş yapmıştı (MAC AA:BB:CC:00:00:01)" in alerts[0]["message"]
-    assert alerts[0]["details"]["other_names"] == ["2021001 Ali Veli"]
+    assert "Bu bilgisayardan daha önce 2021000001 Ali Veli giriş yapmıştı (MAC AA:BB:CC:00:00:01)" in alerts[0]["message"]
+    assert alerts[0]["details"]["other_names"] == ["2021000001 Ali Veli"]
     # Logging in again with the same number does not repeat the alert.
-    env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:01")
+    env.login(numara="2021000002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:01")
     assert len(env.alerts("mac_reuse")) == 1
 
 
@@ -143,30 +151,30 @@ def test_same_mac_different_number_raises_red_alert(env: Env):
 
 def test_roster_rules(env: Env):
     # No list loaded: everybody is accepted without warnings.
-    env.login(numara="1", ad="X", soyad="Y", mac="AA:BB:CC:00:00:01")
+    env.login(numara="2021000777", ad="X", soyad="Y", mac="AA:BB:CC:00:00:01")
     assert not env.alerts()
 
-    assert upload_roster(env, [[2021001, "Çağrı", "Işık"], [2021002, "Ayşe", "Yılmaz"], [2021003, "Can", "Er"]]).json() == {"count": 3}
-    # The already logged-in "1" is re-checked.
-    assert env.alerts("not_in_roster")[0]["numara"] == "1"
+    assert upload_roster(env, [[2021000001, "Çağrı", "Işık"], [2021000002, "Ayşe", "Yılmaz"], [2021000003, "Can", "Er"]]).json() == {"count": 3}
+    # The student who was already logged in is re-checked.
+    assert env.alerts("not_in_roster")[0]["numara"] == "2021000777"
 
     # Matching name: case and Turkish letters do not matter; the roster spelling is shown.
-    env.login(numara="2021001", ad="CAGRI", soyad="isik", mac="AA:BB:CC:00:00:02", ip="192.168.1.52")
-    st = env.snapshot_student("2021001")
+    env.login(numara="2021000001", ad="CAGRI", soyad="isik", mac="AA:BB:CC:00:00:02", ip="192.168.1.52")
+    st = env.snapshot_student("2021000001")
     assert (st["ad"], st["soyad"], st["roster"], st["status"]) == ("Çağrı", "Işık", "ok", "ok")
 
     # Wrong name: accepted, yellow warning.
-    env.login(numara="2021002", ad="Fatma", soyad="Yılmaz", mac="AA:BB:CC:00:00:03", ip="192.168.1.53")
-    st = env.snapshot_student("2021002")
+    env.login(numara="2021000002", ad="Fatma", soyad="Yılmaz", mac="AA:BB:CC:00:00:03", ip="192.168.1.53")
+    st = env.snapshot_student("2021000002")
     assert st["roster"] == "name_mismatch" and st["status"] == "warn"
     assert "listede: Ayşe Yılmaz, girişte: Fatma Yılmaz" in env.alerts("name_mismatch")[0]["message"]
 
     # Unknown number: accepted with a "not in list" warning.
-    env.login(numara="999", ad="Yok", soyad="Kişi", mac="AA:BB:CC:00:00:04", ip="192.168.1.54")
-    assert env.snapshot_student("999")["roster"] == "not_in_list"
+    env.login(numara="2021000999", ad="Yok", soyad="Kişi", mac="AA:BB:CC:00:00:04", ip="192.168.1.54")
+    assert env.snapshot_student("2021000999")["roster"] == "not_in_list"
 
     missing = env.store.snapshot()["roster"]["missing"]
-    assert [m["numara"] for m in missing] == ["2021003"]
+    assert [m["numara"] for m in missing] == ["2021000003"]
 
     bad = env.panel.post("/panel/api/roster", headers=PANEL, files={"file": ("liste.txt", b"x", "text/plain")})
     assert bad.status_code == 400 and bad.json()["error"]
@@ -213,9 +221,9 @@ def test_exam_state_machine_and_exam_file_access(env: Env):
 
 
 def test_submission_naming_versions_index_and_checks(env: Env):
-    a, _ = env.login(numara="2021001", ad="Ahmet Şahin", soyad="Çakır", mac="AA:BB:CC:00:00:01")
-    b, _ = env.login(numara="2021002", ad="Işıl", soyad="Öztürk", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
-    c, _ = env.login(numara="2021003", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:03", ip="192.168.1.52")
+    a, _ = env.login(numara="2021000001", ad="Ahmet Şahin", soyad="Çakır", mac="AA:BB:CC:00:00:01")
+    b, _ = env.login(numara="2021000002", ad="Işıl", soyad="Öztürk", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    c, _ = env.login(numara="2021000003", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:03", ip="192.168.1.52")
 
     assert env.submit(a, b"work").status_code == 409  # exam not started
     env.start()
@@ -225,34 +233,34 @@ def test_submission_naming_versions_index_and_checks(env: Env):
 
     work_a = b"cozum A"
     first = env.submit(a, work_a).json()
-    assert first == {"sha256": hashlib.sha256(work_a).hexdigest(), "filename": "2021001_AhmetSahinCakir.pka",
+    assert first == {"sha256": hashlib.sha256(work_a).hexdigest(), "filename": "2021000001_AhmetSahinCakir.pka",
                      "version": 1, "size": len(work_a), "verified": True, "late": False}
     folder = env.submissions
-    assert (folder / "2021001_AhmetSahinCakir.pka").read_bytes() == work_a
-    assert env.snapshot_student("2021001")["status"] == "done"
+    assert (folder / "2021000001_AhmetSahinCakir.pka").read_bytes() == work_a
+    assert env.snapshot_student("2021000001")["status"] == "done"
 
     # Second submission keeps the first file.
     second = env.submit(a, b"cozum A v2").json()
-    assert second["filename"] == "2021001_AhmetSahinCakir_v2.pka" and second["version"] == 2
-    assert (folder / "2021001_AhmetSahinCakir.pka").read_bytes() == work_a
-    assert env.snapshot_student("2021001")["submission"]["filename"] == "2021001_AhmetSahinCakir_v2.pka"
+    assert second["filename"] == "2021000001_AhmetSahinCakir_v2.pka" and second["version"] == 2
+    assert (folder / "2021000001_AhmetSahinCakir.pka").read_bytes() == work_a
+    assert env.snapshot_student("2021000001")["submission"]["filename"] == "2021000001_AhmetSahinCakir_v2.pka"
 
     # Same bytes as another student's file: red alert on both.
-    assert env.submit(b, work_a).json()["filename"] == "2021002_IsilOzturk.pka"
+    assert env.submit(b, work_a).json()["filename"] == "2021000002_IsilOzturk.pka"
     twins = env.alerts("duplicate_hash")
-    assert {t["numara"] for t in twins} == {"2021001", "2021002"}
+    assert {t["numara"] for t in twins} == {"2021000001", "2021000002"}
     assert all(t["severity"] == "critical" for t in twins)
 
     # Identical to the exam file: warning, but not reported as a copy.
     assert env.submit(c, EXAM_BYTES).status_code == 200
     unchanged = env.alerts("unchanged_submission")
-    assert [u["numara"] for u in unchanged] == ["2021003"]
+    assert [u["numara"] for u in unchanged] == ["2021000003"]
     assert len(env.alerts("duplicate_hash")) == 2
 
     rows = list(csv.reader(io.StringIO((folder / "index.csv").read_text(encoding="utf-8-sig")), delimiter=";"))
     assert rows[0][:6] == ["zaman", "numara", "ad", "soyad", "dosya", "sha256"]
-    assert [r[4] for r in rows[1:]] == ["2021001_AhmetSahinCakir.pka", "2021001_AhmetSahinCakir_v2.pka",
-                                         "2021002_IsilOzturk.pka", "2021003_CanEr.pka"]
+    assert [r[4] for r in rows[1:]] == ["2021000001_AhmetSahinCakir.pka", "2021000001_AhmetSahinCakir_v2.pka",
+                                         "2021000002_IsilOzturk.pka", "2021000003_CanEr.pka"]
     assert rows[0][6:] == ["boyut", "gec_teslim", "surum", "ip", "bilgisayar", "mac"]
     assert all(r[7] == "hayır" for r in rows[1:])  # nothing was handed in late
     assert rows[1][5] == hashlib.sha256(work_a).hexdigest()
@@ -269,16 +277,16 @@ def test_upload_size_limit(env: Env, monkeypatch):
 
 
 def test_final_status_after_the_end(env: Env):
-    a, _ = env.login(numara="2021001", mac="AA:BB:CC:00:00:01")
-    env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    a, _ = env.login(numara="2021000001", mac="AA:BB:CC:00:00:01")
+    env.login(numara="2021000002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
     env.start()
     assert env.submit(a, b"son kayit").status_code == 200
     env.panel.post("/panel/api/end", headers=PANEL)
     # Nothing is ever handed in automatically: who did not hand in has no file.
     assert not any(e.type == "auto_submit" for e in env.store.events)
-    assert [p.name for p in env.submissions.glob("*.pka")] == ["2021001_AliVeli.pka"]
-    assert env.snapshot_student("2021001")["status"] == "done"
-    assert env.snapshot_student("2021002")["status"] == "nosubmit"
+    assert [p.name for p in env.submissions.glob("*.pka")] == ["2021000001_AliVeli.pka"]
+    assert env.snapshot_student("2021000001")["status"] == "done"
+    assert env.snapshot_student("2021000002")["status"] == "nosubmit"
     summary = env.store.snapshot()["summary"]
     assert (summary["submitted"], summary["lost"]) == (1, 1)
 
@@ -308,22 +316,22 @@ def test_agent_events_alerts_and_ack(env: Env):
     assert "foreground_change" not in messages and "ffmpeg_restart" not in messages
     assert any(e.type == "foreground_change" for e in env.store.events)
 
-    st = env.snapshot_student("2021001")
+    st = env.snapshot_student("2021000001")
     assert st["status"] == "warn" and st["warn_count"] == 3
 
-    history = env.panel.get("/panel/api/events", params={"numara": "2021001"}).json()["events"]
+    history = env.panel.get("/panel/api/events", params={"numara": "2021000001"}).json()["events"]
     assert len(history) >= 6
 
-    assert env.snapshot_student("2021001")["ack_id"] == 0
-    assert env.panel.post("/panel/api/ack", headers=PANEL, json={"numara": "2021001"}).status_code == 200
-    st = env.snapshot_student("2021001")
+    assert env.snapshot_student("2021000001")["ack_id"] == 0
+    assert env.panel.post("/panel/api/ack", headers=PANEL, json={"numara": "2021000001"}).status_code == 200
+    st = env.snapshot_student("2021000001")
     assert st["status"] == "ok" and st["ack_id"] == env.store.events[-1].id  # everything so far is seen
     assert env.store.general_ack_id == 0
     event("process_killed", name="discord.exe")
     newest = env.store.snapshot()["alerts"][0]
-    assert newest["id"] > st["ack_id"] and env.snapshot_student("2021001")["warn_count"] == 1
+    assert newest["id"] > st["ack_id"] and env.snapshot_student("2021000001")["warn_count"] == 1
     assert env.panel.post("/panel/api/ack", headers=PANEL, json={}).status_code == 200  # everything
-    assert env.snapshot_student("2021001")["ack_id"] == newest["id"] == env.store.general_ack_id
+    assert env.snapshot_student("2021000001")["ack_id"] == newest["id"] == env.store.general_ack_id
 
     export = env.panel.get("/panel/api/export.csv")
     assert export.status_code == 200 and export.content.startswith(b"\xef\xbb\xbf")
@@ -334,11 +342,11 @@ def test_agent_events_alerts_and_ack(env: Env):
 def test_box_turns_red_without_heartbeat_and_green_again(env: Env):
     client, _ = env.login()
     env.store.tick()
-    assert env.snapshot_student("2021001")["status"] == "ok"
+    assert env.snapshot_student("2021000001")["status"] == "ok"
 
-    env.store.students["2021001"].last_hb_mono -= env.cfg.disconnect_s + 0.1
+    env.store.students["2021000001"].last_hb_mono -= env.cfg.disconnect_s + 0.1
     env.store.tick()
-    st = env.snapshot_student("2021001")
+    st = env.snapshot_student("2021000001")
     assert st["status"] == "lost" and "sinyal" in st["lost_reason"]
     lost = env.alerts("disconnected")
     assert len(lost) == 1 and lost[0]["severity"] == "critical"
@@ -347,7 +355,7 @@ def test_box_turns_red_without_heartbeat_and_green_again(env: Env):
 
     assert client.post("/api/heartbeat", json={}).status_code == 200
     env.store.tick()
-    st = env.snapshot_student("2021001")
+    st = env.snapshot_student("2021000001")
     assert st["status"] == "ok" and st["warn_count"] == 0  # back to green, no sticky warning
     assert env.alerts("connection_restored")
 
@@ -357,21 +365,21 @@ def test_box_turns_red_when_stream_is_missing(env: Env):
     store = env.store
     store.apply_streams(set(), {})  # MediaMTX reachable, but no stream for this student
     store.tick()
-    assert env.snapshot_student("2021001")["status"] == "ok"  # grace period after login
-    store.students["2021001"].stream_changed_mono -= env.cfg.disconnect_s + 0.1
+    assert env.snapshot_student("2021000001")["status"] == "ok"  # grace period after login
+    store.students["2021000001"].stream_changed_mono -= env.cfg.disconnect_s + 0.1
     store.tick()
-    st = env.snapshot_student("2021001")
+    st = env.snapshot_student("2021000001")
     assert st["status"] == "lost" and st["lost_reason"] == "ekran yayını yok"
 
-    store.apply_streams({"2021001"}, {"2021001": "192.168.1.50"})
+    store.apply_streams({"2021000001"}, {"2021000001": "192.168.1.50"})
     store.tick()
-    assert env.snapshot_student("2021001")["status"] == "ok"
+    assert env.snapshot_student("2021000001")["status"] == "ok"
 
     # A stream from another address than the login is flagged once.
-    store.apply_streams({"2021001"}, {"2021001": "192.168.1.99"})
-    store.apply_streams({"2021001"}, {"2021001": "192.168.1.99"})
+    store.apply_streams({"2021000001"}, {"2021000001": "192.168.1.99"})
+    store.apply_streams({"2021000001"}, {"2021000001": "192.168.1.99"})
     assert len(env.alerts("stream_ip_mismatch")) == 1
-    store.apply_streams({"777"}, {"777": "192.168.1.98"})
+    store.apply_streams({"2021000777"}, {"2021000777": "192.168.1.98"})
     assert len(env.alerts("stream_without_login")) == 1
 
 
@@ -380,7 +388,7 @@ def test_agent_exit_marks_student_red(env: Env):
     env.start()
     client.post("/api/event", json={"type": "agent_exit", "details": {"phase": "Running"}})
     env.store.tick()
-    st = env.snapshot_student("2021001")
+    st = env.snapshot_student("2021000001")
     assert st["status"] == "lost" and st["lost_reason"] == "ajan kapatıldı"
     assert env.alerts("agent_exit") and not env.alerts("disconnected")
 
@@ -389,7 +397,7 @@ def test_agent_exit_marks_student_red(env: Env):
 
 
 def test_state_survives_a_server_restart(env: Env):
-    client, body = env.login(numara="2021001", ad="Ahmet", soyad="Çakır")
+    client, body = env.login(numara="2021000001", ad="Ahmet", soyad="Çakır")
     env.start()
     env.submit(client, b"cozum")
     env.store.save()
@@ -397,9 +405,9 @@ def test_state_survives_a_server_restart(env: Env):
     restored = Store(env.cfg)
     restored.load()
     assert restored.state == RUNNING and restored.exam_id == env.store.exam_id
-    assert restored.auth(body["token"]).numara == "2021001"
-    st = restored.students["2021001"]
-    assert st.submissions[0].filename == "2021001_AhmetCakir.pka" and st.submitted
+    assert restored.auth(body["token"]).numara == "2021000001"
+    st = restored.students["2021000001"]
+    assert st.submissions[0].filename == "2021000001_AhmetCakir.pka" and st.submitted
     assert restored.exam_file["sha256"] == hashlib.sha256(EXAM_BYTES).hexdigest()
     assert len(restored.events) == len(env.store.events)
     assert restored.next_event_id == env.store.next_event_id
@@ -407,7 +415,7 @@ def test_state_survives_a_server_restart(env: Env):
 
 
 def test_new_exam_keeps_every_file_of_the_finished_one(env: Env):
-    upload_roster(env, [[2021001, "Ali", "Veli"]])
+    upload_roster(env, [[2021000001, "Ali", "Veli"]])
     client, _ = env.login()
     env.start()
     env.submit(client, b"cozum")
@@ -417,10 +425,10 @@ def test_new_exam_keeps_every_file_of_the_finished_one(env: Env):
     assert response.status_code == 200 and response.json() == {"state": WAITING}
 
     # Nothing in the exam folder is moved or deleted; the event log is written next to it.
-    assert (env.submissions / "2021001_AliVeli.pka").read_bytes() == b"cozum"
+    assert (env.submissions / "2021000001_AliVeli.pka").read_bytes() == b"cozum"
     assert (env.submissions / "index.csv").exists()
     log_text = (env.exam_dir / "olay-kaydi.csv").read_text(encoding="utf-8-sig")
-    assert "Teslim etti: 2021001_AliVeli.pka" in log_text and "Sınav bitirildi" in log_text
+    assert "Teslim etti: 2021000001_AliVeli.pka" in log_text and "Sınav bitirildi" in log_text
     assert len(list((env.cfg.dir_data / "arsiv").glob("olaylar_*.jsonl"))) == 1
 
     snapshot = env.store.snapshot()
@@ -428,7 +436,7 @@ def test_new_exam_keeps_every_file_of_the_finished_one(env: Env):
     assert snapshot["exam"]["folder"] == ""  # the next exam gets its own folder
     # The roster is kept: its student is shown again as "not logged in yet".
     assert env.store.students == {} and snapshot["roster"]["count"] == 1
-    assert [(s["numara"], s["status"]) for s in snapshot["students"]] == [("2021001", "absent")]
+    assert [(s["numara"], s["status"]) for s in snapshot["students"]] == [("2021000001", "absent")]
     assert client.post("/api/heartbeat", json={}).status_code == 401  # old sessions are gone
 
 
@@ -489,7 +497,7 @@ def test_student_is_done_only_while_the_file_is_in_the_folder(env: Env):
     work = EXAM_BYTES + b"-cozum"
     name = env.submit(client, work).json()["filename"]
     env.store.check_submission_folder()
-    assert env.snapshot_student("2021001")["status"] == "done"
+    assert env.snapshot_student("2021000001")["status"] == "done"
     assert client.post("/api/heartbeat", json={}).json()["submitted"] is True
     assert not env.alerts()
 
@@ -497,7 +505,7 @@ def test_student_is_done_only_while_the_file_is_in_the_folder(env: Env):
     (env.submissions / name).rename(env.tmp_path / "kenarda.pka")
     env.store.check_submission_folder()
     env.store.check_submission_folder()
-    assert env.snapshot_student("2021001")["status"] == "nofile"
+    assert env.snapshot_student("2021000001")["status"] == "nofile"
     missing = env.alerts("submission_missing")
     assert len(missing) == 1 and missing[0]["severity"] == "critical" and name in missing[0]["message"]
     assert client.post("/api/heartbeat", json={}).json()["submitted"] is False
@@ -505,33 +513,33 @@ def test_student_is_done_only_while_the_file_is_in_the_folder(env: Env):
 
     (env.tmp_path / "kenarda.pka").rename(env.submissions / name)
     env.store.check_submission_folder()
-    assert env.snapshot_student("2021001")["status"] == "done"
+    assert env.snapshot_student("2021000001")["status"] == "done"
 
 
 def test_file_put_into_the_folder_by_hand_counts_as_submission(env: Env):
     # A file that was in the folder before the exam is never taken as a submission.
     env.choose_folder()
-    (env.submissions / "2021001_Eski.pka").write_bytes(b"gecen yilin dosyasi")
+    (env.submissions / "2021000001_Eski.pka").write_bytes(b"gecen yilin dosyasi")
     client, _ = env.login()
-    env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    env.login(numara="2021000002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
     env.start()
     env.store.check_submission_folder()
-    assert env.snapshot_student("2021001")["status"] == "ok"
+    assert env.snapshot_student("2021000001")["status"] == "ok"
 
     # The teacher copies a student's file from a USB stick.
     old = time.time() - 10
-    by_hand = env.submissions / "2021002_usbden.pka"
+    by_hand = env.submissions / "2021000002_usbden.pka"
     by_hand.write_bytes(EXAM_BYTES + b"-usb")
     env.store.check_submission_folder()
-    assert env.snapshot_student("2021002")["status"] == "ok"  # just written: may still be copying
+    assert env.snapshot_student("2021000002")["status"] == "ok"  # just written: may still be copying
     os.utime(by_hand, (old, old))
     env.store.check_submission_folder()
     env.store.check_submission_folder()
-    st = env.snapshot_student("2021002")
-    assert st["status"] == "done" and st["submission"]["filename"] == "2021002_usbden.pka"
+    st = env.snapshot_student("2021000002")
+    assert st["status"] == "done" and st["submission"]["filename"] == "2021000002_usbden.pka"
     assert st["submission_count"] == 1
     assert any("klasörde bulundu" in e.message for e in env.store.events)
-    assert "2021002_usbden.pka" in (env.submissions / "index.csv").read_text(encoding="utf-8-sig")
+    assert "2021000002_usbden.pka" in (env.submissions / "index.csv").read_text(encoding="utf-8-sig")
 
     # A file that belongs to nobody is reported once and otherwise left alone.
     stray = env.submissions / "kimin-bu.pka"
@@ -544,16 +552,16 @@ def test_file_put_into_the_folder_by_hand_counts_as_submission(env: Env):
 
 
 def test_submitted_file_is_verified(env: Env):
-    a, _ = env.login(numara="2021001", mac="AA:BB:CC:00:00:01")
-    b, _ = env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
-    c, _ = env.login(numara="2021003", ad="Ece", soyad="Su", mac="AA:BB:CC:00:00:03", ip="192.168.1.52")
+    a, _ = env.login(numara="2021000001", mac="AA:BB:CC:00:00:01")
+    b, _ = env.login(numara="2021000002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    c, _ = env.login(numara="2021000003", ad="Ece", soyad="Su", mac="AA:BB:CC:00:00:03", ip="192.168.1.52")
     env.start()
 
     # The agent sends the hash of the file it read; a damaged upload is refused.
     work = EXAM_BYTES + b"-cozum"
     broken = env.submit(a, work, sha256=hashlib.sha256(b"baska").hexdigest())
     assert broken.status_code == 400 and "bozuldu" in broken.json()["error"]
-    assert not list(env.submissions.glob("*.pka")) and env.snapshot_student("2021001")["status"] == "ok"
+    assert not list(env.submissions.glob("*.pka")) and env.snapshot_student("2021000001")["status"] == "ok"
     ok = env.submit(a, work, sha256=hashlib.sha256(work).hexdigest().upper(),
                     original_name=r"C:\Users\a\Desktop\Ağ çözümüm.pka")
     assert ok.status_code == 200 and ok.json()["verified"] is True
@@ -565,7 +573,7 @@ def test_submitted_file_is_verified(env: Env):
     assert env.submit(b, EXAM_BYTES).status_code == 200
     unchanged = env.alerts("unchanged_submission")
     assert len(unchanged) == 1 and "sınav dosyasının kendisi" in unchanged[0]["message"]
-    assert env.snapshot_student("2021002")["warn_count"] == 1
+    assert env.snapshot_student("2021000002")["warn_count"] == 1
 
     # A file of a very different size, saved before the exam file was downloaded.
     assert env.submit(c, b"minik", stale="true").status_code == 200
@@ -573,8 +581,8 @@ def test_submitted_file_is_verified(env: Env):
     assert "indirilmeden önce" in env.alerts("stale_submission")[0]["message"]
 
     # The streams of students whose file has arrived are stopped.
-    env.store.apply_streams({"2021001", "2021002", "777"}, {})
-    assert sorted(env.store.streams_to_stop()) == ["2021001", "2021002"]
+    env.store.apply_streams({"2021000001", "2021000002", "777"}, {})
+    assert sorted(env.store.streams_to_stop()) == ["2021000001", "2021000002"]
 
 
 def test_submission_needs_the_exam_folder(env: Env):
@@ -594,7 +602,7 @@ def test_virtual_desktop_switch_is_an_alert(env: Env):
     assert len(alerts) == 1 and alerts[0]["message"] == "Başka bir masaüstüne geçti"
     assert not env.alerts("desktop_return")
     assert any(e.message == "Sınav masaüstüne geri döndü (12 sn sonra)" for e in env.store.events)
-    assert env.snapshot_student("2021001")["status"] == "warn"
+    assert env.snapshot_student("2021000001")["status"] == "warn"
 
 
 # ------------------------------------------------------ class and teacher name
@@ -781,8 +789,8 @@ def test_planned_start(env: Env):
 
 
 def test_students_can_still_hand_in_after_the_end_but_it_is_marked_late(env: Env):
-    on_time, _ = env.login(numara="2021001", mac="AA:BB:CC:00:00:01")
-    late, _ = env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    on_time, _ = env.login(numara="2021000001", mac="AA:BB:CC:00:00:01")
+    late, _ = env.login(numara="2021000002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
     env.start()
     assert env.submit(on_time, EXAM_BYTES + b"-1").json()["late"] is False
     env.panel.post("/panel/api/end", headers=PANEL)
@@ -791,18 +799,18 @@ def test_students_can_still_hand_in_after_the_end_but_it_is_marked_late(env: Env
     hb = late.post("/api/heartbeat", json={}).json()
     assert hb["exam_state"] == ENDED and hb["submitted"] is False
     assert late.get("/api/exam-file").status_code == 409  # ... the file can no longer be downloaded ...
-    assert env.snapshot_student("2021002")["status"] == "nosubmit"
+    assert env.snapshot_student("2021000002")["status"] == "nosubmit"
 
     # ... and a file handed in now is accepted and marked as late.
     env.store.ended_at -= 4 * 60
     result = env.submit(late, EXAM_BYTES + b"-2")
     assert result.status_code == 200 and result.json()["late"] is True
-    st = env.snapshot_student("2021002")
+    st = env.snapshot_student("2021000002")
     assert st["status"] == "done" and st["submission"]["late"] is True
     alert = env.alerts("late_submission")
-    assert len(alert) == 1 and alert[0]["numara"] == "2021002" and alert[0]["severity"] == "warning"
+    assert len(alert) == 1 and alert[0]["numara"] == "2021000002" and alert[0]["severity"] == "warning"
     assert alert[0]["message"] == "Geç teslim: dosyasını sınav bittikten 4 dakika sonra teslim etti"
-    assert any(e.message.startswith("Geç teslim etti: 2021002_CanEr.pka") for e in env.store.events)
+    assert any(e.message.startswith("Geç teslim etti: 2021000002_CanEr.pka") for e in env.store.events)
     rows = list(csv.reader(io.StringIO((env.submissions / "index.csv").read_text(encoding="utf-8-sig")),
                            delimiter=";"))
     assert rows[0][7] == "gec_teslim" and [r[7] for r in rows[1:]] == ["hayır", "evet"]
@@ -816,62 +824,168 @@ def test_a_file_that_was_already_on_its_way_is_not_late(env: Env):
     assert not env.alerts("late_submission")
 
 
-def test_warnings_are_kept_in_one_file_per_student(env: Env):
-    a, _ = env.login(numara="2021001", ad="Ahmet Şahin", soyad="Çakır", mac="AA:BB:CC:00:00:01")
-    b, _ = env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+def test_every_student_has_a_log_file_with_who_they_are_and_everything_recorded(env: Env):
+    a, _ = env.login(numara="2021000001", ad="Ahmet Şahin", soyad="Çakır", mac="AA:BB:CC:00:00:01", hostname="PC-01")
+    b, _ = env.login(numara="2021000002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
     # A warning from before the exam folder was chosen ...
     a.post("/api/event", json={"type": "monitor_change", "details": {"count": 2, "previous": 1}})
     env.start()
     folder = env.exam_dir / "Uyarılar"
     assert env.store.snapshot()["paths"]["alerts"] == str(folder.resolve())
     # ... is written as soon as the folder exists.
-    path = folder / "2021001_AhmetSahinCakir.csv"
+    path = folder / "2021000001_AhmetSahinCakir.csv"
     assert "Monitör sayısı: 2 (önceki: 1)" in path.read_text(encoding="utf-8-sig")
 
     a.post("/api/event", json={"type": "process_killed", "details": {"name": "chrome.exe"}})
     a.post("/api/event", json={"type": "foreground_change", "details": {"name": "PacketTracer.exe"}})  # not a warning
     a.post("/api/event", json={"type": "desktop_switch", "details": {}})
+    env.store.flush_student_logs()      # ordinary entries are written every few seconds
     rows = list(csv.reader(io.StringIO(path.read_text(encoding="utf-8-sig")), delimiter=";"))
-    assert rows[0] == ["zaman", "numara", "ad_soyad", "onem", "uyari"]
-    assert [r[4] for r in rows[1:]] == ["Monitör sayısı: 2 (önceki: 1)", "chrome.exe kapatıldı",
-                                        "Başka bir masaüstüne geçti"]
-    assert all(r[1] == "2021001" and r[2] == "Ahmet Şahin Çakır" and r[3] == "uyarı" for r in rows[1:])
     assert path.read_bytes().startswith(b"\xef\xbb\xbf")  # opens correctly in Excel
 
-    # A student without warnings has no file; a late submission is a warning like any other.
-    assert not list(folder.glob("2021002_*"))
+    # First who the student is ...
+    assert rows[0] == ["ÖĞRENCİ"]
+    info = dict(row for row in rows[1:rows.index([])])
+    assert info["Numara"] == "2021000001" and info["Ad soyad"] == "Ahmet Şahin Çakır"
+    assert info["Bilgisayar adı"] == "PC-01" and info["MAC adresi"] == "AA:BB:CC:00:00:01"
+    assert info["IP adresi"] == "192.168.1.50" and info["Program sürümü"] == "test"
+    assert info["Öğrenci listesi"] == "Liste yüklü değil" and info["Giriş sayısı"] == "1"
+    assert info["Teslim"] == "Teslim etmedi" and info["Uyarı sayısı"] == "3" and info["Sınıf"] == "B-102"
+    assert info["İlk giriş"].startswith(time.strftime("%Y-"))
+
+    # ... then everything that was recorded: warnings marked, ordinary entries too.
+    table = rows[rows.index(["KAYITLAR"]) + 1:]
+    assert table[0] == ["Zaman", "Tür", "Kayıt"]
+    entries = [(row[1], row[2]) for row in table[1:]]
+    assert entries[0][0] == "bilgi" and entries[0][1].startswith("Giriş yaptı — IP 192.168.1.50")
+    assert ("UYARI", "Monitör sayısı: 2 (önceki: 1)") in entries
+    assert ("UYARI", "chrome.exe kapatıldı") in entries and ("UYARI", "Başka bir masaüstüne geçti") in entries
+    assert ("bilgi", "Öndeki pencere: PacketTracer.exe") in entries
+    # What applied to everybody (the start of the exam) is in each file as well.
+    assert any(kind == "sınav" and text.startswith("Sınav başladı") for kind, text in entries)
+    assert [row[0] for row in table[1:]] == sorted(row[0] for row in table[1:])      # in order of time
+
+    # A student without warnings has a file too; a late submission is a warning like any other.
+    other = folder / "2021000002_CanEr.csv"
+    env.store.flush_student_logs()
+    assert "Uyarı sayısı;0" in other.read_text(encoding="utf-8-sig")
     env.panel.post("/panel/api/end", headers=PANEL)
     env.store.ended_at -= 120
     env.submit(b, EXAM_BYTES + b"-gec")
-    assert "Geç teslim" in (folder / "2021002_CanEr.csv").read_text(encoding="utf-8-sig")
+    text = other.read_text(encoding="utf-8-sig")
+    assert "UYARI;Geç teslim" in text and "sınav;Sınav bitirildi" in text
+    env.store.flush_student_logs()
+    assert "2021000002_CanEr.pka" in other.read_text(encoding="utf-8-sig") and "(geç teslim)" in other.read_text(encoding="utf-8-sig")
 
     # The files stay in the exam folder when a new exam is prepared.
     env.panel.post("/panel/api/reset", headers=PANEL)
-    assert path.exists() and (folder / "2021002_CanEr.csv").exists()
+    assert path.exists() and other.exists()
+
+
+def test_new_entries_are_added_at_the_end_of_the_student_file(env: Env, monkeypatch):
+    """Ordinary entries are frequent: they are added at the end of the file. The file is written
+    from the top only when something in its "ÖĞRENCİ" block changes."""
+    a, _ = env.login(numara="2021000001", ad="Ali", soyad="Veli")
+    b, _ = env.login(numara="2021000002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    env.start()
+    store = env.store
+    store.flush_student_logs()
+    path = env.exam_dir / "Uyarılar" / "2021000001_AliVeli.csv"
+    other = env.exam_dir / "Uyarılar" / "2021000002_CanEr.csv"
+
+    def entries(file):
+        rows = list(csv.reader(io.StringIO(file.read_text(encoding="utf-8-sig")), delimiter=";"))
+        return [(row[1], row[2]) for row in rows[rows.index(["Zaman", "Tür", "Kayıt"]) + 1:]]
+
+    full_writes = []
+    original = store.write_student_log
+    monkeypatch.setattr(store, "write_student_log", lambda numara: (full_writes.append(numara), original(numara))[1])
+
+    before = path.read_bytes()
+    for name in ("PacketTracer.exe", "cmd.exe", "PacketTracer.exe"):
+        a.post("/api/event", json={"type": "foreground_change", "details": {"name": name}})
+    env.panel.post("/panel/api/extend", headers=PANEL, json={"minutes": 5})     # for everybody
+    assert path.read_bytes() == before                    # not written on every entry ...
+    store.flush_student_logs()                            # ... but together, every few seconds
+    assert full_writes == []                              # nothing was written from the top
+    assert path.read_bytes().startswith(before) and path.read_bytes().count(b"\xef\xbb\xbf") == 1
+    assert [text for _, text in entries(path)][-4:-1] == [
+        "Öndeki pencere: PacketTracer.exe", "Öndeki pencere: cmd.exe", "Öndeki pencere: PacketTracer.exe"]
+    extra = entries(path)[-1]
+    assert extra[0] == "sınav" and extra[1].startswith("5 dakika ek süre verildi") and entries(other)[-1] == extra
+    store.flush_student_logs()
+    assert full_writes == [] and entries(path).count(extra) == 1    # added once, not again
+
+    # A warning changes the count at the top: the file is written again, at once, with everything in it.
+    a.post("/api/event", json={"type": "foreground_change", "details": {"name": "notepad.exe"}})
+    a.post("/api/event", json={"type": "process_killed", "details": {"name": "notepad.exe"}})
+    assert full_writes == ["2021000001"]
+    text = path.read_text(encoding="utf-8-sig")
+    assert "Uyarı sayısı;1" in text and [t for _, t in entries(path)][-2:] == ["Öndeki pencere: notepad.exe", "notepad.exe kapatıldı"]
+    store.flush_student_logs()
+    assert entries(path).count(("bilgi", "Öndeki pencere: notepad.exe")) == 1
+
+    # Handing in changes the top as well ("Teslim").
+    env.submit(a, EXAM_BYTES + b"-cozum")
+    store.flush_student_logs()
+    assert "Teslim;2021000001_AliVeli.pka" in path.read_text(encoding="utf-8-sig")
+    # Whichever way it was written: the file holds every entry once, in the order it happened.
+    assert [text for _, text in entries(path)] == [
+        e.message for e in store.events
+        if e.numara == "2021000001" or (not e.numara and e.type in {"exam_started", "exam_extended"})]
+
+    # The file was removed by hand: it is written again in full, not continued without its top.
+    other.unlink()
+    b.post("/api/event", json={"type": "foreground_change", "details": {"name": "cmd.exe"}})
+    store.flush_student_logs()
+    assert other.read_text(encoding="utf-8-sig").startswith("ÖĞRENCİ") and entries(other)[-1][1] == "Öndeki pencere: cmd.exe"
+
+
+def test_student_file_that_cannot_be_written_is_tried_again(env: Env, caplog):
+    """For example the file is open in Excel: nothing is lost, it is written when that is over."""
+    a, _ = env.login(numara="2021000001", ad="Ali", soyad="Veli")
+    env.start()
+    store = env.store
+    store.flush_student_logs()
+    path = env.exam_dir / "Uyarılar" / "2021000001_AliVeli.csv"
+    path.unlink()
+    path.mkdir()                                           # nothing can be written to this name now
+    caplog.clear()
+    a.post("/api/event", json={"type": "foreground_change", "details": {"name": "cmd.exe"}})
+    store.flush_student_logs()
+    a.post("/api/event", json={"type": "process_killed", "details": {"name": "chrome.exe"}})
+    store.flush_student_logs()
+    store.flush_student_logs()
+    assert len([r for r in caplog.records if "kayıt dosyası yazılamadı" in r.getMessage()]) == 1   # said once
+
+    path.rmdir()
+    store.flush_student_logs()                             # no new entry is needed for the next try
+    text = path.read_text(encoding="utf-8-sig")
+    assert "Öndeki pencere: cmd.exe" in text and "UYARI;chrome.exe kapatıldı" in text and "Uyarı sayısı;1" in text
 
 
 def test_warning_file_follows_the_name_in_the_student_list(env: Env):
-    client, _ = env.login(numara="2021001", ad="Ali", soyad="Veli")
+    client, _ = env.login(numara="2021000001", ad="Ali", soyad="Veli")
     env.start()
     client.post("/api/event", json={"type": "process_killed", "details": {"name": "chrome.exe"}})
     folder = env.exam_dir / "Uyarılar"
-    assert (folder / "2021001_AliVeli.csv").exists()
-    upload_roster(env, [[2021001, "Ali Rıza", "Veli"]])
-    assert [p.name for p in folder.iterdir()] == ["2021001_AliRizaVeli.csv"]
-    assert "Ad uyuşmuyor" in (folder / "2021001_AliRizaVeli.csv").read_text(encoding="utf-8-sig")
+    assert (folder / "2021000001_AliVeli.csv").exists()
+    upload_roster(env, [[2021000001, "Ali Rıza", "Veli"]])
+    assert [p.name for p in folder.iterdir()] == ["2021000001_AliRizaVeli.csv"]
+    assert "Ad uyuşmuyor" in (folder / "2021000001_AliRizaVeli.csv").read_text(encoding="utf-8-sig")
 
 
 def test_new_exam_closes_the_student_programs_that_are_still_open(env: Env):
     client, _ = env.login()
     env.start()
     env.panel.post("/panel/api/end", headers=PANEL)
-    assert [st.numara for st in env.store.open_agents()] == ["2021001"]
+    assert [st.numara for st in env.store.open_agents()] == ["2021000001"]
 
     # While the exam is being closed, agents are told so and exit. Nothing is collected
     # automatically: a student who did not hand in has no file.
     env.store.closing = True
     hb = client.post("/api/heartbeat", json={}).json()
-    assert hb["exam_state"] == CLOSED and env.store.students["2021001"].closed_seen
+    assert hb["exam_state"] == CLOSED and env.store.students["2021000001"].closed_seen
     env.store.closing = False
 
     assert env.panel.post("/panel/api/reset", headers=PANEL).json() == {"state": WAITING}
@@ -883,7 +997,7 @@ def test_shutting_the_system_down_ends_the_exam_and_stops_the_server(env: Env):
     stopped = []
     env.app.state.stop_server = lambda: stopped.append(True)
     env.login()
-    env.store.students["2021001"].last_hb_mono -= 60  # that program is gone: nothing to wait for
+    env.store.students["2021000001"].last_hb_mono -= 60  # that program is gone: nothing to wait for
     env.start()
     assert env.student().post("/panel/api/shutdown", headers=PANEL).status_code == 403
     assert env.panel.post("/panel/api/shutdown", headers=PANEL).json() == {"ok": True}
@@ -935,7 +1049,7 @@ def test_closing_the_panel_closes_the_system_but_waits_while_students_are_connec
     assert env.store.close_grace_s() == 5  # over, everybody handed in
 
     # A student who has not handed in yet keeps the system up for the longer time.
-    env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
+    env.login(numara="2021000002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:02", ip="192.168.1.51")
     assert env.store.close_grace_s() == 120
 
 
@@ -989,31 +1103,31 @@ def test_panel_asks_for_the_class_details_until_they_were_entered_once(env: Env,
 
 def test_students_of_the_list_are_shown_before_they_log_in(env: Env):
     assert env.store.snapshot()["students"] == []
-    upload_roster(env, [[2021003, "Can", "Demir"], [2021001, "Ali", "Veli"], [2021002, "Ayşe", "Yılmaz"]])
+    upload_roster(env, [[2021000003, "Can", "Demir"], [2021000001, "Ali", "Veli"], [2021000002, "Ayşe", "Yılmaz"]])
 
     snapshot = env.panel.get("/panel/api/state").json()
     assert [(s["numara"], s["ad"], s["status"]) for s in snapshot["students"]] == [
-        ("2021001", "Ali", "absent"), ("2021002", "Ayşe", "absent"), ("2021003", "Can", "absent")]
+        ("2021000001", "Ali", "absent"), ("2021000002", "Ayşe", "absent"), ("2021000003", "Can", "absent")]
     assert all(s["stream_ready"] is False and s["submission"] is None for s in snapshot["students"])
     assert snapshot["summary"] == {"total": 0, "connected": 0, "warned": 0, "lost": 0, "submitted": 0, "absent": 3}
 
     # A student who logs in takes the place of the placeholder; a student who is not on the
     # list is shown as well.
-    env.login(numara="2021002", ad="Ayşe", soyad="Yılmaz")
-    env.login(numara="2021009", ad="Liste", soyad="Dışı", ip="192.168.1.59", mac="AA:BB:CC:00:00:09")
+    env.login(numara="2021000002", ad="Ayşe", soyad="Yılmaz")
+    env.login(numara="2021000009", ad="Liste", soyad="Dışı", ip="192.168.1.59", mac="AA:BB:CC:00:00:09")
     snapshot = env.store.snapshot()
     assert [(s["numara"], s["status"]) for s in snapshot["students"]] == [
-        ("2021001", "absent"), ("2021002", "ok"), ("2021003", "absent"), ("2021009", "warn")]
+        ("2021000001", "absent"), ("2021000002", "ok"), ("2021000003", "absent"), ("2021000009", "warn")]
     assert snapshot["summary"]["total"] == 2 and snapshot["summary"]["absent"] == 2
 
     # Still listed while the exam runs and after it ended.
     env.choose_folder()
     env.upload_exam()
     env.start()
-    assert env.snapshot_student("2021001")["status"] == "absent"
+    assert env.snapshot_student("2021000001")["status"] == "absent"
     env.panel.post("/panel/api/end", headers=PANEL)
-    assert env.snapshot_student("2021001")["status"] == "absent"
-    assert env.snapshot_student("2021002")["status"] == "nosubmit"
+    assert env.snapshot_student("2021000001")["status"] == "absent"
+    assert env.snapshot_student("2021000002")["status"] == "nosubmit"
 
 
 # ---------------------------------------------------------------------- settings in the panel
@@ -1056,7 +1170,7 @@ def test_settings_changed_in_the_panel_take_effect_at_once(env: Env):
     assert env.cfg.disconnect_s == 20 and env.cfg.close_after_busy_s == 300
     assert env.student().get("/api/info").json()["retention_note"] == "Kayıtlar 30 gün saklanır."
     # The picture quality reaches a student at the next login.
-    _, again = env.login(numara="2021002", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
+    _, again = env.login(numara="2021000002", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
     assert (again["stream"]["fps"], again["stream"]["width"], again["stream"]["bitrate_kbps"]) == (3, 960, 300)
 
     # Kept for the next start; class details and settings share the file without losing each other.
@@ -1112,33 +1226,33 @@ def test_panel_settings_stay_in_force_when_the_settings_file_is_read_again(env: 
 
 
 def test_same_computer_warning_names_everybody_who_used_it_before(env: Env):
-    upload_roster(env, [[2021001, "Ali", "Veli"]])
-    env.login(numara="2021001", ad="Alican", soyad="Velioğlu", mac="AA:BB:CC:00:00:01")   # typed another name
-    env.login(numara="2021002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:01", ip="192.168.1.51")
-    env.login(numara="2021003", ad="Ece", soyad="Su", mac="AA:BB:CC:00:00:01", ip="192.168.1.52")
-    message = next(a["message"] for a in env.alerts("mac_reuse") if a["numara"] == "2021003")
+    upload_roster(env, [[2021000001, "Ali", "Veli"]])
+    env.login(numara="2021000001", ad="Alican", soyad="Velioğlu", mac="AA:BB:CC:00:00:01")   # typed another name
+    env.login(numara="2021000002", ad="Can", soyad="Er", mac="AA:BB:CC:00:00:01", ip="192.168.1.51")
+    env.login(numara="2021000003", ad="Ece", soyad="Su", mac="AA:BB:CC:00:00:01", ip="192.168.1.52")
+    message = next(a["message"] for a in env.alerts("mac_reuse") if a["numara"] == "2021000003")
     # What was typed at the login, not the name on the list.
-    assert "daha önce 2021001 Alican Velioğlu, 2021002 Can Er giriş yapmıştı" in message
+    assert "daha önce 2021000001 Alican Velioğlu, 2021000002 Can Er giriş yapmıştı" in message
     env.choose_folder()
-    env.store.write_all_student_alerts()
-    log_file = next(env.store.dir_alerts.glob("2021003_*.csv")).read_text(encoding="utf-8-sig")
-    assert "2021001 Alican Velioğlu, 2021002 Can Er" in log_file
+    env.store.write_all_student_logs()
+    log_file = next(env.store.dir_alerts.glob("2021000003_*.csv")).read_text(encoding="utf-8-sig")
+    assert "2021000001 Alican Velioğlu, 2021000002 Can Er" in log_file
 
 
 # ------------------------------------------------------------- adding a student by hand
 
 
 def test_a_student_can_be_added_to_the_list_by_hand_at_any_time(env: Env):
-    upload_roster(env, [[2021001, "Ali", "Veli"]])
-    stranger, session = env.login(numara="2021005", ad="Elif", soyad="Şahin", ip="192.168.1.55",
+    upload_roster(env, [[2021000001, "Ali", "Veli"]])
+    stranger, session = env.login(numara="2021000005", ad="Elif", soyad="Şahin", ip="192.168.1.55",
                                   mac="AA:BB:CC:00:00:05")
-    assert env.snapshot_student("2021005")["roster"] == "not_in_list"
+    assert env.snapshot_student("2021000005")["roster"] == "not_in_list"
 
     # Before the exam: somebody who is not here yet.
     added = env.panel.post("/panel/api/roster/add", headers=PANEL,
-                           json={"numara": " 2021009 ", "ad": "  zeynep ", "soyad": "Ak"})
-    assert added.status_code == 200 and added.json() == {"numara": "2021009", "ad": "zeynep", "soyad": "Ak"}
-    waiting = env.snapshot_student("2021009")
+                           json={"numara": " 2021000009 ", "ad": "  zeynep ", "soyad": "Ak"})
+    assert added.status_code == 200 and added.json() == {"numara": "2021000009", "ad": "zeynep", "soyad": "Ak"}
+    waiting = env.snapshot_student("2021000009")
     assert waiting["status"] == "absent" and waiting["manual"] is True
 
     # During the exam: the student who was reported as "not on the list".
@@ -1146,67 +1260,68 @@ def test_a_student_can_be_added_to_the_list_by_hand_at_any_time(env: Env):
     env.upload_exam()
     env.start()
     assert env.panel.post("/panel/api/roster/add", headers=PANEL,
-                          json={"numara": "2021005", "ad": "Elif", "soyad": "Şahin"}).status_code == 200
-    assert env.snapshot_student("2021005")["roster"] == "ok"
+                          json={"numara": "2021000005", "ad": "Elif", "soyad": "Şahin"}).status_code == 200
+    assert env.snapshot_student("2021000005")["roster"] == "ok"
     # After the exam as well.
     env.panel.post("/panel/api/end", headers=PANEL)
     assert env.panel.post("/panel/api/roster/add", headers=PANEL,
-                          json={"numara": "2021010", "ad": "Jale", "soyad": "Arslan"}).status_code == 200
+                          json={"numara": "2021000010", "ad": "Jale", "soyad": "Arslan"}).status_code == 200
 
     snapshot = env.store.snapshot()
     assert snapshot["roster"]["count"] == 4 and snapshot["roster"]["manual"] == 3
-    assert [s["numara"] for s in snapshot["students"]] == ["2021001", "2021005", "2021009", "2021010"]
+    assert [s["numara"] for s in snapshot["students"]] == ["2021000001", "2021000005", "2021000009", "2021000010"]
     messages = [e.message for e in env.store.events if e.type == "roster_added"]
-    assert messages[0] == "Öğrenci listeye elle eklendi: 2021009 zeynep Ak" and len(messages) == 3
+    assert messages[0] == "Öğrenci listeye elle eklendi: 2021000009 zeynep Ak" and len(messages) == 3
 
     for bad, status, text in (
-        ({"numara": "2021009", "ad": "Zeynep", "soyad": "Ak"}, 409, "zaten var"),
-        ({"numara": "20 21", "ad": "A", "soyad": "B"}, 422, "harf ve rakam"),
-        ({"numara": "2021011", "ad": "", "soyad": "B"}, 422, "boş bırakılamaz"),
+        ({"numara": "2021000009", "ad": "Zeynep", "soyad": "Ak"}, 409, "zaten var"),
+        ({"numara": "20 21", "ad": "A", "soyad": "B"}, 422, "10 haneli"),
+        ({"numara": "202100001", "ad": "A", "soyad": "B"}, 422, "10 haneli"),
+        ({"numara": "2021000011", "ad": "", "soyad": "B"}, 422, "boş bırakılamaz"),
     ):
         response = env.panel.post("/panel/api/roster/add", headers=PANEL, json=bad)
         assert response.status_code == status and text in response.json()["error"], response.text
     assert env.student().post("/panel/api/roster/add", headers=PANEL, json={}).status_code == 403
 
     # A new list file replaces the list but keeps who was added by hand.
-    upload_roster(env, [[2021001, "Ali", "Veli"], [2021002, "Ayşe", "Yılmaz"], [2021009, "Zeynep", "Ak"]])
-    assert sorted(env.store.roster) == ["2021001", "2021002", "2021005", "2021009", "2021010"]
-    assert env.store.roster["2021009"].manual is False and env.store.roster["2021009"].ad == "Zeynep"
+    upload_roster(env, [[2021000001, "Ali", "Veli"], [2021000002, "Ayşe", "Yılmaz"], [2021000009, "Zeynep", "Ak"]])
+    assert sorted(env.store.roster) == ["2021000001", "2021000002", "2021000005", "2021000009", "2021000010"]
+    assert env.store.roster["2021000009"].manual is False and env.store.roster["2021000009"].ad == "Zeynep"
 
     # Survives a restart.
     env.store.save()
     restored = Store(env.cfg)
     restored.load()
-    assert restored.roster["2021010"].manual is True and restored.roster["2021001"].manual is False
+    assert restored.roster["2021000010"].manual is True and restored.roster["2021000001"].manual is False
 
 
 def test_students_added_by_hand_alone_do_not_flag_everybody_else(env: Env):
-    env.login(numara="2021001")
-    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021002", "ad": "Ayşe", "soyad": "Yılmaz"})
-    env.login(numara="2021003", ad="Can", soyad="Demir", ip="192.168.1.53", mac="AA:BB:CC:00:00:03")
-    assert env.snapshot_student("2021001")["roster"] == "no_roster"
-    assert env.snapshot_student("2021003")["roster"] == "no_roster"
+    env.login(numara="2021000001")
+    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021000002", "ad": "Ayşe", "soyad": "Yılmaz"})
+    env.login(numara="2021000003", ad="Can", soyad="Demir", ip="192.168.1.53", mac="AA:BB:CC:00:00:03")
+    assert env.snapshot_student("2021000001")["roster"] == "no_roster"
+    assert env.snapshot_student("2021000003")["roster"] == "no_roster"
     assert not env.alerts("not_in_roster")
     # The name typed at the login is checked against the hand-made entry.
-    env.login(numara="2021002", ad="Başka", soyad="Biri", ip="192.168.1.52", mac="AA:BB:CC:00:00:02")
-    assert env.snapshot_student("2021002")["roster"] == "name_mismatch"
-    assert env.snapshot_student("2021002")["ad"] == "Ayşe"
+    env.login(numara="2021000002", ad="Başka", soyad="Biri", ip="192.168.1.52", mac="AA:BB:CC:00:00:02")
+    assert env.snapshot_student("2021000002")["roster"] == "name_mismatch"
+    assert env.snapshot_student("2021000002")["ad"] == "Ayşe"
 
 
 def test_a_student_who_has_not_logged_in_can_be_taken_off_the_list(env: Env):
-    upload_roster(env, [[2021001, "Ali", "Veli"], [2021002, "Ayşe", "Yılmaz"]])
-    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021099", "ad": "Yanlış", "soyad": "Numara"})
-    env.login(numara="2021001")
+    upload_roster(env, [[2021000001, "Ali", "Veli"], [2021000002, "Ayşe", "Yılmaz"]])
+    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021000099", "ad": "Yanlış", "soyad": "Numara"})
+    env.login(numara="2021000001")
 
-    assert env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021099"}).status_code == 200
-    assert env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021002"}).status_code == 200
-    assert [s["numara"] for s in env.store.snapshot()["students"]] == ["2021001"]
+    assert env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021000099"}).status_code == 200
+    assert env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021000002"}).status_code == 200
+    assert [s["numara"] for s in env.store.snapshot()["students"]] == ["2021000001"]
     assert [e.message for e in env.store.events if e.type == "roster_removed"][0] == \
-        "Öğrenci listeden çıkarıldı: 2021099 Yanlış Numara"
+        "Öğrenci listeden çıkarıldı: 2021000099 Yanlış Numara"
 
-    logged_in = env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021001"})
+    logged_in = env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021000001"})
     assert logged_in.status_code == 409 and "Giriş yapmış" in logged_in.json()["error"]
-    assert env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021500"}).status_code == 404
+    assert env.panel.post("/panel/api/roster/remove", headers=PANEL, json={"numara": "2021000500"}).status_code == 404
 
 
 # ------------------------------------------------------------ Alt+Tab and the desktop
@@ -1227,7 +1342,7 @@ def test_switching_windows_and_the_desktop_are_logged_but_never_a_warning(env: E
     # ... or recognised by its title (student programs installed before this change).
     report(name="explorer.exe", title="Program Manager", seconds=12)
     report(name="Explorer.EXE", title="Task Switching", seconds=6)
-    student = env.snapshot_student("2021001")
+    student = env.snapshot_student("2021000001")
     assert student["status"] == "ok" and student["warn_count"] == 0
     assert not env.alerts("foreign_foreground")
     logged = [e for e in env.store.events if e.type == "foreign_foreground"]
@@ -1238,7 +1353,7 @@ def test_switching_windows_and_the_desktop_are_logged_but_never_a_warning(env: E
     report(name="explorer.exe", title="Belgeler", seconds=6)
     report(name="winver.exe", title="Windows Hakkında", seconds=6)
     assert len(env.alerts("foreign_foreground")) == 2
-    assert env.snapshot_student("2021001")["status"] == "warn"
+    assert env.snapshot_student("2021000001")["status"] == "warn"
     assert "Packet Tracer dışında bir pencere önde: explorer.exe (6 sn) — pencere: “Belgeler”" in \
         [a["message"] for a in env.alerts("foreign_foreground")]
 
@@ -1248,13 +1363,13 @@ def test_switching_windows_and_the_desktop_are_logged_but_never_a_warning(env: E
 
 def test_marking_as_seen_tells_how_many_warnings_there_were(env: Env):
     client, _ = env.login()
-    env.login(numara="2021002", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
+    env.login(numara="2021000002", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
     for _ in range(3):
         client.post("/api/event", json={"type": "process_killed", "details": {"name": "chrome.exe"}, "ts": time.time()})
-    assert env.panel.post("/panel/api/ack", headers=PANEL, json={"numara": "2021002"}).json() == {"ok": True, "count": 0}
-    assert env.panel.post("/panel/api/ack", headers=PANEL, json={"numara": "2021001"}).json() == {"ok": True, "count": 3}
+    assert env.panel.post("/panel/api/ack", headers=PANEL, json={"numara": "2021000002"}).json() == {"ok": True, "count": 0}
+    assert env.panel.post("/panel/api/ack", headers=PANEL, json={"numara": "2021000001"}).json() == {"ok": True, "count": 3}
     assert env.panel.post("/panel/api/ack", headers=PANEL, json={}).json()["count"] == 0
-    assert env.snapshot_student("2021001")["status"] == "ok"
+    assert env.snapshot_student("2021000001")["status"] == "ok"
 
 
 # ------------------------------------------------------------- recording folders
@@ -1266,27 +1381,27 @@ def test_recordings_go_into_a_folder_with_the_students_name(env: Env, monkeypatc
     calls = []
     monkeypatch.setattr(app_module, "set_path_record_path", lambda api, name, path: calls.append((name, path)))
 
-    env.login(numara="2021001", ad="Şükrü Çağrı", soyad="Işık")
+    env.login(numara="2021000001", ad="Şükrü Çağrı", soyad="Işık")
     assert env.store.record_paths() == {} and calls == []          # no exam folder yet: nothing to record into
     env.choose_folder()
     recordings = env.exam_dir.resolve() / "Kayıtlar"
     expected = str(recordings / "%path_SukruCagriIsik" / "%Y-%m-%d_%H-%M-%S_%z")
-    assert env.store.record_paths() == {"2021001": expected}
-    assert env.snapshot_student("2021001")["record_folder"] == "2021001_SukruCagriIsik"
+    assert env.store.record_paths() == {"2021000001": expected}
+    assert env.snapshot_student("2021000001")["record_folder"] == "2021000001_SukruCagriIsik"
 
     # A student who logs in gets the folder at once (before the screen stream starts).
-    env.login(numara="2021002", ad="Ayşe", soyad="Yılmaz", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
-    assert ("2021002", str(recordings / "%path_AyseYilmaz" / "%Y-%m-%d_%H-%M-%S_%z")) in calls
-    assert ("2021001", expected) in calls
+    env.login(numara="2021000002", ad="Ayşe", soyad="Yılmaz", ip="192.168.1.51", mac="AA:BB:CC:00:00:02")
+    assert ("2021000002", str(recordings / "%path_AyseYilmaz" / "%Y-%m-%d_%H-%M-%S_%z")) in calls
+    assert ("2021000001", expected) in calls
     # The name on the list is the one that is used.
-    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021002", "ad": "Ayşe Nur", "soyad": "Yılmaz"})
-    assert env.snapshot_student("2021002")["record_folder"] == "2021002_AyseNurYilmaz"
+    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021000002", "ad": "Ayşe Nur", "soyad": "Yılmaz"})
+    assert env.snapshot_student("2021000002")["record_folder"] == "2021000002_AyseNurYilmaz"
 
 
 def test_new_exam_keeps_what_was_entered_in_the_panel(env: Env):
     env.panel.post("/panel/api/identity", headers=PANEL, json={"sinif_adi": "A-1", "ogretmen_adi": "Ada Kaya"})
     env.panel.post("/panel/api/settings", headers=PANEL, json={"programs": ["putty.exe"], "kill_countdown_s": 3})
-    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021002", "ad": "Ayşe", "soyad": "Yılmaz"})
+    env.panel.post("/panel/api/roster/add", headers=PANEL, json={"numara": "2021000002", "ad": "Ayşe", "soyad": "Yılmaz"})
     env.panel.post("/panel/api/reset", headers=PANEL)
 
     assert env.panel.get("/panel/api/state").json()["class"]["saved"] is True   # not asked again
@@ -1294,7 +1409,54 @@ def test_new_exam_keeps_what_was_entered_in_the_panel(env: Env):
     assert view["values"]["programs"] == ["putty.exe"] and view["defaults"]["programs"] == []
     assert view["defaults"]["kill_countdown_s"] == 10 and view["values"]["kill_countdown_s"] == 3
     assert env.cfg.policy.patterns[-1] == "**\\putty.exe"
-    assert env.store.roster["2021002"].manual is True
+    assert env.store.roster["2021000002"].manual is True
     # Saving something else afterwards does not lose the settings.
     env.panel.post("/panel/api/identity", headers=PANEL, json={"sinif_adi": "A-2", "ogretmen_adi": "Ada Kaya"})
     assert json.loads(env.store.settings_path.read_text(encoding="utf-8"))["ayarlar"]["programs"] == ["putty.exe"]
+
+
+# ------------------------------------------------------- starting the recording later
+
+
+def test_recording_can_be_started_while_the_exam_runs(env: Env):
+    client, _ = env.login()
+    env.choose_folder()
+    env.upload_exam()
+    # Not before the exam: that is what "Ekranları kaydet" in the start window is for.
+    early = env.panel.post("/panel/api/record/start", headers=PANEL)
+    assert early.status_code == 409 and "Sınav başlamadı" in early.json()["error"]
+
+    env.panel.post("/panel/api/start", headers=PANEL, json={"record": False})
+    assert env.store.record_path == "" and env.panel.get("/panel/api/state").json()["exam"]["record"] is False
+
+    started = env.panel.post("/panel/api/record/start", headers=PANEL)
+    assert started.status_code == 200 and started.json() == {"record": True}
+    assert env.store.record_path == str(env.exam_dir.resolve() / "Kayıtlar" / "%path" / "%Y-%m-%d_%H-%M-%S_%z")
+    assert env.panel.get("/panel/api/state").json()["exam"]["record"] is True
+    assert [e.message for e in env.store.events if e.type == "recording_started"] == \
+        ["Ekran kaydı sınav sürerken başlatıldı"]
+    # Written into every student's own log, too.
+    env.store.flush_student_logs()
+    assert "sınav;Ekran kaydı sınav sürerken başlatıldı" in \
+        next(env.store.dir_alerts.glob("2021000001_*.csv")).read_text(encoding="utf-8-sig")
+
+    again = env.panel.post("/panel/api/record/start", headers=PANEL)
+    assert again.status_code == 409 and "zaten açık" in again.json()["error"]
+    assert env.student().post("/panel/api/record/start", headers=PANEL).status_code == 403
+    # The choice survives a restart of the system.
+    env.store.save()
+    restored = Store(env.cfg)
+    restored.load()
+    assert restored.record_enabled is True
+
+
+def test_example_list_file_can_be_downloaded_and_uploaded_as_it_is(env: Env):
+    response = env.panel.get("/panel/api/roster/template.xlsx")
+    assert response.status_code == 200
+    assert 'filename="ogrenci-listesi-ornek.xlsx"' in response.headers["content-disposition"]
+    assert env.student().get("/panel/api/roster/template.xlsx").status_code == 403
+    uploaded = env.panel.post("/panel/api/roster", headers=PANEL,
+                              files={"file": ("ogrenci-listesi-ornek.xlsx", response.content, "application/octet-stream")})
+    assert uploaded.status_code == 200 and uploaded.json() == {"count": 2}
+    assert [(e.numara, e.ad, e.soyad) for e in env.store.roster.values()] == \
+        [("2021000001", "Ali", "Veli"), ("2021000002", "Ayşe", "Yılmaz")]

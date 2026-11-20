@@ -481,9 +481,65 @@ function setFit(on) {
 function setSideCollapsed(collapsed) {
   sideCollapsed = collapsed;
   $('side').classList.toggle('collapsed', collapsed);
+  $('side').parentElement.classList.toggle('side-collapsed', collapsed);
   setPref('sideCollapsed', collapsed ? '1' : '0');
   layoutGrid();
   setTimeout(layoutGrid, 220);      // genişlik geçişi bittikten sonra bir kez daha
+}
+
+/* Öğrenci listesinin genişliği: ekranlarla liste arasındaki tutamaç fareyle sürüklenir.
+ * Seçilen genişlik hatırlanır; tutamaca çift tıklamak varsayılan genişliğe döner. */
+const SIDE_MIN = 260;
+function sideMax() {
+  return Math.max(SIDE_MIN, Math.min(900, Math.round(window.innerWidth * 0.6)));
+}
+function setSideWidth(width, remember) {
+  const side = $('side');
+  if (!width) {
+    side.style.removeProperty('--side-width');
+    if (remember) setPref('sideWidth', '');
+  } else {
+    const clamped = Math.max(SIDE_MIN, Math.min(sideMax(), Math.round(width)));
+    side.style.setProperty('--side-width', `${clamped}px`);
+    if (remember) setPref('sideWidth', String(clamped));
+  }
+  layoutGrid();
+}
+function bindSideResize() {
+  const handle = $('sideResize');
+  let dragging = false;
+  let frame = 0;
+  let pending = 0;
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    dragging = true;
+    handle.setPointerCapture(event.pointerId);
+    document.body.classList.add('resizing');
+    event.preventDefault();
+  });
+  handle.addEventListener('pointermove', (event) => {
+    if (!dragging) return;
+    pending = window.innerWidth - event.clientX;      // liste sağ kenara yaslıdır
+    if (!frame) frame = requestAnimationFrame(() => { frame = 0; setSideWidth(pending, false); });
+  });
+  const finish = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove('resizing');
+    try { handle.releasePointerCapture(event.pointerId); } catch (_) { /* zaten bırakılmış */ }
+    if (pending) setSideWidth(pending, true);
+    pending = 0;
+  };
+  handle.addEventListener('pointerup', finish);
+  handle.addEventListener('pointercancel', finish);
+  handle.addEventListener('dblclick', () => setSideWidth(0, true));
+  const saved = Number(pref('sideWidth', '0'));
+  if (saved) setSideWidth(saved, false);
+  // Pencere küçülürse liste ekranın yarısından fazlasını kaplamasın.
+  window.addEventListener('resize', () => {
+    const current = parseInt($('side').style.getPropertyValue('--side-width'), 10);
+    if (current && current > sideMax()) setSideWidth(current, false);
+  });
 }
 
 function setTileSize(value) {
@@ -509,6 +565,8 @@ function renderHeader() {
 
   $('setup').hidden = state !== 'WAITING';
   $('btnEnd').hidden = state !== 'RUNNING';
+  // Sınav kayıtsız başlatıldıysa kayıt sonradan başlatılabilir.
+  $('btnRecordStart').hidden = !(state === 'RUNNING' && !S.exam.record);
   $('btnResetTop').hidden = state !== 'ENDED';
   $('btnReset').disabled = state === 'RUNNING';
   // Sınav sürerken ad değiştirilemez: öğrenciler bu adla bağlandı.
@@ -1272,6 +1330,58 @@ async function openExamFolder() {
   }
 }
 
+/* ----------------------------------------------------------------- öğrenci listesi penceresi */
+
+/* Dosyanın nasıl olması gerektiğini gösterir; dosya buradan seçilir. */
+function openRosterDialog() {
+  closeMenu();
+  let current = '';
+  if (S && S.roster.name) {
+    current = `Şu an yüklü: ${S.roster.name} (${S.roster.count} öğrenci). Yeni dosya seçerseniz liste onunla `
+      + 'değişir; elle eklediğiniz öğrenciler korunur.';
+  }
+  setText($('rosterCurrent'), current);
+  $('rosterCurrent').hidden = !current;
+  setText($('rosterChoose'), S && S.roster.name ? 'Başka dosya seç' : 'Dosya seç');
+  $('rosterDialog').hidden = false;
+  $('rosterChoose').focus();
+}
+
+async function uploadRoster() {
+  const input = $('fileRoster');
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file, file.name);
+  try {
+    const data = await api('/panel/api/roster', { body: form });
+    closeDialogs();
+    toast(`Öğrenci listesi yüklendi: ${data.count} öğrenci`);
+  } catch (error) {
+    toast(error.message, true);       // pencere açık kalır: biçim orada yazıyor
+  }
+}
+
+/* ----------------------------------------------------------------- kaydı sonradan başlatma */
+
+function openRecordDialog() {
+  if (!S || S.exam.state !== 'RUNNING' || S.exam.record) return;
+  closeMenu();
+  $('recordDialog').hidden = false;
+  $('recordCancel').focus();
+}
+
+async function startRecording() {
+  try {
+    await api('/panel/api/record/start');
+    closeDialogs();
+    toast('Ekran kaydı başlatıldı. Bu andan sonrası kaydediliyor.');
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
 /* ----------------------------------------------------------------- elle öğrenci ekleme */
 
 /* prefill: "listede yok" uyarısı alan öğrencinin girişte yazdıkları (tek tıkla eklemek için). */
@@ -1437,7 +1547,7 @@ function openDialog(id, focusId, value) {
 }
 
 const DIALOGS = ['identityDialog', 'folderDialog', 'startDialog', 'endDialog', 'shutdownDialog', 'settingsDialog',
-  'studentDialog'];
+  'studentDialog', 'rosterDialog', 'recordDialog'];
 
 function closeDialogs() {
   for (const id of DIALOGS) $(id).hidden = true;
@@ -1579,11 +1689,14 @@ function bindControls() {
   $('fileExam').addEventListener('change', () => uploadFile(
     $('fileExam'), '/panel/api/exam-file', (file) => `Sınav dosyası yüklendi: ${file.name}`));
 
-  const chooseRoster = () => { closeMenu(); $('fileRoster').click(); };
-  $('btnRoster').addEventListener('click', chooseRoster);
-  $('btnRosterMenu').addEventListener('click', chooseRoster);
-  $('fileRoster').addEventListener('change', () => uploadFile(
-    $('fileRoster'), '/panel/api/roster', (file, data) => `Öğrenci listesi yüklendi: ${data.count} öğrenci`));
+  $('btnRoster').addEventListener('click', openRosterDialog);
+  $('btnRosterMenu').addEventListener('click', openRosterDialog);
+  $('rosterChoose').addEventListener('click', () => $('fileRoster').click());
+  $('rosterCancel').addEventListener('click', closeDialogs);
+  $('fileRoster').addEventListener('change', uploadRoster);
+  $('btnRecordStart').addEventListener('click', openRecordDialog);
+  $('recordCancel').addEventListener('click', closeDialogs);
+  $('recordGo').addEventListener('click', startRecording);
 
   $('btnReset').addEventListener('click', resetExam);
   $('btnResetTop').addEventListener('click', resetExam);
@@ -1629,6 +1742,8 @@ function bindControls() {
   $('sideRail').addEventListener('click', () => setSideCollapsed(false));
   sideCollapsed = pref('sideCollapsed', '0') === '1';
   $('side').classList.toggle('collapsed', sideCollapsed);
+  $('side').parentElement.classList.toggle('side-collapsed', sideCollapsed);
+  bindSideResize();
   $('side').addEventListener('transitionend', (event) => { if (event.propertyName === 'width') layoutGrid(); });
 
   // Ekran boyutu: − / kaydırıcı / + elle boyut verir, "Sığdır" otomatik boyuta döner.

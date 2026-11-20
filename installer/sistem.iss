@@ -5,7 +5,7 @@
 ;  Kurulum internet gerektirmez. Derleme: installer\hazirla.ps1
 ; ============================================================================
 #ifndef AppVersion
-  #define AppVersion "1.0.2"
+  #define AppVersion "1.0.3"
 #endif
 #ifndef Source
   #define Source "..\build\sistem"

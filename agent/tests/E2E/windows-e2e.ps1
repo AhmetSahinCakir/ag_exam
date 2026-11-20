@@ -510,7 +510,7 @@ function Check-PlainTexts([string]$where) {
 }
 
 function Dump-Events {
-    foreach ($n in @('2021001', '2021002', '2021003', '2021004', '2021005', '')) {
+    foreach ($n in @('2021000001', '2021000002', '2021000003', '2021000004', '2021000005', '')) {
         Write-Host "  olaylar ($n):"
         Get-Events $n | ForEach-Object { Write-Host "    [$($_.severity)] $($_.type): $($_.message)" }
     }
@@ -520,6 +520,8 @@ function Start-Agent {
     $script:agent = Start-Process -FilePath (Join-Path $AgentDir 'SinavAjan.exe') -WorkingDirectory $AgentDir -PassThru
     Write-Host "  ajan başlatıldı (pid $($script:agent.Id))"
 }
+
+$script:numaraRuleChecked = $false
 
 function Login-Agent([string]$numara, [string]$ad, [string]$soyad) {
     # Discovery: either the confirmation screen (one server) or the server list (several answers).
@@ -537,6 +539,19 @@ function Login-Agent([string]$numara, [string]$ad, [string]$soyad) {
     Shot "onay-$numara"
     Click-Element $found 'Doğru'
 
+    if (-not $script:numaraRuleChecked) {
+        # A number that is not 10 digits is refused on the login screen itself (first login only).
+        $script:numaraRuleChecked = $true
+        Check ([bool](Wait-AgentText '^Öğrenci numarası \(10 haneli\)$' 10)) 'giriş: numaranın 10 haneli olduğu kutunun üstünde yazıyor'
+        Set-AgentText 'Öğrenci numarası' '202100001'
+        Set-AgentText 'Ad' $ad
+        Set-AgentText 'Soyad' $soyad
+        Click-Agent '^Giriş yap$'
+        Check ([bool](Wait-AgentText '10 haneli olmalı' 8)) 'giriş: 9 haneli numara kabul edilmiyor ve neden olduğu yazıyla söyleniyor'
+        Shot 'giris-kisa-numara'
+        Check (-not (Get-Student '202100001')) 'giriş: 9 haneli numarayla sunucuya giriş yapılmadı'
+    }
+
     Set-AgentText 'Öğrenci numarası' $numara
     Set-AgentText 'Ad' $ad
     Set-AgentText 'Soyad' $soyad
@@ -548,7 +563,7 @@ function Login-Agent([string]$numara, [string]$ad, [string]$soyad) {
 
 $mediamtx = $null
 $server = $null
-$numara = '2021001'
+$numara = '2021000001'
 $localDir = Join-Path $env:LOCALAPPDATA 'SinavAjan'
 
 try {
@@ -1011,8 +1026,8 @@ klasorler:
     Start-Sleep -Seconds 2
     Check (-not (Get-Process ffmpeg -ErrorAction SilentlyContinue)) 'ajan kapanınca ffmpeg.exe de kapandı'
     Check (-not (Test-Path -LiteralPath $unpackedFfmpeg)) 'ajan kapanınca ffmpeg kopyası silindi'
-    $submitted = Join-Path $submissionsDir '2021001_SukruCagriIsik.pka'
-    Check (Test-Path $submitted) 'teslim dosyası sınav klasöründeki "Teslimler"e Türkçe karakterler çevrilerek kaydedildi (2021001_SukruCagriIsik.pka)'
+    $submitted = Join-Path $submissionsDir '2021000001_SukruCagriIsik.pka'
+    Check (Test-Path $submitted) 'teslim dosyası sınav klasöründeki "Teslimler"e Türkçe karakterler çevrilerek kaydedildi (2021000001_SukruCagriIsik.pka)'
     if (Test-Path $submitted) {
         Check ((Get-FileHash $submitted -Algorithm SHA256).Hash.ToLowerInvariant() -eq $localHash) 'klasördeki dosya öğrencinin kaydettiğiyle birebir aynı'
     }
@@ -1035,7 +1050,7 @@ klasorler:
     Check ([bool]$present) 'dosya geri konunca yeniden "teslim etti"'
 
     Step 'Klasöre elle konan dosya teslim sayılıyor ve yayın duruyor'
-    $third = '2021003'
+    $third = '2021000003'
     Start-Agent
     Login-Agent $third 'Elden' 'Teslim'
     Check ([bool](Wait-AgentText '^Sınav sürüyor$' 40)) 'üçüncü öğrenci sınavda'
@@ -1070,7 +1085,7 @@ klasorler:
 
     # ------------------------------------------------- forced kill: Job Object
     Step 'Ajan zorla sonlandırılınca ffmpeg de kapanıyor (Job Object) ve kutu kırmızıya dönüyor'
-    $second = '2021002'
+    $second = '2021000002'
     Start-Agent
     Login-Agent $second 'Deneme' 'Öğrenci'
     $streaming = Wait-Until { $s = Get-Student $second; if ($s -and $s.stream_ready) { $s } } 40
@@ -1089,7 +1104,7 @@ klasorler:
 
     # ------------------------------------------------ extra time, end of exam, late submission
     Step 'Ek süre; sınav bitince program kapanmıyor, geç teslim alınıyor'
-    $fourth = '2021004'
+    $fourth = '2021000004'
     Start-Agent
     Login-Agent $fourth 'Geç' 'Kalan'
     Check ([bool](Wait-AgentText '^Sınav sürüyor$' 40)) 'dördüncü öğrenci sınavda'
@@ -1139,15 +1154,17 @@ klasorler:
     $st = Get-Student $fourth
     Check ($st.status -eq 'done' -and $st.submission.late) 'panelde teslim geç olarak işaretli'
     Check ((Count-Events $fourth 'late_submission') -eq 1) 'öğretmene "Geç teslim" uyarısı'
-    Check (Test-Path (Join-Path $submissionsDir '2021004_GecKalan.pka')) 'geç teslim dosyası Teslimler klasöründe'
+    Check (Test-Path (Join-Path $submissionsDir '2021000004_GecKalan.pka')) 'geç teslim dosyası Teslimler klasöründe'
 
     Step 'Uyarılar öğrenci öğrenci ayrı dosyada'
     $alertsDir = Join-Path $examFolder 'Uyarılar'
-    $lateFile = Join-Path $alertsDir '2021004_GecKalan.csv'
-    Check ((Test-Path $lateFile) -and ((Get-Content $lateFile -Raw -Encoding UTF8) -match 'Geç teslim')) 'Uyarılar\2021004_GecKalan.csv içinde geç teslim uyarısı'
-    $firstFile = Join-Path $alertsDir '2021001_SukruCagriIsik.csv'
+    $lateFile = Join-Path $alertsDir '2021000004_GecKalan.csv'
+    Check ((Test-Path $lateFile) -and ((Get-Content $lateFile -Raw -Encoding UTF8) -match 'Geç teslim')) 'Uyarılar\2021000004_GecKalan.csv içinde geç teslim uyarısı'
+    $firstFile = Join-Path $alertsDir '2021000001_SukruCagriIsik.csv'
     $firstText = if (Test-Path $firstFile) { Get-Content $firstFile -Raw -Encoding UTF8 } else { '' }
-    Check ($firstText -match 'kapatıldı' -and $firstText -match 'Packet Tracer dışında bir pencere önde') 'Uyarılar\2021001_SukruCagriIsik.csv içinde o öğrencinin uyarıları'
+    Check ($firstText -match 'kapatıldı' -and $firstText -match 'Packet Tracer dışında bir pencere önde') 'Uyarılar\2021000001_SukruCagriIsik.csv içinde o öğrencinin uyarıları'
+    Check ($firstText -match 'ÖĞRENCİ' -and $firstText -match "Numara;$numara" -and $firstText -match 'Ad soyad;Şükrü Çağrı Işık' -and $firstText -match ('Bilgisayar adı;' + [regex]::Escape($env:COMPUTERNAME)) -and $firstText -match 'MAC adresi;' -and $firstText -match 'Teslim;') 'öğrencinin dosyasının başında bilgileri var (numara, ad soyad, bilgisayar adı, MAC adresi, teslim)'
+    Check ($firstText -match ';bilgi;Öndeki pencere' -and $firstText -match ';bilgi;Giriş yaptı' -and $firstText -match ';sınav;"?Sınav başladı') 'dosyada uyarı olmayan kayıtlar da var (giriş, pencere değişimleri, sınavın başlaması)'
     $fileNames = @(Get-ChildItem $alertsDir -Filter *.csv | ForEach-Object { $_.Name })
     Write-Host "  Uyarılar klasörü: $($fileNames -join ', ')"
     Check (@($fileNames | Where-Object { $_ -notmatch '^\d+_[A-Za-z]+\.csv$' }).Count -eq 0) 'uyarı dosyalarının adı <numara>_<AdSoyad>.csv biçiminde'
@@ -1175,7 +1192,7 @@ klasorler:
     Curl-Text @('-m', '10', '-H', 'X-Panel: 1', '-F', "file=@$exam", "$base/panel/api/exam-file") | Out-Null
     $start = Panel-Post '/panel/api/start' (@{ record = $false } | ConvertTo-Json -Compress)
     Check ($start -match 'RUNNING') "ikinci sınav süresiz ve kayıtsız başladı ($start)"
-    $fifth = '2021005'
+    $fifth = '2021000005'
     Start-Agent
     Login-Agent $fifth 'Son' 'Öğrenci'
     Check ([bool](Wait-AgentText '^Sınav sürüyor$' 40)) 'beşinci öğrenci sınavda'
@@ -1190,6 +1207,22 @@ klasorler:
     Start-Sleep -Seconds 4
     $state = Get-Snapshot
     Check (-not $state.health.recording -and -not (Get-ChildItem (Join-Path $secondFolder 'Kayıtlar') -Recurse -File)) '"Ekranları kaydet" seçilmeyince ekranlar diske yazılmıyor (canlı izleme sürüyor)'
+
+    Step 'Kayıtsız başlayan sınavda kaydı sonradan başlat'
+    $lateRecord = Panel-Post '/panel/api/record/start'
+    Check ($lateRecord -match '"record":\s*true') "“Kaydı başlat”: kayıt sınav sürerken açıldı ($lateRecord)"
+    $recordingLate = Wait-Until { $s = Get-Snapshot; if ($s -and $s.health.recording -and $s.exam.record) { $s } } 15
+    Check ([bool]$recordingLate) 'MediaMTX ekran kaydı sınav sürerken açıldı'
+    $lateFolder = Join-Path (Join-Path $secondFolder 'Kayıtlar') "${fifth}_SonOgrenci"
+    $lateVideo = Wait-Until {
+        $files = @(Get-ChildItem $lateFolder -Filter *.mp4 -ErrorAction SilentlyContinue)
+        if ($files.Count -ge 1 -and ($files | Measure-Object Length -Sum).Sum -gt 20000) { $files }
+    } 40
+    Check ([bool]$lateVideo) "o andan itibaren ekran öğrencinin adıyla kaydediliyor: Kayıtlar\${fifth}_SonOgrenci"
+    $again = Panel-Post '/panel/api/record/start'
+    Check ($again -match '^HATA' -and $again -match '409') "kayıt açıkken yeniden başlatılamıyor ($again)"
+    $recordLogged = Wait-Until { Get-Events '' | Where-Object { $_.type -eq 'recording_started' } | Select-Object -First 1 } 8
+    Check ([bool]$recordLogged) 'kaydın sonradan başlatıldığı olay kaydına yazıldı'
 
     Step 'Son 10 dakika: tek uyarı, kırmızı geri sayım; panel öne atlamıyor'
     $panelHandle = Wait-Until { $h = Get-AgentWindowHandle '^Sınav$'; if ($h -ne [IntPtr]::Zero) { $h } } 10

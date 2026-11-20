@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.RegularExpressions;
 using SinavAjan.Core;
 using SinavAjan.Win;
 
@@ -16,7 +15,6 @@ public sealed class MainForm : Form
     private const string PanelTitle = "Sınav";
     private const int ContentWidth = 340; // logical pixels
     private const int PanelWidth = 228;
-    private static readonly Regex NumaraPattern = new("^[A-Za-z0-9]{1,20}$", RegexOptions.CultureInvariant);
 
     private readonly AgentConfig _config;
     private readonly FfmpegProvider _ffmpeg;
@@ -377,7 +375,13 @@ public sealed class MainForm : Form
         NewScreen();
         AddNote(_server!.Display, 14);
         AddTitle("Giriş", 18);
-        var numara = AddField("Öğrenci numarası", 20);
+        AddLabel($"Öğrenci numarası ({StudentNumber.Digits} haneli)", Theme.Regular(9F), Theme.Muted, 4);
+        var numara = AddInput("Öğrenci numarası", StudentNumber.Digits, 14);
+        // Only digits can be typed; what is pasted is checked when "Giriş yap" is pressed.
+        numara.KeyPress += (_, e) =>
+        {
+            if (!char.IsControl(e.KeyChar) && !StudentNumber.IsDigit(e.KeyChar)) e.Handled = true;
+        };
         var ad = AddField("Ad", 60);
         var soyad = AddField("Soyad", 60);
 
@@ -395,9 +399,9 @@ public sealed class MainForm : Form
                 Soyad = soyad.Text.Trim(),
             };
             error.ForeColor = Theme.Bad;
-            if (!NumaraPattern.IsMatch(request.Numara))
+            if (!StudentNumber.IsValid(request.Numara))
             {
-                error.Text = "Öğrenci numarası yalnızca harf ve rakamlardan oluşmalı.";
+                error.Text = StudentNumber.Rule;
                 numara.Focus();
                 return;
             }

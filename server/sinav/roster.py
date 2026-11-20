@@ -6,7 +6,7 @@ import csv
 import io
 from dataclasses import dataclass
 
-from .naming import NUMARA_RE, header_key
+from .naming import NUMARA_DIGITS, NUMARA_RE, header_key
 
 NUMARA_HEADERS = {
     "numara", "no", "numarasi", "ogrencino", "ogrencinumarasi", "ogrno",
@@ -33,6 +33,26 @@ class RosterEntry:
     soyad: str
     # Added by hand in the panel ("Öğrenci ekle"), not read from the list file.
     manual: bool = False
+
+
+def template_xlsx() -> bytes:
+    """A small example list in the expected layout, to fill in and upload."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "Öğrenci listesi"
+    sheet.append(["Numara", "Ad", "Soyad"])
+    sheet.append(["2021000001", "Ali", "Veli"])
+    sheet.append(["2021000002", "Ayşe", "Yılmaz"])
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    for column, width in (("A", 16), ("B", 22), ("C", 22)):
+        sheet.column_dimensions[column].width = width
+    buffer = io.BytesIO()
+    book.save(buffer)
+    return buffer.getvalue()
 
 
 def _cell_text(value: object) -> str:
@@ -124,9 +144,11 @@ def parse_roster(data: bytes, filename: str) -> list[RosterEntry]:
     else:
         raise RosterError("Öğrenci listesi .xlsx (Excel) veya .csv dosyası olmalı.")
 
-    rows = [row for row in rows if any(_cell_text(cell) for cell in row)]
-    if not rows:
+    # (line in the file, cells) — the line is what a wrong number is reported with
+    numbered = [(line, row) for line, row in enumerate(rows, start=1) if any(_cell_text(cell) for cell in row)]
+    if not numbered:
         raise RosterError("Dosya boş.")
+    rows = [row for _, row in numbered]
 
     header = _find_header(rows)
     if header is not None:
@@ -135,7 +157,7 @@ def parse_roster(data: bytes, filename: str) -> list[RosterEntry]:
         # No recognisable header: accept "numara, ad, soyad" in the first three columns.
         first = rows[0]
         first_numara = _numara_text(first[0]) if first else ""
-        if len(first) >= 2 and NUMARA_RE.match(first_numara) and any(ch.isdigit() for ch in first_numara):
+        if len(first) >= 2 and first_numara.isdigit():
             start = 0
             columns = {"numara": 0, "ad": 1}
             if len(first) >= 3:
@@ -151,15 +173,14 @@ def parse_roster(data: bytes, filename: str) -> list[RosterEntry]:
         return row[col] if col is not None and col < len(row) else None
 
     entries: dict[str, RosterEntry] = {}
-    for row in rows[start:]:
+    wrong: list[str] = []
+    for line, row in numbered[start:]:
         numara = _numara_text(cell(row, "numara"))
         if not numara:
             continue
         if not NUMARA_RE.match(numara):
-            raise RosterError(
-                f"Geçersiz öğrenci numarası: '{numara}'. Numara yalnızca harf ve "
-                "rakamdan oluşmalı (en fazla 20 karakter)."
-            )
+            wrong.append(f"{line}. satır “{numara[:24]}”")
+            continue
         if "ad" in columns:
             ad = _cell_text(cell(row, "ad"))
             soyad = _cell_text(cell(row, "soyad"))
@@ -172,6 +193,12 @@ def parse_roster(data: bytes, filename: str) -> list[RosterEntry]:
                 ad, soyad = soyad, ""
         entries[numara] = RosterEntry(numara=numara, ad=ad, soyad=soyad)
 
+    if wrong:
+        more = f" ve {len(wrong) - 5} satır daha" if len(wrong) > 5 else ""
+        raise RosterError(
+            f"Öğrenci numarası {NUMARA_DIGITS} haneli olmalı (yalnızca rakam). "
+            f"Uymayan: {', '.join(wrong[:5])}{more}. Dosyayı düzeltip yeniden yükleyin."
+        )
     if not entries:
         raise RosterError("Listede hiç öğrenci bulunamadı.")
     return list(entries.values())
