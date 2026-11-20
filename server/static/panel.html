@@ -221,7 +221,8 @@
       </div>
       <p id="extendHint" class="field-hint"></p>
 
-      <p class="field-hint end-note">Sınavı bitirdiğinizde dosya indirme kapanır ve ekran kaydı durur. Teslim etmemiş öğrencilerin
+      <p class="field-hint end-note">Sınavı bitirdiğinizde dosya indirme kapanır. Ekran kaydı durmaz: teslim etmemiş
+        öğrencinin ekranı, teslim edene ya da siz <b>Kaydı durdur</b>'a basana kadar kaydedilir. Teslim etmemiş öğrencilerin
         programı açık kalır: dosyalarını yine teslim edebilirler, ancak teslim <b>geç teslim</b> olarak
         işaretlenir ve uyarı olarak kaydedilir.</p>
 
@@ -311,8 +312,8 @@
       <h2 id="recordTitle">Ekran kaydını başlat</h2>
       <p class="dialog-note">Ekranlar şu an kaydedilmiyor. Kaydı başlatırsanız <b>bu andan itibaren</b> öğrenci ekranları
         sınav klasöründeki “Kayıtlar”a kaydedilir; kaydın kapalı olduğu süre kaydedilmemiştir.</p>
-      <p class="field-hint">Öğrenciler kaydın başladığını göremez. İstediğiniz zaman durdurabilirsiniz; sınavı
-        bitirdiğinizde kayıt kendiliğinden durur.</p>
+      <p class="field-hint">Öğrenciler kaydın başladığını göremez. İstediğiniz zaman durdurabilirsiniz; bir öğrencinin
+        kaydı, dosyasını teslim edince kendiliğinden biter.</p>
       <div class="dialog-actions">
         <button id="recordCancel" type="button">Vazgeç</button>
         <button id="recordGo" type="button" class="primary">Kaydı başlat</button>
@@ -326,7 +327,8 @@
       <h2 id="recordStopTitle">Ekran kaydını durdur</h2>
       <p class="dialog-note">Kaydı durdurursanız öğrenci ekranları <b>bu andan itibaren kaydedilmez</b>. Şu ana kadarki
         kayıtlar sınav klasöründeki “Kayıtlar”da kalır; ekranları canlı izlemeye devam edersiniz.</p>
-      <p class="field-hint">Öğrenciler kaydın durduğunu göremez. İstediğiniz zaman yeniden başlatabilirsiniz.</p>
+      <p class="field-hint">Öğrenciler kaydın durduğunu göremez. İstediğiniz zaman yeniden başlatabilirsiniz.
+        Kaydı durdurmasanız da her öğrencinin kaydı, dosyasını teslim edince kendiliğinden biter.</p>
       <div class="dialog-actions">
         <button id="recordStopCancel" type="button">Vazgeç</button>
         <button id="recordStopGo" type="button" class="danger">Kaydı durdur</button>

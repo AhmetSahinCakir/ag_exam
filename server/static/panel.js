@@ -604,9 +604,10 @@ function renderHeader() {
   const folder = S.exam.folder;
   $('setup').hidden = state !== 'WAITING';
   $('btnEnd').hidden = state !== 'RUNNING';
-  // Sınav sürerken kayıt istenildiği an başlatılır ya da durdurulur: aynı yerde, o an geçerli
-  // olan tek düğme görünür. Sınav bitince kayıt da biter.
-  const canRecord = state === 'RUNNING' && Boolean(folder);
+  // Sınav başladıktan sonra kayıt istenildiği an başlatılır ya da durdurulur: aynı yerde, o an
+  // geçerli olan tek düğme görünür. Sınavı bitirmek kaydı durdurmaz: teslim etmeyen öğrenci,
+  // teslim edene ya da "Kaydı durdur"a basılana kadar kaydedilir.
+  const canRecord = state !== 'WAITING' && Boolean(folder);
   $('btnRecordStart').hidden = !(canRecord && !S.exam.record);
   $('btnRecordStop').hidden = !(canRecord && S.exam.record);
   $('btnResetTop').hidden = state !== 'ENDED';
@@ -755,7 +756,7 @@ function renderTimer() {
     stats.push(['Başlangıç', fmtClock(exam.started_at), 'secondary']);
     stats.push(['Bitiş', fmtClock(exam.ended_at), '']);
   }
-  if (exam.state === 'RUNNING') stats.push(['Kayıt', exam.record ? 'Açık' : 'Kapalı', exam.record ? 'rec' : 'rec off']);
+  if (exam.state !== 'WAITING') stats.push(['Kayıt', exam.record ? 'Açık' : 'Kapalı', exam.record ? 'rec' : 'rec off']);
 
   const box = $('examStats');
   const shape = stats.map((item) => `${item[0]}|${item[2]}`).join(',');
@@ -1407,14 +1408,14 @@ async function uploadRoster() {
 /* ----------------------------------------------------------------- kaydı sonradan başlatma */
 
 function openRecordDialog() {
-  if (!S || S.exam.state !== 'RUNNING' || S.exam.record) return;
+  if (!S || S.exam.state === 'WAITING' || S.exam.record) return;
   closeMenu();
   $('recordDialog').hidden = false;
   $('recordCancel').focus();
 }
 
 function openRecordStopDialog() {
-  if (!S || S.exam.state !== 'RUNNING' || !S.exam.record) return;
+  if (!S || S.exam.state === 'WAITING' || !S.exam.record) return;
   closeMenu();
   $('recordStopDialog').hidden = false;
   $('recordStopCancel').focus();

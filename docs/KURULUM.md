@@ -80,7 +80,11 @@ hiçbir program kapatılmaz; öğrenciler Packet Tracer'ı açıp hesaplarına g
 Sınav başladıktan sonra kaydı istediğiniz an değiştirebilirsiniz: kayıt açıkken üstte
 **Kaydı durdur**, kapalıyken **Kaydı başlat** düğmesi görünür. Kayıt yalnızca açık olduğu
 sürelerde yapılır; kapalıyken geçen süre kaydedilmez. Kaydın durumu üst satırda **Kayıt**
-başlığının altında yazar. Sınavı bitirdiğinizde kayıt da durur.
+başlığının altında yazar.
+
+Bir öğrencinin kaydı, dosyasını teslim edince kendiliğinden biter. **Sınavı bitirmek kaydı
+durdurmaz:** teslim etmemiş öğrencinin ekranı, teslim edene ya da siz **Kaydı durdur**'a
+basana kadar kaydedilir.
 
 Sınav başlayınca öğrencilerde kısa bir geri sayımdan sonra izin verilmeyen programlar
 kapanır ve öğrencinin panelinde **Sınav dosyasını indir** düğmesi çıkar. Hiçbir şey
@@ -131,7 +135,7 @@ kendiliğinden açılmaz ya da inmez; dosyayı öğrenci istediği yere kendisi 
 **Sınavı bitir**'e basınca bir pencere açılır:
 
 - **Ek süre ver:** dakikayı yazıp düğmeye basın; öğrencilerin geri sayımı uzar.
-- **Sınavı bitir:** sınav biter; ekran kaydı da durur.
+- **Sınavı bitir:** sınav biter.
 
 Sınav bitince teslim etmemiş öğrencilerin programı kapanmaz; ekranlarında **Teslim
 edilmedi** yazar. Dosyalarını yine teslim edebilirler; bu teslim **geç teslim** olarak
