@@ -109,7 +109,6 @@ public static class Native
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string className, string windowName);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hwnd, StringBuilder text, int max);
 
     // Class of the window that is in front right now ("Progman" = the desktop).
     public static string ForegroundClass()
