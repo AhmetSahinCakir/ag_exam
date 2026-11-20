@@ -10,7 +10,7 @@ const STATUS_TEXT = {
   warn: 'Uyarı var',
   lost: 'Bağlantı yok',
   done: 'Teslim etti',
-  nosubmit: 'Teslim yok',
+  nosubmit: 'Teslim edilmedi',
   nofile: 'Dosya klasörde yok',
   absent: 'Giriş yapmadı',          // öğrenci listesinde var, henüz giriş yapmadı
 };
@@ -360,7 +360,7 @@ function statusText(st) {
 function noVideoText(st) {
   if (st.status === 'absent') return STATUS_TEXT.absent;
   if (st.status === 'done') return doneText(st);
-  if (st.status === 'nosubmit') return 'Teslim yok';
+  if (st.status === 'nosubmit') return 'Teslim edilmedi';
   if (st.status === 'nofile') return 'Dosya klasörde yok';
   if (st.status === 'lost') return 'Bağlantı yok';
   return st.stream_ready ? 'Görüntü bağlanıyor…' : 'Ekran bekleniyor…';
@@ -604,9 +604,9 @@ function renderHeader() {
   const folder = S.exam.folder;
   $('setup').hidden = state !== 'WAITING';
   $('btnEnd').hidden = state !== 'RUNNING';
-  // Sınav başladıktan sonra kayıt istenildiği an başlatılır ya da durdurulur: aynı yerde, o an
-  // geçerli olan tek düğme görünür.
-  const canRecord = state !== 'WAITING' && Boolean(folder);
+  // Sınav sürerken kayıt istenildiği an başlatılır ya da durdurulur: aynı yerde, o an geçerli
+  // olan tek düğme görünür. Sınav bitince kayıt da biter.
+  const canRecord = state === 'RUNNING' && Boolean(folder);
   $('btnRecordStart').hidden = !(canRecord && !S.exam.record);
   $('btnRecordStop').hidden = !(canRecord && S.exam.record);
   $('btnResetTop').hidden = state !== 'ENDED';
@@ -755,7 +755,7 @@ function renderTimer() {
     stats.push(['Başlangıç', fmtClock(exam.started_at), 'secondary']);
     stats.push(['Bitiş', fmtClock(exam.ended_at), '']);
   }
-  if (exam.state !== 'WAITING') stats.push(['Kayıt', exam.record ? 'Açık' : 'Kapalı', exam.record ? 'rec' : 'rec off']);
+  if (exam.state === 'RUNNING') stats.push(['Kayıt', exam.record ? 'Açık' : 'Kapalı', exam.record ? 'rec' : 'rec off']);
 
   const box = $('examStats');
   const shape = stats.map((item) => `${item[0]}|${item[2]}`).join(',');
@@ -1407,14 +1407,14 @@ async function uploadRoster() {
 /* ----------------------------------------------------------------- kaydı sonradan başlatma */
 
 function openRecordDialog() {
-  if (!S || S.exam.state === 'WAITING' || S.exam.record) return;
+  if (!S || S.exam.state !== 'RUNNING' || S.exam.record) return;
   closeMenu();
   $('recordDialog').hidden = false;
   $('recordCancel').focus();
 }
 
 function openRecordStopDialog() {
-  if (!S || S.exam.state === 'WAITING' || !S.exam.record) return;
+  if (!S || S.exam.state !== 'RUNNING' || !S.exam.record) return;
   closeMenu();
   $('recordStopDialog').hidden = false;
   $('recordStopCancel').focus();

@@ -1457,17 +1457,48 @@ def test_recording_can_be_stopped_and_started_again(env: Env):
     assert again.status_code == 409 and "açık değil" in again.json()["error"]
     assert env.student().post("/panel/api/record/stop", headers=PANEL).status_code == 403
 
-    # ... and on again, as often as wanted; also after the exam has ended (late hand-ins).
+    # ... and on again, as often as wanted while the exam runs.
     assert env.panel.post("/panel/api/record/start", headers=PANEL).status_code == 200
-    env.panel.post("/panel/api/end", headers=PANEL)
     assert env.store.record_path != ""
-    assert env.panel.post("/panel/api/record/stop", headers=PANEL).status_code == 200
-    assert env.store.record_path == ""
     assert [e.type for e in env.store.events if e.type.startswith("recording_")] == [
-        "recording_stopped", "recording_started", "recording_stopped"]
+        "recording_stopped", "recording_started"]
     env.store.flush_student_logs()
     text = next(env.store.dir_alerts.glob("2021000001_*.csv")).read_text(encoding="utf-8-sig")
-    assert text.count("sınav;Ekran kaydı durduruldu") == 2
+    assert text.count("sınav;Ekran kaydı durduruldu") == 1 and "sınav;Ekran kaydı sınav sürerken başlatıldı" in text
+
+
+def test_ending_the_exam_ends_the_recording(env: Env):
+    """Students who have not handed in stay connected and are still shown in the panel after the
+    end; their screens are no longer recorded."""
+    client, _ = env.login()
+    env.choose_folder()
+    env.upload_exam()
+    env.panel.post("/panel/api/start", headers=PANEL, json={"record": True})
+    assert env.store.record_path != ""
+
+    env.panel.post("/panel/api/end", headers=PANEL)
+    state = env.panel.get("/panel/api/state").json()
+    assert env.store.record_path == "" and state["exam"]["record"] is False
+    assert env.snapshot_student("2021000001")["status"] == "nosubmit"       # still in the panel, not recorded
+    assert env.store.events[-1].message == "Sınav bitirildi — ekran kaydı durduruldu"
+    # Recording belongs to the running exam: it cannot be switched on (or off) afterwards.
+    after = env.panel.post("/panel/api/record/start", headers=PANEL)
+    assert after.status_code == 409 and "Sınav bitti" in after.json()["error"]
+    assert env.panel.post("/panel/api/record/stop", headers=PANEL).status_code == 409
+    assert env.store.record_path == ""
+    text = next(env.store.dir_alerts.glob("2021000001_*.csv")).read_text(encoding="utf-8-sig")
+    assert "sınav;Sınav bitirildi — ekran kaydı durduruldu" in text
+
+    # An exam that ran without recording ends without a word about it; a state saved by an
+    # older version (ended, recording still marked as on) records nothing either.
+    env.panel.post("/panel/api/reset", headers=PANEL)
+    env.choose_folder()
+    env.upload_exam()
+    env.panel.post("/panel/api/start", headers=PANEL, json={"record": False})
+    env.panel.post("/panel/api/end", headers=PANEL)
+    assert [e.message for e in env.store.events if e.type == "exam_ended"][-1] == "Sınav bitirildi"
+    env.store.record_enabled = True
+    assert env.store.record_path == "" and env.store.snapshot()["exam"]["record"] is False
 
 
 # ------------------------------------------------------- what is a warning and what is not

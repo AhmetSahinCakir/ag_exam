@@ -1148,7 +1148,11 @@ klasorler:
     Start-Sleep -Seconds 1
     Shot 'sinav-bitti-panel'
     $st = Get-Student $fourth
-    Check ($st.status -eq 'nosubmit' -and $st.stream_ready) 'panelde "Teslim yok", ekranı hâlâ izleniyor'
+    Check ($st.status -eq 'nosubmit' -and $st.stream_ready) 'panelde "Teslim edilmedi", ekranı hâlâ izleniyor'
+    $recordingEnded = Wait-Until { $s = Get-Snapshot; if ($s -and -not $s.health.recording -and -not $s.exam.record) { $s } } 15
+    Check ([bool]$recordingEnded) 'sınav bitince ekran kaydı da durdu (teslim etmeyen öğrenci hâlâ izleniyor)'
+    $afterEnd = Panel-Post '/panel/api/record/start'
+    Check ($afterEnd -match '^HATA' -and $afterEnd -match '409') "sınav bittikten sonra kayıt başlatılamıyor ($afterEnd)"
     $before = Count-Events $fourth 'process_killed' 'notepad'
     Start-Process notepad.exe | Out-Null
     Check ([bool](Wait-Until { (Count-Events $fourth 'process_killed' 'notepad') -gt $before } 10)) 'teslim edene kadar izinsiz programlar kapatılmaya devam ediyor'

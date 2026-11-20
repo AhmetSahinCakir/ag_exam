@@ -366,10 +366,11 @@ class Store:
     def record_path(self) -> str:
         """MediaMTX recordPath for the chosen exam folder ("" = do not record).
 
-        Nothing is recorded before the exam starts (students are still logging in to
-        Packet Tracer then), nor when the teacher started the exam without recording.
+        Recording belongs to the running exam: nothing is recorded before it starts (students
+        are still logging in to Packet Tracer then), nothing after it was ended, and nothing
+        while recording is switched off.
         """
-        if self.dir_recordings is None or self.state == WAITING or not self.record_enabled:
+        if self.dir_recordings is None or self.state != RUNNING or not self.record_enabled:
             return ""
         return str(self.dir_recordings / "%path" / "%Y-%m-%d_%H-%M-%S_%z")
 
@@ -989,6 +990,8 @@ class Store:
         """“Kaydı başlat”: the exam was started without recording; record from now on."""
         if self.state == WAITING:
             raise ApiError(409, "Sınav başlamadı. Kaydı, sınavı başlatırken “Ekranları kaydet” ile açın.")
+        if self.state != RUNNING:
+            raise ApiError(409, "Sınav bitti. Ekran kaydı yalnızca sınav sürerken yapılır.")
         if self.record_enabled:
             raise ApiError(409, "Ekran kaydı zaten açık.")
         self.record_enabled = True
@@ -996,7 +999,7 @@ class Store:
 
     def stop_recording(self) -> None:
         """“Kaydı durdur”: nothing is recorded from now on (it can be started again)."""
-        if self.state == WAITING or not self.record_enabled:
+        if self.state != RUNNING or not self.record_enabled:
             raise ApiError(409, "Ekran kaydı açık değil.")
         self.record_enabled = False
         self.add_event("", "recording_stopped", INFO, "Ekran kaydı durduruldu")
@@ -1006,7 +1009,12 @@ class Store:
             raise ApiError(409, "Devam eden bir sınav yok.")
         self.state = ENDED
         self.ended_at = time.time()
-        self.add_event("", "exam_ended", INFO, "Sınav bitirildi")
+        # The recording ends with the exam, also for students who have not handed in yet (their
+        # screens are still shown in the panel).
+        was_recording = self.record_enabled and self.dir_recordings is not None
+        self.record_enabled = False
+        self.add_event("", "exam_ended", INFO,
+                       "Sınav bitirildi — ekran kaydı durduruldu" if was_recording else "Sınav bitirildi")
         self.write_events_csv()
         self.write_all_student_logs()
 
@@ -1727,7 +1735,7 @@ class Store:
                 "ended_at": self.ended_at,
                 "duration_min": self.duration_min,
                 "ends_at": self.ends_at,
-                "record": self.record_enabled,
+                "record": self.record_enabled and self.state != ENDED,
                 "scheduled": self.scheduled,
                 "file": self.exam_file,
                 "folder": str(self.exam_dir) if self.exam_dir else "",
