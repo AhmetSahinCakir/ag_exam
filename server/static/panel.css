@@ -51,6 +51,9 @@
   --empty-dim: #868686;     /* o ekranın üstündeki soluk ve renkli yazılar */
   --empty-done: #5b9cf5;
   --empty-warn: #e2a520;
+  --tile-line: #2e2e2e;     /* ekran kutusunun çerçevesi ve altındaki ad şeridi */
+  --cap-bg: #000000;
+  --tile-hover: #4a4a4a;
   --rec: #ff4d43;
   --backdrop: rgba(0, 0, 0, .82);
   --shadow: 0 12px 32px rgba(0, 0, 0, .7);
@@ -114,6 +117,9 @@
   --empty-dim: #9aa0a8;
   --empty-done: #8ab8ff;
   --empty-warn: #ffb454;
+  --tile-line: #a4abb4;     /* açık zeminde kutu seçilsin: koyu çerçeve, ad şeridi sayfadan bir ton koyu */
+  --cap-bg: #e1e4e9;
+  --tile-hover: #6f7781;
   --rec: #d6281e;
   --backdrop: rgba(30, 34, 40, .48);
   --shadow: 0 12px 32px rgba(30, 40, 60, .2);
@@ -288,14 +294,14 @@ main { flex: 1; min-height: 0; min-width: 0; display: flex; overflow: hidden; }
 
 /* ---------- student tile ---------- */
 .tile {
-  background: var(--bg);
-  border: 1px solid var(--line);
+  background: var(--cap-bg);
+  border: 1px solid var(--tile-line);
   border-radius: var(--radius);
   overflow: hidden;
   cursor: pointer;
   min-width: 0;
 }
-.tile:hover { border-color: var(--line-strong); }
+.tile:hover { border-color: var(--tile-hover); }
 .tile .video { position: relative; aspect-ratio: 16 / 9; background: var(--video); }
 .tile video, .modal-video video { width: 100%; height: 100%; object-fit: contain; display: block; background: var(--video); }
 .novideo {
@@ -303,7 +309,7 @@ main { flex: 1; min-height: 0; min-width: 0; display: flex; overflow: hidden; }
   color: var(--empty-text); font-size: 12px; background: var(--empty); text-align: center; padding: 6px;
 }
 .playing > .novideo { display: none; }
-.tile .cap { display: flex; align-items: center; gap: 7px; padding: 7px 10px; min-width: 0; border-top: 1px solid var(--line); font-size: var(--name-size); }
+.tile .cap { display: flex; align-items: center; gap: 7px; padding: 7px 10px; min-width: 0; border-top: 1px solid var(--tile-line); background: var(--cap-bg); font-size: var(--name-size); }
 .tile .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .tile .num, .tile .name { font-weight: 600; }
 .tile .num { font-variant-numeric: tabular-nums; }
@@ -325,7 +331,7 @@ main { flex: 1; min-height: 0; min-width: 0; display: flex; overflow: hidden; }
 /* Listede olup giriş yapmayan öğrenci: siyah ekran, soluk yazı; tıklanacak bir şeyi yok. */
 .st-absent .dot { background: var(--absent); }
 .tile.st-absent { cursor: default; }
-.tile.st-absent:hover { border-color: var(--line); }
+.tile.st-absent:hover { border-color: var(--tile-line); }
 .tile.st-absent .video, .tile.st-absent .novideo { background: var(--empty); }
 .tile.st-absent .novideo { color: var(--empty-dim); }
 .tile.st-absent .num, .tile.st-absent .name { color: var(--dim); }
