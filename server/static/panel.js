@@ -90,6 +90,23 @@ function setPref(key, value) {
   try { localStorage.setItem(`sinav.${key}`, String(value)); } catch (_) { /* önemli değil */ }
 }
 
+/* Görünüm (Ayarlar → Görünüm): tema ve ad yazılarının boyutu. Sunucudaki ayar geçerlidir; son
+   değer burada da tutulur ki panel açılırken bir an bile öteki temayla görünmesin. */
+function applyAppearance(theme, textSize) {
+  const root = document.documentElement;
+  root.dataset.theme = theme === 'light' ? 'light' : 'dark';
+  if (textSize === 'small' || textSize === 'large') root.dataset.text = textSize;
+  else delete root.dataset.text;
+}
+applyAppearance(pref('theme', 'dark'), pref('textSize', 'normal'));
+
+function syncAppearance() {
+  if (!S) return;
+  applyAppearance(S.theme, S.text_size);
+  if (pref('theme', '') !== S.theme) setPref('theme', S.theme);
+  if (pref('textSize', '') !== S.text_size) setPref('textSize', S.text_size);
+}
+
 async function api(path, options) {
   const init = Object.assign({ method: 'POST' }, options || {});
   init.headers = Object.assign({ 'X-Panel': '1' }, init.headers || {});
@@ -612,7 +629,6 @@ function renderHeader() {
   $('btnRecordStart').hidden = !(canRecord && recordState() === 'off');
   $('btnRecordStop').hidden = !(canRecord && recordState() === 'on');
   $('btnResetTop').hidden = state !== 'ENDED';
-  $('btnReset').disabled = state === 'RUNNING';
   // Sınav sürerken ad değiştirilemez: öğrenciler bu adla bağlandı.
   $('btnIdentity').hidden = state === 'RUNNING';
 
@@ -662,24 +678,19 @@ function renderHeader() {
 }
 
 function renderMenuInfo() {
-  const lines = [];
+  // Tek bilgi: öğrencinin programı sınavı kendisi bulamazsa yazacağı adres.
   const ips = S.health.lan_ips;
-  if (ips.length) {
-    lines.push(`Ajan sunucuyu kendisi bulamazsa öğrenci şu adresi yazabilir: ${ips.join(' veya ')}`);
-    if (S.health.agent_download) {
-      lines.push(`Programı kurmamış öğrenci tarayıcısına şunu yazıp indirebilir: ${ips.map((ip) => `http://${ip}:${S.health.port}`).join(' veya ')}`);
-    }
-  }
-  if (S.exam.folder) {
-    lines.push(`Sınav klasörü: ${S.exam.folder}`);
-  } else {
-    lines.push('Sınav klasörü seçilmedi: ekranlar henüz kaydedilmiyor.');
-  }
   const box = $('menuInfo');
-  const signature = lines.join('\n');
+  const signature = ips.join(',');
   if (box.dataset.signature === signature) return;
   box.dataset.signature = signature;
-  box.replaceChildren(...lines.map((line) => el('div', '', line)));
+  if (!ips.length) {
+    box.replaceChildren(el('div', '', 'Bu bilgisayar bir ağa bağlı değil.'));
+    return;
+  }
+  const line = el('div', 'address');
+  line.append(document.createTextNode('Bu bilgisayarın adresi: '), el('b', '', ips.join(' ya da ')));
+  box.replaceChildren(line, el('div', '', 'Öğrencinin programı sınavı kendisi bulamazsa bu adresi yazar.'));
 }
 
 function renderBanners() {
@@ -709,7 +720,7 @@ function renderBanners() {
     const line = el('div', 'banner general');
     line.append(el('span', '', `${fmtClock(alert.ts)} — ${alert.message}`));
     if (index === general.length - 1) {
-      const seen = el('button', '', 'Görüldü');
+      const seen = el('button', '', 'Görüldü yap');
       seen.type = 'button';
       seen.addEventListener('click', async () => {
         try {
@@ -800,7 +811,7 @@ function summaryCells() {
   const sum = S.summary;
   const cells = [
     ['ok', sum.connected, 'Bağlı'],
-    ['warn', sum.warned, 'Uyarılı'],
+    ['warn', sum.warned, 'Uyarı'],
     ['lost', sum.lost, S.exam.state === 'ENDED' ? 'Teslim etmedi' : 'Kopuk'],
     ['done', sum.submitted, 'Teslim etti'],
   ];
@@ -831,6 +842,7 @@ function renderSummary() {
   if (box.dataset.signature !== signature) {
     box.dataset.signature = signature;
     box.style.setProperty('--cells', String(cells.length));
+    box.classList.toggle('five', cells.length === 5);       // dar listede iki satıra bölünür
     box.replaceChildren(...cells.map(summaryCell));
     // Daraltılmış şerit: aynı sayılar alt alta.
     $('railSummary').replaceChildren(...cells.map(railItem));
@@ -869,7 +881,7 @@ function createRow(numara) {
   const actions = el('div', 'row-actions');
   const zoom = el('button', '', 'Ekranı büyüt');
   zoom.type = 'button';
-  const ack = el('button', '', 'Görüldü');
+  const ack = el('button', '', 'Görüldü yap');
   ack.type = 'button';
   // Yalnızca "listede yok" uyarısı alan öğrencide görünür.
   const enlist = el('button', '', 'Listeye ekle');
@@ -1196,6 +1208,8 @@ function renderModal() {
 
 function render() {
   byNumara = new Map(S.students.map((st) => [st.numara, st]));
+  // Ayarlar penceresi açıkken oradaki seçim önizlenir; kapalıyken kayıtlı görünüm geçerlidir.
+  if ($('settingsDialog').hidden) syncAppearance();
   renderHeader();
   renderTiles();
   renderList();
@@ -1676,11 +1690,23 @@ function fillSettings(values) {
   renderProgramList();
   for (const radio of document.getElementsByName('settingsQuality')) radio.checked = radio.value === values.quality;
   for (const radio of document.getElementsByName('settingsLabel')) radio.checked = radio.value === values.student_label;
+  for (const radio of document.getElementsByName('settingsTheme')) radio.checked = radio.value === values.theme;
+  for (const radio of document.getElementsByName('settingsText')) radio.checked = radio.value === values.text_size;
+  previewAppearance();
   $('setForeground').value = values.foreground_tolerance_s;
   $('setKill').value = values.kill_countdown_s;
   $('setDisconnect').value = values.disconnect_s;
   $('setCloseWait').value = values.close_wait_min;
   $('setNote').value = values.retention_note;
+}
+
+/* Tema ve yazı boyutu seçilir seçilmez görünür; "Kaydet"e basılmazsa geri alınır. */
+function previewAppearance() {
+  const pick = (name, fallback) => {
+    const radio = Array.from(document.getElementsByName(name)).find((item) => item.checked);
+    return radio ? radio.value : fallback;
+  };
+  applyAppearance(pick('settingsTheme', 'dark'), pick('settingsText', 'normal'));
 }
 
 async function openSettings() {
@@ -1717,6 +1743,8 @@ async function saveSettings(event) {
         programs: settingsPrograms,
         quality: checked('settingsQuality', 'normal'),
         student_label: checked('settingsLabel', 'name'),
+        theme: checked('settingsTheme', 'dark'),
+        text_size: checked('settingsText', 'normal'),
         foreground_tolerance_s: $('setForeground').value,
         kill_countdown_s: $('setKill').value,
         disconnect_s: $('setDisconnect').value,
@@ -1736,6 +1764,9 @@ function bindSettings() {
   $('settingsCancel').addEventListener('click', closeDialogs);
   $('settingsForm').addEventListener('submit', saveSettings);
   $('settingsDefaults').addEventListener('click', () => { if (settingsInfo) fillSettings(settingsInfo.defaults); });
+  for (const name of ['settingsTheme', 'settingsText']) {
+    for (const radio of document.getElementsByName(name)) radio.addEventListener('change', previewAppearance);
+  }
   $('programPickerToggle').addEventListener('click', () => setProgramPicker($('programPicker').hidden));
   $('programSearch').addEventListener('input', renderProgramList);
   // Enter, formu kaydetmek yerine listedeki ilk programı ekler.
@@ -1768,6 +1799,7 @@ const DIALOGS = ['identityDialog', 'folderDialog', 'startDialog', 'endDialog', '
 
 function closeDialogs() {
   for (const id of DIALOGS) $(id).hidden = true;
+  syncAppearance();      // Ayarlar'da denenip kaydedilmeyen görünüm geri alınır
 }
 
 /* "Sınavı başlat" penceresi: başlangıç (hemen / saat), isteğe bağlı süre, ekran kaydı. */
@@ -1918,7 +1950,6 @@ function bindControls() {
   $('recordStopCancel').addEventListener('click', closeDialogs);
   $('recordStopGo').addEventListener('click', stopRecording);
 
-  $('btnReset').addEventListener('click', resetExam);
   $('btnResetTop').addEventListener('click', resetExam);
   $('btnExport').addEventListener('click', closeMenu);
 

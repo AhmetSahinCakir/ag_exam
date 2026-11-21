@@ -81,7 +81,6 @@ def main() -> int:
     media = None
     if home is not None:
         cfg.dir_data = home / "data"
-        cfg.dir_dist = HERE.parent / "dist"
         if not desktopapp.claim_single_instance():
             # The icon was clicked again. If the system is running, show its panel again; if
             # the first copy is still starting, it will open the panel itself in a moment.

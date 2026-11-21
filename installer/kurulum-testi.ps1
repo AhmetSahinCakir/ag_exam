@@ -265,7 +265,7 @@ try {
         Start-Sleep -Seconds 2
     }
     foreach ($file in @('python\pythonw.exe', 'python\python.exe', 'server\run.py', 'server\config.yaml', 'server\static\panel.html',
-                        'mediamtx\mediamtx.exe', 'mediamtx\mediamtx.yml', 'dist\SinavAjan.exe', 'sinav-izleme.ico', 'unins000.exe')) {
+                        'mediamtx\mediamtx.exe', 'mediamtx\mediamtx.yml', 'sinav-izleme.ico', 'unins000.exe')) {
         Check (Test-Path (Join-Path $systemDir $file)) "kuruldu: $file"
     }
     Check (Test-Path $systemLink) "masaüstünde kısayol var: $systemName"

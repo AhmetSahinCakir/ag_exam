@@ -27,9 +27,9 @@ Sınavdan önce yapılacak deneme: [PROVA.md](PROVA.md).
    birkaç saniye içinde panel açılır.
 5. **Öğrencilere programı gönderin.** Aynı indirme sayfasındaki **`SinavAjan-Kurulum.exe`**
    dosyasını (ya da sayfanın bağlantısını) öğrencilere gönderin. Öğrenci dosyaya çift
-   tıklayınca program kurulur ve masaüstüne **Sınav Ajanı** simgesi gelir.
-   - Kurmayı unutan öğrenci sınav günü programı sınıf ağından da indirebilir: panelde
-     **Diğer** menüsünde yazan adresi tarayıcısına yazar.
+   tıklayınca program kurulur ve masaüstüne **Sınav Ajanı** simgesi gelir. Program sınav
+   sırasında sınıf ağından indirilemez; herkesin sınavdan önce kurmuş olması gerekir.
+   Unutanlar için kurulum dosyasını bir USB bellekte yanınızda bulundurun.
 6. **Modemi kontrol edin.** Sizin ve öğrencilerin bilgisayarı aynı modeme bağlı olmalıdır.
    Modemde cihazların birbirini görmesini engelleyen ayar (“AP izolasyonu”) kapalı olmalıdır.
 7. **Bir deneme yapın:** [PROVA.md](PROVA.md).
@@ -102,7 +102,7 @@ kendiliğinden açılmaz ya da inmez; dosyayı öğrenci istediği yere kendisi 
   Öğrencilerin gösterimi**. Teslim dosyalarının, kayıt klasörlerinin adlarında ve kayıt
   dosyalarında numara her zaman vardır.
 - **Uyarılar** öğrencinin satırında, adının yanında görünür. Satırdaki oka basınca o
-  öğrencinin uyarıları açılır. **Görüldü**'ye basınca kaç uyarının işaretlendiği yazılır ve
+  öğrencinin uyarıları açılır. **Görüldü yap**'a basınca kaç uyarının işaretlendiği yazılır ve
   o uyarılar soluklaşıp **✓** alır. Hepsini birden işaretlemek için sayıların altındaki
   **Tümünü görüldü yap**.
 - Bir ekrana tıklayınca büyür. Sağında yalnızca o öğrencinin **uyarıları** görünür; giriş,
@@ -113,7 +113,7 @@ kendiliğinden açılmaz ya da inmez; dosyayı öğrenci istediği yere kendisi 
 - **Ekran boyutu:** üst satırdaki **− / +** ile ekranları büyütüp küçültün; **Sığdır**
   hepsini ekrana sığdırır.
 - **Listenin genişliği:** listenin sol kenarını fareyle tutup sürükleyin; kenara çift
-  tıklayınca ilk genişliğine döner.
+  tıklayınca ilk genişliğine döner. Adların boyutu için **Diğer → Ayarlar → Görünüm**.
 - **Listeyi daraltmak:** “Öğrenciler” başlığının yanındaki oka basın; listeyi geri açmak için
   sağdaki şeride tıklayın.
 - Teslim edenlerin ekranı kendiliğinden en alta gider.
@@ -174,7 +174,9 @@ ekranının ne kadar değiştiğine bağlıdır:
 | Normal (720p) | 1–4 GB | 13,5 GB |
 | Yüksek (900p) | 1,5–5 GB | 24 GB |
 
-Öteki dosyalar (*Uyarılar*, *Teslimler*, `olay-kaydi.csv`) birkaç MB'ı geçmez.
+Öğrencinin pencere değiştirmesi (ör. Packet Tracer'da bir cihazın penceresini açması) kaydı
+az büyütür; tablodaki aralık bunu içerir. Öteki dosyalar (*Uyarılar*, *Teslimler*,
+`olay-kaydi.csv`) birkaç MB'ı geçmez.
 
 Bu rakamlar öğrenci programının 1.0.3 ve sonraki sürümleri içindir. Daha eski sürümü
 kullanan öğrencinin kaydı her zaman “en çok” sütunundaki kadar yer tutar; öğrencilerin
@@ -220,8 +222,11 @@ Panelde **Diğer → Ayarlar**:
   adını yazarak arayın ve yanındaki **Ekle**'ye basın. Listede olmayan bir programı dosya
   adını yazarak (ör. `putty.exe`) ya da **Bilgisayardan seç** ile ekleyin. Sınav sürerken
   de eklenebilir; hemen geçerli olur.
-- **Öğrencilerin gösterimi:** Ekranların altında ve listede **ad soyad**, **numara** ya da
-  **ikisi birlikte** yazılır.
+- **Görünüm:**
+  - **Tema:** **Koyu** ya da **Açık** (göz yormayan kırık beyaz). Seçtiğiniz an önizlenir.
+  - **Yazı boyutu:** ekranların altındaki ve listedeki adlar **Küçük**, **Normal** ya da
+    **Büyük** yazılır. Adlar sığmıyorsa **Küçük**'ü seçin.
+  - **Öğrencilerin gösterimi:** **ad soyad**, **numara** ya da **ikisi birlikte**.
 - **Ekran görüntüsü:** **Düşük** (540p), **Normal** (720p) ya da **Yüksek** (900p).
   Görüntüler takılıyorsa **Düşük**'ü seçin. Kalite arttıkça kayıtlar daha çok yer tutar
   (“Sınavdan sonra” bölümündeki tabloya bakın). Değişiklik, öğrencinin bir sonraki
@@ -257,8 +262,8 @@ Panelde **Diğer → Ayarlar**:
   açılan program için çıkar.
 - Packet Tracer pencereleri arasında geçiş (Alt+Tab) ve masaüstüne bakmak.
 - 1 dakikadan kısa bağlantı kesintileri.
-- Aynı pencerenin önde kalmayı sürdürmesi: bunun için tek uyarı çıkar. Uyarıyı **Görüldü**
-  yaptıktan sonra pencere hâlâ öndeyse yeniden uyarılırsınız.
+- Aynı pencerenin önde kalmayı sürdürmesi: bunun için tek uyarı çıkar. **Görüldü yap**'a
+  bastıktan sonra pencere hâlâ öndeyse yeniden uyarılırsınız.
 
 ## Sorun olursa
 

@@ -625,7 +625,6 @@ esikler:
   ogrenci_bagliyken_bekleme_sn: 40
 klasorler:
   veri: '$OutDir\data'
-  dagitim: '$OutDir\dist'
 "@
     [IO.File]::WriteAllText($config, $yaml, (New-Object Text.UTF8Encoding($false)))
 

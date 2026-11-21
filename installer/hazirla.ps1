@@ -19,7 +19,7 @@ param(
     [Parameter(Mandatory = $true)][string]$AgentExe,
     # Kurulum dosyalarının yazılacağı klasör (varsayılan: publish\)
     [string]$OutDir = '',
-    [string]$Version = '1.0.3',
+    [string]$Version = '1.0.4',
     # Kopyası kuruluma konacak Python
     [string]$Python = 'python'
 )
@@ -79,10 +79,6 @@ $mediaStage = Join-Path $stage 'mediamtx'
 & (Join-Path $root 'scripts\fetch-mediamtx.ps1') -OutDir $mediaStage
 if (-not (Test-Path (Join-Path $mediaStage 'mediamtx.exe'))) { throw 'MediaMTX indirilemedi.' }
 Copy-Item (Join-Path $root 'mediamtx\mediamtx.yml') -Destination $mediaStage
-
-# ---- 5) Öğrenci programı: sınav günü sınıf ağından da indirilebilsin ------------------------
-New-Item -ItemType Directory -Force -Path (Join-Path $stage 'dist') | Out-Null
-Copy-Item -LiteralPath $AgentExe -Destination (Join-Path $stage 'dist\SinavAjan.exe')
 
 # ---- 6) Derlenmiş .pyc dosyaları -------------------------------------------------------------
 # Program Files altına yazılamadığı için Python her açılışta yeniden derlemek zorunda kalırdı.

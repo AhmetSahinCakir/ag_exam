@@ -39,7 +39,6 @@ mediamtx:
   api: "http://127.0.0.1:9"      # nothing listens here: MediaMTX counts as "down"
 klasorler:
   veri: veri
-  dagitim: dagitim
 {extra}
 """,
         encoding="utf-8",

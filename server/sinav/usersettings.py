@@ -28,6 +28,9 @@ QUALITY: dict[str, dict[str, int | None]] = {
 # How a student is named in the panel (under the screens, in the list). Files and records
 # always carry the number.
 STUDENT_LABELS = ("name", "number", "both")
+# How the panel itself looks: colours, and the size of the names under the screens and in the list.
+THEMES = ("dark", "light")
+TEXT_SIZES = ("small", "normal", "large")
 
 # key -> (lowest, highest) of the numbers that can be entered in the panel
 LIMITS: dict[str, tuple[int, int]] = {
@@ -121,6 +124,18 @@ def clean(raw: Any) -> dict[str, Any]:
             raise SettingsError("Öğrenci gösterimi: ad soyad, numara ya da ikisi birlikte olmalı.")
         result["student_label"] = label
 
+    theme = raw.get("theme")
+    if theme not in (None, ""):
+        if theme not in THEMES:
+            raise SettingsError("Tema: koyu ya da açık olmalı.")
+        result["theme"] = theme
+
+    text_size = raw.get("text_size")
+    if text_size not in (None, ""):
+        if text_size not in TEXT_SIZES:
+            raise SettingsError("Yazı boyutu: küçük, normal ya da büyük olmalı.")
+        result["text_size"] = text_size
+
     quality = raw.get("quality")
     if quality not in (None, ""):
         if quality not in QUALITY:
@@ -194,6 +209,8 @@ def view(base: Base, settings: dict[str, Any]) -> dict[str, Any]:
         "programs": [],
         "quality": "normal",
         "student_label": "name",
+        "theme": "dark",
+        "text_size": "normal",
         "foreground_tolerance_s": int(base.policy.foreground_tolerance_s),
         "kill_countdown_s": int(base.policy.kill_countdown_s),
         "disconnect_s": int(base.disconnect_s),

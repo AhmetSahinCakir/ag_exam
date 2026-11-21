@@ -130,9 +130,6 @@ klasorler:
   # sınav dosyası. (Kayıtlar ve teslimler burada değil, panelde seçtiğiniz
   # sınav klasöründedir.)
   veri: ../data
-  # Buraya SinavAjan.exe koyarsanız öğrenciler tarayıcıdan
-  # http://<bu-bilgisayarın-ip-adresi>:8000/ adresinden indirebilir.
-  dagitim: ../dist
 
 # -----------------------------------------------------------------------------
 # Kayıt saklama notu

@@ -7,6 +7,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sınav İzleme</title>
   <link rel="icon" href="/favicon.ico">
+  <!-- Seçilen tema ve yazı boyutu sayfa çizilmeden uygulanır (panel.js ile aynı anahtarlar). -->
+  <script>
+    try {
+      if (localStorage.getItem('sinav.theme') === 'light') document.documentElement.dataset.theme = 'light';
+      var size = localStorage.getItem('sinav.textSize');
+      if (size === 'small' || size === 'large') document.documentElement.dataset.text = size;
+    } catch (e) { /* önemli değil: panel.js birazdan uygular */ }
+  </script>
   <link rel="stylesheet" href="/panel/static/panel.css">
 </head>
 <body>
@@ -49,7 +57,6 @@
           <button id="btnRosterMenu" type="button" class="menu-item">Öğrenci listesi yükle (Excel)</button>
           <button id="btnAddStudentMenu" type="button" class="menu-item">Öğrenci ekle…</button>
           <a id="btnExport" class="menu-item" href="/panel/api/export.csv">Olay kaydını indir (CSV)</a>
-          <button id="btnReset" type="button" class="menu-item">Yeni sınav hazırla</button>
           <button id="btnSettings" type="button" class="menu-item">Ayarlar…</button>
           <div class="menu-sep"></div>
           <label class="menu-check"><input id="sound" type="checkbox"> Uyarılarda ses çal</label>
@@ -126,7 +133,7 @@
         <div class="side-title">
           <h2>Öğrenciler <span id="countAll" class="total" title="Toplam öğrenci">0</span></h2>
           <span class="side-title-actions">
-            <button id="btnAddStudent" type="button" class="compact" title="Listeye elle bir öğrenci ekle">+ Öğrenci ekle</button>
+            <button id="btnAddStudent" type="button" class="compact" title="Listeye elle bir öğrenci ekle"><span class="wide">+ Öğrenci ekle</span><span class="narrow">+ Ekle</span></button>
             <button id="sideCollapse" type="button" class="icon" title="Listeyi daralt" aria-label="Listeyi daralt"><span class="chev"></span></button>
           </span>
         </div>
@@ -383,10 +390,20 @@
         </section>
 
         <section>
-          <h3>Öğrencilerin gösterimi</h3>
-          <p class="field-hint">Ekranların altında ve listede öğrencinin nasıl yazılacağı. Dosya adlarında ve kayıtlarda
-            numara her zaman bulunur.</p>
-          <div class="choice-col">
+          <h3>Görünüm</h3>
+          <p class="group-label">Tema</p>
+          <div class="choice-row">
+            <label class="choice"><input type="radio" name="settingsTheme" value="dark"> Koyu</label>
+            <label class="choice"><input type="radio" name="settingsTheme" value="light"> Açık</label>
+          </div>
+          <p class="group-label">Yazı boyutu <span class="soft">— ekranların altındaki ve listedeki adlar</span></p>
+          <div class="choice-row">
+            <label class="choice"><input type="radio" name="settingsText" value="small"> Küçük</label>
+            <label class="choice"><input type="radio" name="settingsText" value="normal"> Normal</label>
+            <label class="choice"><input type="radio" name="settingsText" value="large"> Büyük</label>
+          </div>
+          <p class="group-label">Öğrencilerin gösterimi <span class="soft">— dosya adlarında ve kayıtlarda numara her zaman bulunur</span></p>
+          <div class="choice-row">
             <label class="choice"><input type="radio" name="settingsLabel" value="name"> Ad soyad</label>
             <label class="choice"><input type="radio" name="settingsLabel" value="number"> Numara</label>
             <label class="choice"><input type="radio" name="settingsLabel" value="both"> Numara ve ad soyad</label>

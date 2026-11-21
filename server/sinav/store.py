@@ -62,6 +62,10 @@ EXAM_LOG_KINDS = {"exam_started", "exam_extended", "exam_ended", "time_up", "rec
 # A connection that was lost for at least this long is a warning when it comes back; a shorter
 # break (the Wi-Fi hiccups of a full classroom) is only written to the student's record.
 LONG_OUTAGE_S = 60
+# Logins of a session in which no exam was started are forgotten when the system is opened
+# again this much later (a rehearsal the day before). A restart in the middle of a class is
+# far quicker than that: everybody stays logged in.
+STALE_WAITING_S = 6 * 3600
 ROSTER_TEXT = {"no_roster": "Liste yüklü değil", "ok": "Listede", "name_mismatch": "Listede, ad uyuşmuyor",
                "not_in_list": "Listede yok"}
 LOG_KIND_TEXT = {INFO: "bilgi", WARNING: "UYARI", CRITICAL: "KRİTİK"}
@@ -467,6 +471,7 @@ class Store:
         if not self.state_path.exists():
             return
         try:
+            saved_at = self.state_path.stat().st_mtime
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
             self.state = data.get("state", WAITING)
             self.exam_id = data.get("exam_id", "")
@@ -526,6 +531,17 @@ class Store:
                 log.error("Olay kaydı okunamadı: %s", exc)
         log.info("Önceki durum yüklendi: %s, %d öğrenci, %d olay",
                  self.state, len(self.students), len(self.events))
+        if self.state == WAITING and self.students and time.time() - saved_at > STALE_WAITING_S:
+            # Logins left over from a session in which no exam was started (a rehearsal the day
+            # before). What was prepared - folder, exam file, student list - stays.
+            count = len(self.students)
+            self.students.clear()
+            self.tokens.clear()
+            self.mac_history.clear()
+            self.alerts.clear()
+            self.general_ack_id = self.next_event_id - 1
+            self.add_event("", "stale_logins_cleared", INFO, f"Önceki oturumdan kalan {count} giriş temizlendi")
+            self.save()
 
     # ----------------------------------------------------------------- events
 
@@ -1761,8 +1777,6 @@ class Store:
                 "panel_clients": self.panel_clients,
                 "lan_ips": lan_ips or [],
                 "port": self.cfg.port,
-                # The student program can be downloaded from this computer (see student_page).
-                "agent_download": (self.cfg.dir_dist / "SinavAjan.exe").is_file(),
             },
             "summary": summary,
             "students": students,
@@ -1770,6 +1784,9 @@ class Store:
             "general_ack_id": self.general_ack_id,
             # How a student is named in the panel: "name", "number" or "both" (Ayarlar).
             "student_label": self.user_settings.get("student_label", "name"),
+            # How the panel looks (Ayarlar → Görünüm).
+            "theme": self.user_settings.get("theme", "dark"),
+            "text_size": self.user_settings.get("text_size", "normal"),
             "webrtc_base": self.cfg.mediamtx_webrtc,
             "paths": {
                 "submissions": str(self.dir_submissions) if self.exam_dir else "",

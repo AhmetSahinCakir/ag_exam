@@ -30,9 +30,6 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 STATIC_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
                 ".ico": "image/x-icon"}
 LOCAL_HOSTS = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
-# The student program is one file; put it into the "dagitim" folder to hand it out over the
-# classroom network.
-AGENT_FILE = "SinavAjan.exe"
 MAX_JSON_BYTES = 64 * 1024
 SSE_MIN_INTERVAL_S = 0.4
 # Closing the exam for everybody: how long to wait until every open student program has
@@ -366,13 +363,6 @@ def create_app(cfg: Config) -> FastAPI:
             return RedirectResponse("/panel")
         return HTMLResponse(student_page(cfg), headers=NO_STORE)
 
-    @app.get(f"/indir/{AGENT_FILE}")
-    async def download_agent() -> Response:
-        path = cfg.dir_dist / AGENT_FILE
-        if not path.is_file():
-            raise ApiError(404, "Sınav programı bu adresten dağıtılmıyor.")
-        return FileResponse(path, filename=AGENT_FILE, media_type="application/octet-stream")
-
     @app.get("/favicon.ico")
     async def favicon() -> Response:
         # The panel opens in a window of its own; this is its icon on the taskbar.
@@ -601,16 +591,8 @@ def create_app(cfg: Config) -> FastAPI:
 
 
 def student_page(cfg: Config) -> str:
-    """Small landing page for students who open the server address in a browser."""
-    has_file = (cfg.dir_dist / AGENT_FILE).is_file()
-    download = (
-        f'<p><a class="btn" href="/indir/{AGENT_FILE}">Sınav programını indir ({AGENT_FILE})</a></p>'
-        "<ol><li>İndirdiğiniz <b>SinavAjan.exe</b> dosyasına çift tıklayın ve izin sorusuna "
-        "<b>Evet</b> deyin.</li>"
-        "<li>Ekranda bu sınıfın adını görünce <b>Doğru</b> deyip giriş yapın.</li></ol>"
-        if has_file
-        else "<p>Sınav programı bu adresten dağıtılmıyor.</p>"
-    )
+    """What a student sees who opens the server address in a browser. Nothing can be downloaded
+    here: the student program is handed out before the exam."""
     return f"""<!doctype html>
 <html lang="tr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -619,11 +601,8 @@ def student_page(cfg: Config) -> str:
  body{{font-family:Segoe UI,system-ui,sans-serif;max-width:640px;margin:48px auto;padding:0 16px;
       color:#1b1f24;line-height:1.5}}
  h1{{font-size:28px;margin-bottom:4px}} .sub{{color:#57606a;margin-top:0}}
- .btn{{display:inline-block;background:#1f6feb;color:#fff;padding:12px 18px;border-radius:8px;
-      text-decoration:none;font-weight:600}}
- li{{margin:6px 0}}
 </style></head><body>
 <h1>Sınıf: {html.escape(cfg.sinif_adi)}</h1>
 <p class="sub">{html.escape(cfg.ogretmen_adi)}</p>
-{download}
+<p>Sınava bu sayfadan girilmez. Bilgisayarınızda kurulu olan <b>Sınav Ajanı</b> programını açın.</p>
 </body></html>"""

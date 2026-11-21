@@ -94,7 +94,6 @@ class Config:
     # after an accidental close or a browser crash).
     close_after_busy_s: float = 120.0
     dir_data: Path = Path("../data")
-    dir_dist: Path = Path("../dist")
     retention_note: str = ""
     mtime: float = 0.0
 
@@ -202,7 +201,6 @@ def load_config(path: str | Path) -> Config:
         close_after_s=_number(thresholds, "panel_kapaninca_bekleme_sn", 5, 2, 600),
         close_after_busy_s=_number(thresholds, "ogrenci_bagliyken_bekleme_sn", 120, 2, 3600),
         dir_data=folder("veri", "../data"),
-        dir_dist=folder("dagitim", "../dist"),
         retention_note=" ".join(str(raw.get("kayit_saklama_notu") or "").split()),
         mtime=path.stat().st_mtime,
     )

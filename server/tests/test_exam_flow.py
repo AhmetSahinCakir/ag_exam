@@ -1087,26 +1087,55 @@ def test_texts_for_students_do_not_mention_the_teacher(env: Env):
         assert "ğretmen" not in text, text
 
 
-def test_student_program_is_one_file_that_can_be_downloaded_from_the_server(env: Env):
+def test_student_program_cannot_be_downloaded_from_the_system(env: Env):
+    """The student program is handed out before the exam. The exam computer does not serve it:
+    a class downloading 100 MB each during the exam would only load the network."""
     student = env.student()
     page = student.get("/")
-    assert page.status_code == 200
-    assert "dağıtılmıyor" in page.text and "/indir/" not in page.text
+    assert page.status_code == 200 and "Sınav Ajanı" in page.text
+    assert "indir" not in page.text.lower() and ".exe" not in page.text.lower()
     assert student.get("/indir/SinavAjan.exe").status_code == 404
+    health = env.panel.get("/panel/api/state").json()["health"]
+    assert "agent_download" not in health
+    # An older config.yaml that still names the folder is read without complaint.
+    text = env.cfg.path.read_text(encoding="utf-8")
+    env.cfg.path.write_text(text.replace("klasorler:\n", "klasorler:\n  dagitim: ../dist\n", 1), encoding="utf-8")
+    assert load_config(env.cfg.path).dir_data == env.cfg.dir_data
 
-    assert env.panel.get("/panel/api/state").json()["health"]["agent_download"] is False
-    env.cfg.dir_dist.mkdir(parents=True, exist_ok=True)
-    (env.cfg.dir_dist / "SinavAjan.exe").write_bytes(b"MZ" + b"x" * 5000)
-    # The panel then shows the address a student can type into a browser.
-    assert env.panel.get("/panel/api/state").json()["health"]["agent_download"] is True
-    page = student.get("/")
-    assert '/indir/SinavAjan.exe' in page.text
-    assert "çift tıklayın" in page.text
-    assert "zip" not in page.text.lower() and "ayıkla" not in page.text.lower()
-    download = student.get("/indir/SinavAjan.exe")
-    assert download.status_code == 200
-    assert download.content == b"MZ" + b"x" * 5000
-    assert 'filename="SinavAjan.exe"' in download.headers["content-disposition"]
+
+def test_logins_left_from_an_old_waiting_session_are_forgotten(env: Env):
+    """Students logged in, no exam was started, the system was closed (a rehearsal). Opened again
+    the next day, the panel must not show them as "bağlantı yok". What was prepared stays."""
+    env.choose_folder()
+    env.upload_exam()
+    upload_roster(env, [[2021000001, "Ali", "Veli"], [2021000002, "Can", "Er"]])
+    client, _ = env.login()
+    client.post("/api/event", json={"type": "monitor_change", "details": {"count": 2, "previous": 1}})
+    env.store.save()
+
+    # Restarted a little later (the computer was restarted in the middle of a class): all there.
+    soon = Store(env.cfg)
+    soon.load()
+    assert list(soon.students) == ["2021000001"] and soon.students["2021000001"].token
+
+    old = time.time() - 20 * 3600
+    os.utime(env.store.state_path, (old, old))
+    later = Store(env.cfg)
+    later.load()
+    assert later.students == {} and later.tokens == {} and not later.alerts
+    assert later.state == WAITING and len(later.roster) == 2 and later.exam_dir == env.exam_dir.resolve()
+    assert later.exam_file and later.exam_file["sha256"] == env.store.exam_file["sha256"]
+    snapshot = later.snapshot()
+    assert [s["status"] for s in snapshot["students"]] == ["absent", "absent"]      # the list is still shown
+    assert later.events[-1].message == "Önceki oturumdan kalan 1 giriş temizlendi"
+
+    # An exam that was started is never touched by this, however long ago.
+    env.panel.post("/panel/api/start", headers=PANEL)
+    env.store.save()
+    os.utime(env.store.state_path, (old, old))
+    running = Store(env.cfg)
+    running.load()
+    assert running.state == RUNNING and list(running.students) == ["2021000001"]
 
 
 def test_panel_asks_for_the_class_details_until_they_were_entered_once(env: Env, tmp_path):
@@ -1159,7 +1188,8 @@ def test_students_of_the_list_are_shown_before_they_log_in(env: Env):
 def test_settings_window_shows_the_values_in_force(env: Env):
     view = env.panel.get("/panel/api/settings").json()
     assert view["values"] == view["defaults"] == {
-        "programs": [], "quality": "normal", "student_label": "name", "foreground_tolerance_s": 5,
+        "programs": [], "quality": "normal", "student_label": "name", "theme": "dark", "text_size": "normal",
+        "foreground_tolerance_s": 5,
         "kill_countdown_s": 10, "disconnect_s": 10, "close_wait_min": 2, "retention_note": env.cfg.retention_note,
     }
     assert view["limits"]["foreground_tolerance_s"] == {"min": 1, "max": 120}
@@ -1646,6 +1676,25 @@ def test_warnings_without_a_student_are_marked_as_seen_on_their_own(env: Env):
     state = env.panel.get("/panel/api/state").json()
     assert general[0]["id"] <= state["general_ack_id"]
     assert env.snapshot_student("2021000001")["warn_count"] == 1      # the student's own warning is untouched
+
+
+def test_theme_and_text_size_of_the_panel_are_settings(env: Env):
+    state = env.panel.get("/panel/api/state").json()
+    assert (state["theme"], state["text_size"]) == ("dark", "normal")
+    saved = env.panel.post("/panel/api/settings", headers=PANEL, json={"theme": "light", "text_size": "small"})
+    assert saved.status_code == 200
+    assert (saved.json()["values"]["theme"], saved.json()["values"]["text_size"]) == ("light", "small")
+    state = env.panel.get("/panel/api/state").json()
+    assert (state["theme"], state["text_size"]) == ("light", "small")
+    for bad, text in (({"theme": "pembe"}, "Tema"), ({"text_size": "dev"}, "Yazı boyutu")):
+        response = env.panel.post("/panel/api/settings", headers=PANEL, json=bad)
+        assert response.status_code == 422 and text in response.json()["error"]
+    # Kept for the next start; the other settings are not disturbed by it.
+    env.panel.post("/panel/api/settings", headers=PANEL, json={"theme": "light", "text_size": "large", "programs": ["putty"]})
+    restored = Store(load_config(env.cfg.path))
+    restored.load_settings()
+    assert (restored.snapshot()["theme"], restored.snapshot()["text_size"]) == ("light", "large")
+    assert "**\\putty.exe" in restored.cfg.policy.patterns
 
 
 def test_how_students_are_named_in_the_panel_is_a_setting(env: Env):

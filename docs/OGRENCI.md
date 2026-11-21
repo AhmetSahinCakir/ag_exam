@@ -86,8 +86,8 @@ listesine ekleyip programı yeniden açın. Windows Güvenliği için: **Başlat
 silindiyse yeniden kurun.
 
 **Programı kurmayı unuttum.**
-Sınav için verilen Wi-Fi ağına bağlanın, size söylenen adresi tarayıcıya yazın ve programı
-oradan indirip çalıştırın.
+Sınavı yapan kişiye söyleyin; kurulum dosyasını ondan alıp kurun. Program sınav sırasında
+sınıf ağından indirilemez.
 
 **Packet Tracer giriş istiyor.**
 Sınav başladıktan sonra tarayıcı açılamaz. Bu yüzden girişi sınav başlamadan yapın ve
